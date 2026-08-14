@@ -157,97 +157,16 @@ function portConnectionDetails(d,p){
 function renderDetailEquipmentImage(d){
   const host=document.getElementById("detailEquipmentImage");
   if(!host)return;
-  const ports=Array.isArray(d.portas)?d.portas:[];
-  const image=d.imagem ? d.imagem.replace("ne-f1a.png","ne-f1a-front.png") : "";
-  const isF1A=d.layoutPortas==="f1a" || d.id==="f1a";
-
-  host.innerHTML=`<div class="equipment-image-stage ${isF1A?"real-front":"generic-front"}" data-device="${escapeAttr(d.id||"")}">
-    <div class="equipment-3d-scene">
-      <div class="equipment-3d-object">
-        <div class="equipment-face equipment-face-top"></div>
-        <div class="equipment-face equipment-face-left"></div>
-        <div class="equipment-face equipment-face-right"></div>
-        <div class="equipment-face equipment-face-bottom"></div>
-        <div class="equipment-face equipment-face-back"></div>
-        <div class="equipment-face equipment-face-front">
-          ${image ? `<img class="equipment-real-image" src="${escapeAttr(image)}" alt="Vista frontal de ${escapeAttr(d.nome||d.modelo||"equipamento")}">`
-                  : `<div class="equipment-generic-image"><div class="generic-brand">${escapeHtml(d.fabricante||"EQUIPAMENTO")}</div><div class="generic-model">${escapeHtml(d.modelo||d.nome||"")}</div></div>`}
-          <div class="equipment-hotspots ${isF1A?"f1a-hotspots":"generic-hotspots"}"></div>
-        </div>
+  host.innerHTML=`
+    <div class="equipment-static-panel">
+      <div class="equipment-static-icon">▦</div>
+      <div>
+        <span class="equipment-static-kicker">GERENCIAMENTO DO EQUIPAMENTO</span>
+        <strong>${escapeHtml(d.nome||d.modelo||"EQUIPAMENTO")}</strong>
+        <small>Visualização por tabela • selecione uma porta abaixo para consultar ou editar</small>
       </div>
-    </div>
-    <div class="equipment-3d-help"><span>3D</span> Mova o mouse para inspecionar • passe sobre uma porta para ampliar</div>
-    <div class="equipment-image-caption"><span>PAINEL FRONTAL</span><strong>${escapeHtml(d.nome||d.modelo||"EQUIPAMENTO")}</strong><small>${ports.filter(p=>!getPortConnection(d.id,p.numero)).length} portas vagas</small></div>
-    <div class="equipment-port-tooltip hidden" id="equipmentPortTooltip"></div>
-  </div>`;
-
-  const stage=host.querySelector(".equipment-image-stage");
-  const object=host.querySelector(".equipment-3d-object");
-  const front=host.querySelector(".equipment-face-front");
-  const hotspots=host.querySelector(".equipment-hotspots");
-  const tooltip=host.querySelector("#equipmentPortTooltip");
-
-  function hotspotPosition(port,index){
-    if(isF1A){
-      if(index<48) return {x:5.35+(index/47)*73.35,y:57.0,w:1.32,h:21};
-      return {x:79.2+((index-48)/7)*17.0,y:57.0,w:3.0,h:21};
-    }
-    const total=Math.max(1,ports.length),cols=Math.min(total,16),row=Math.floor(index/cols),col=index%cols,rows=Math.ceil(total/cols);
-    return {x:8+(col/Math.max(1,cols-1))*84,y:42+(row/Math.max(1,rows-1))*20,w:Math.min(84/cols*1.5,6),h:14};
-  }
-
-  function connectionText(port){
-    const c=getPortConnection(d.id,port.numero);
-    if(!c)return {status:"Livre",remote:"Nenhuma conexão cadastrada"};
-    const remoteId=c.isOrigin?c.c.destino:c.c.origem,remote=getDevice(remoteId);
-    const remotePort=c.isOrigin?c.c.portaDestino:c.c.portaOrigem;
-    return {status:"Conectada",remote:`${remote?.nome||remoteId} • porta ${remotePort}`};
-  }
-
-  function showPort(btn,port){
-    const info=connectionText(port);
-    tooltip.innerHTML=`<div class="tooltip-kicker">INTERFACE FÍSICA</div><strong>PORTA ${escapeHtml(String(port.numero))}</strong>
-      <span class="tooltip-status ${portVisualState(d,port)}">${escapeHtml(info.status)}</span>
-      <dl><dt>Capacidade</dt><dd>${escapeHtml(port.capacidade||"Não informada")}</dd>
-      <dt>Tipo</dt><dd>${escapeHtml(port.tipo||"Não informado")}</dd>
-      <dt>Conexão</dt><dd>${escapeHtml(info.remote)}</dd></dl>`;
-    tooltip.classList.remove("hidden");
-    const br=btn.getBoundingClientRect(),sr=stage.getBoundingClientRect();
-    let left=br.right-sr.left+14,top=br.top-sr.top+(br.height/2)-65;
-    if(left+250>sr.width)left=br.left-sr.left-264;
-    top=Math.max(10,Math.min(top,sr.height-145));
-    tooltip.style.left=`${left}px`;tooltip.style.top=`${top}px`;
-    hotspots.querySelectorAll(".active").forEach(x=>x.classList.remove("active"));
-    btn.classList.add("active");front.classList.add("port-zooming");
-  }
-  function hidePort(btn){
-    btn.classList.remove("active");
-    setTimeout(()=>{if(!hotspots.querySelector(".active")){tooltip.classList.add("hidden");front.classList.remove("port-zooming")}},100);
-  }
-
-  ports.forEach((port,index)=>{
-    const pos=hotspotPosition(port,index),btn=document.createElement("button");
-    btn.type="button";btn.className=`equipment-port-hotspot ${portVisualState(d,port)}`;
-    btn.dataset.port=port.numero;btn.style.left=`${pos.x}%`;btn.style.top=`${pos.y}%`;btn.style.width=`${pos.w}%`;btn.style.height=`${pos.h}%`;
-    btn.innerHTML=`<span>${escapeHtml(String(port.numero))}</span>`;btn.title=`Porta ${port.numero} • ${port.capacidade||"capacidade não informada"}`;
-    hotspots.appendChild(btn);
-    btn.addEventListener("mouseenter",()=>showPort(btn,port));btn.addEventListener("focus",()=>showPort(btn,port));
-    btn.addEventListener("mouseleave",()=>hidePort(btn));btn.addEventListener("blur",()=>hidePort(btn));
-    btn.addEventListener("click",()=>{
-      showPort(btn,port);
-      const row=[...document.querySelectorAll("#detailRows tr")].find(tr=>+tr.dataset.port===+port.numero);
-      row?.scrollIntoView({behavior:"smooth",block:"center"});row?.classList.add("port-row-highlight");
-      setTimeout(()=>row?.classList.remove("port-row-highlight"),1400);
-    });
-  });
-
-  stage.addEventListener("mousemove",e=>{
-    const r=stage.getBoundingClientRect(),px=(e.clientX-r.left)/r.width-.5,py=(e.clientY-r.top)/r.height-.5;
-    object.style.setProperty("--rx",`${-py*7}deg`);object.style.setProperty("--ry",`${px*11}deg`);
-  });
-  stage.addEventListener("mouseleave",()=>{object.style.setProperty("--rx","0deg");object.style.setProperty("--ry","0deg")});
+    </div>`;
 }
-
 function renderDetailRows(d){
   const tbody=document.getElementById("detailRows");tbody.innerHTML="";
   d.portas.forEach(p=>{
