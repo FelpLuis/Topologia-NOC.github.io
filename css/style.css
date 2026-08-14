@@ -199,3 +199,46 @@ td:first-child{width:65px;font-weight:800}td:nth-child(2){width:180px}td:nth-chi
 .edit-device-summary label span { display:block; margin-bottom:5px; color:#7d94aa; font-size:9px; text-transform:uppercase; letter-spacing:.08em; }
 .edit-device-summary input { width:100%; box-sizing:border-box; border:1px solid #2b405b; background:#07121f; color:#dbe7f3; border-radius:7px; padding:9px 10px; }
 @media(max-width:800px){ .edit-device-summary{grid-template-columns:1fr;} }
+
+/* Edição direta dentro da janela do aparelho */
+.inline-edit-row td { vertical-align:middle; background:rgba(18,43,64,.28); }
+.inline-edit-row input,
+.inline-edit-row select {
+  width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  padding:8px 9px;
+  border:1px solid #31536d;
+  border-radius:6px;
+  background:#071522;
+  color:#e6f3fb;
+  font:inherit;
+  font-size:10px;
+  outline:none;
+}
+.inline-edit-row input:focus,
+.inline-edit-row select:focus {
+  border-color:#28c7ff;
+  box-shadow:0 0 0 2px rgba(40,199,255,.09);
+}
+.inline-connection-fields {
+  display:grid;
+  grid-template-columns:minmax(150px,1fr) 105px;
+  gap:6px;
+}
+.inline-edit-actions {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 18px;
+  margin-top:12px;
+  border:1px solid #29455f;
+  border-radius:8px;
+  background:#091a2a;
+}
+.inline-edit-actions.hidden { display:none !important; }
+.inline-edit-actions span {
+  color:#83a1b7;
+  font-size:10px;
+}

@@ -479,39 +479,183 @@ function closeConnection() {
   document.getElementById("connectionPanel").classList.add("hidden");
 }
 
-function openDetail(id) {
+let detailEditMode = false;
+let detailEditBackup = null;
+
+function openDetail(id, editMode = false) {
   currentDeviceId = id;
   const d = getDevice(id);
   if (!d) return;
-  document.getElementById("detailName").textContent = d.nome;
-  document.getElementById("detailModel").textContent = d.modelo;
-  document.getElementById("detailType").textContent = d.categoria;
+
+  document.getElementById("detailName").textContent = d.nome || "";
+  document.getElementById("detailModel").textContent = d.modelo || "";
+  document.getElementById("detailType").textContent = d.categoria || "—";
   document.getElementById("detailLocal").textContent = d.local || "—";
-  document.getElementById("detailCount").textContent = d.portas.length;
+  document.getElementById("detailCount").textContent = Array.isArray(d.portas) ? d.portas.length : 0;
   document.getElementById("detailConnected").textContent =
-    d.portas.filter(p => p.status === "conectada").length;
+    Array.isArray(d.portas) ? d.portas.filter(p => p.status === "conectada").length : 0;
   document.getElementById("detailNote").textContent = d.observacao || "";
 
+  detailEditMode = false;
+  detailEditBackup = null;
+  renderDetailRows(d);
+  document.getElementById("modal").classList.remove("hidden");
+
+  if (editMode) enterInlineEdit();
+}
+
+function renderDetailRows(d) {
   const tbody = document.getElementById("detailRows");
   tbody.innerHTML = "";
-  d.portas.forEach(p => {
+
+  const ports = Array.isArray(d.portas) ? d.portas : [];
+  ports.forEach(p => {
+    const connection = getPortConnection(d.id, p.numero);
+    const c = connection ? connection.c : null;
+    const isOrigin = connection ? connection.isOrigin : false;
+    const remoteId = c ? (isOrigin ? c.destino : c.origem) : "";
+    const remote = getDevice(remoteId);
+    const remoteText = c
+      ? `${remote ? remote.nome : remoteId} • porta ${isOrigin ? c.portaDestino : c.portaOrigem}`
+      : "Livre";
+
     const tr = document.createElement("tr");
-    const connection = connectionFor(d.id, p.numero);
-    const connected = p.status === "conectada" || connection !== "Livre";
-    if (connected) tr.className = "connected";
+    if (c || p.status === "conectada") tr.className = "connected";
+
     tr.innerHTML = `
-      <td>${escapeHtml(String(p.numero))}</td>
-      <td>${escapeHtml(p.capacidade)}</td>
-      <td>${escapeHtml(p.tipo)}</td>
-      <td>${escapeHtml(p.status)}</td>
-      <td>${escapeHtml(connection)}</td>
+      <td><strong>${escapeHtml(String(p.numero))}</strong></td>
+      <td>${escapeHtml(p.capacidade || "")}</td>
+      <td>${escapeHtml(p.tipo || "")}</td>
+      <td>${escapeHtml(p.status || "livre")}</td>
+      <td>${escapeHtml(remoteText)}</td>
     `;
     tbody.appendChild(tr);
   });
-  document.getElementById("modal").classList.remove("hidden");
 }
 
+function enterInlineEdit() {
+  const d = getDevice(currentDeviceId);
+  if (!d) return;
+
+  detailEditBackup = JSON.parse(JSON.stringify({
+    equipamento: d,
+    conexoes: state.conexoes
+  }));
+  detailEditMode = true;
+
+  const tbody = document.getElementById("detailRows");
+  const ports = Array.isArray(d.portas) ? d.portas : [];
+
+  tbody.innerHTML = ports.map(p => {
+    const info = getPortConnection(d.id, p.numero);
+    const c = info ? info.c : null;
+    const isOrigin = info ? info.isOrigin : false;
+    const remoteId = c ? (isOrigin ? c.destino : c.origem) : "";
+    const remotePort = c ? (isOrigin ? c.portaDestino : c.portaOrigem) : "";
+    const capacity = c?.capacidade || p.capacidade || "";
+    const type = c?.tipo || p.tipo || "";
+    const status = c ? "conectada" : (p.status || "livre");
+
+    return `
+      <tr class="inline-edit-row" data-port="${p.numero}">
+        <td><strong>${escapeHtml(String(p.numero))}</strong></td>
+        <td><input class="inline-port-capacity" value="${escapeAttr(capacity)}" placeholder="Ex.: 100 Gbps"></td>
+        <td><input class="inline-port-type" value="${escapeAttr(type)}" placeholder="Ex.: BGP/MPLS"></td>
+        <td>
+          <select class="inline-port-status">
+            <option value="livre" ${status !== "conectada" ? "selected" : ""}>Livre</option>
+            <option value="conectada" ${status === "conectada" ? "selected" : ""}>Conectada</option>
+            <option value="reservada" ${status === "reservada" ? "selected" : ""}>Reservada</option>
+            <option value="manutencao" ${status === "manutencao" ? "selected" : ""}>Manutenção</option>
+          </select>
+        </td>
+        <td>
+          <div class="inline-connection-fields">
+            <input class="inline-port-remote" value="${escapeAttr(remoteId)}" placeholder="Equipamento / string">
+            <input class="inline-port-remote-port" type="text" value="${escapeAttr(remotePort)}" placeholder="Porta remota">
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  document.getElementById("inlineEditActions").classList.remove("hidden");
+  document.getElementById("inlineEditStatus").textContent =
+    "Edite os campos diretamente nesta tela.";
+}
+
+function cancelInlineEdit() {
+  if (detailEditBackup) {
+    const original = detailEditBackup.equipamento;
+    const idx = state.equipamentos.findIndex(e => e.id === original.id);
+    if (idx >= 0) state.equipamentos[idx] = original;
+    state.conexoes = detailEditBackup.conexoes;
+  }
+
+  detailEditMode = false;
+  detailEditBackup = null;
+  document.getElementById("inlineEditActions").classList.add("hidden");
+  const d = getDevice(currentDeviceId);
+  if (d) renderDetailRows(d);
+}
+
+function saveInlineEdit() {
+  const d = getDevice(currentDeviceId);
+  if (!d) return;
+
+  const rows = [...document.querySelectorAll("#detailRows .inline-edit-row")];
+
+  rows.forEach(tr => {
+    const port = Number(tr.dataset.port);
+    const p = Array.isArray(d.portas) ? d.portas.find(x => Number(x.numero) === port) : null;
+    if (!p) return;
+
+    const capacity = tr.querySelector(".inline-port-capacity").value.trim();
+    const type = tr.querySelector(".inline-port-type").value.trim();
+    const status = tr.querySelector(".inline-port-status").value;
+    const remote = tr.querySelector(".inline-port-remote").value.trim();
+    const remotePortRaw = tr.querySelector(".inline-port-remote-port").value.trim();
+
+    p.capacidade = capacity;
+    p.tipo = type;
+    p.status = status;
+
+    state.conexoes = state.conexoes.filter(c =>
+      !((c.origem === d.id && Number(c.portaOrigem) === port) ||
+        (c.destino === d.id && Number(c.portaDestino) === port))
+    );
+
+    if (remote && remotePortRaw) {
+      const remoteEq = state.equipamentos.find(e =>
+        e.id === remote || e.nome.toLowerCase() === remote.toLowerCase()
+      );
+      const remoteId = remoteEq ? remoteEq.id : remote;
+
+      state.conexoes.push({
+        origem: d.id,
+        portaOrigem: port,
+        destino: remoteId,
+        portaDestino: remotePortRaw,
+        capacidade: capacity,
+        tipo: type
+      });
+      p.status = "conectada";
+    }
+  });
+
+  detailEditMode = false;
+  detailEditBackup = null;
+  document.getElementById("inlineEditActions").classList.add("hidden");
+  document.getElementById("inlineEditStatus").textContent = "Alterações salvas nesta sessão.";
+
+  renderDetailRows(d);
+  renderTopology();
+  renderSidebar();
+}
+
+
 function closeModal() {
+  if (detailEditMode) cancelInlineEdit();
   document.getElementById("modal").classList.add("hidden");
 }
 
@@ -528,6 +672,10 @@ function exportData() {
   URL.revokeObjectURL(url);
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, "&#096;");
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -540,9 +688,12 @@ function escapeHtml(value) {
 document.getElementById("search").addEventListener("input", e => renderSidebar(e.target.value));
 document.getElementById("closeBtn").addEventListener("click", closeModal);
 document.getElementById("editCurrentDevice").addEventListener("click", () => {
-  if (currentDeviceId) openEditPortsForDevice(currentDeviceId);
+  if (currentDeviceId && !detailEditMode) enterInlineEdit();
 });
 document.getElementById("connectionClose").addEventListener("click", closeConnection);
+document.getElementById("inlineEditSave").addEventListener("click", saveInlineEdit);
+document.getElementById("inlineEditCancel").addEventListener("click", cancelInlineEdit);
+
 document.getElementById("popModalClose").addEventListener("click", closePop);
 document.getElementById("modal").addEventListener("click", e => {
   if (e.target.id === "modal") closeModal();
