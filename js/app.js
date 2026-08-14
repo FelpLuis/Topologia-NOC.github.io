@@ -467,76 +467,39 @@ function editConfig(){openUniversalEditor("config",0);}
 
 
 /* =========================================================
-   SISTEMA DE TEMAS — CLARO / ESCURO / SISTEMA
-   O padrão é "system", respeitando prefers-color-scheme.
-   A escolha manual fica salva no navegador.
+   TEMA AUTOMÁTICO — SEGUE A PREFERÊNCIA DO DISPOSITIVO
+   Não existe seletor manual. A interface sempre acompanha
+   prefers-color-scheme do navegador/SO.
    ========================================================= */
-const THEME_STORAGE_KEY = "updown-theme";
-
-function getSavedTheme() {
-  const value = localStorage.getItem(THEME_STORAGE_KEY);
-  return ["system","light","dark"].includes(value) ? value : "system";
+function applySystemTheme() {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  document.documentElement.dataset.theme = media.matches ? "dark" : "light";
+  document.documentElement.dataset.themePreference = "system";
 }
-
-function resolveTheme(choice) {
-  if (choice === "light" || choice === "dark") return choice;
-  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-}
-
-function applyTheme(choice = getSavedTheme()) {
-  const resolved = resolveTheme(choice);
-  document.documentElement.dataset.theme = resolved;
-  document.documentElement.dataset.themePreference = choice;
-
-  const label = document.getElementById("themeLabel");
-  const icon = document.querySelector("#themeToggle .theme-icon");
-  if (label) label.textContent = choice === "system" ? "Sistema" : choice === "light" ? "Claro" : "Escuro";
-  if (icon) icon.textContent = choice === "system" ? "◐" : choice === "light" ? "☀" : "☾";
-
-  document.querySelectorAll(".theme-option").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.themeChoice === choice);
-  });
-}
-
-function setTheme(choice) {
-  if (!["system","light","dark"].includes(choice)) return;
-  localStorage.setItem(THEME_STORAGE_KEY, choice);
-  applyTheme(choice);
-  closeThemeMenu();
-}
-
-function openThemeMenu() {
-  const menu=document.getElementById("themeMenu");
-  if (!menu) return;
-  applyTheme(getSavedTheme());
-  menu.classList.remove("hidden");
-}
-
-function closeThemeMenu() {
-  document.getElementById("themeMenu")?.classList.add("hidden");
-}
-
 function initTheme() {
-  applyTheme(getSavedTheme());
+  applySystemTheme();
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const handler = () => applySystemTheme();
+  if (media.addEventListener) media.addEventListener("change", handler);
+  else if (media.addListener) media.addListener(handler);
+}
 
-  const media=window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-  const handler=()=>{
-    if (getSavedTheme()==="system") applyTheme("system");
-  };
-  if (media) {
-    if (media.addEventListener) media.addEventListener("change",handler);
-    else if (media.addListener) media.addListener(handler);
-  }
 
-  document.getElementById("themeToggle")?.addEventListener("click",openThemeMenu);
-  document.getElementById("themeMenuClose")?.addEventListener("click",closeThemeMenu);
-  document.querySelectorAll(".theme-option").forEach(btn=>{
-    btn.addEventListener("click",()=>setTheme(btn.dataset.themeChoice));
+/* UX do editor: ESC fecha e o status indica alterações. */
+function initUniversalEditorUX(){
+  const modal=document.getElementById("universalEditor");
+  if(!modal) return;
+
+  modal.addEventListener("input",()=>{
+    const status=document.getElementById("universalEditorStatus");
+    if(status) status.textContent="Alterações não salvas";
   });
-  document.getElementById("themeMenu")?.addEventListener("click",e=>{
-    if (e.target.id==="themeMenu") closeThemeMenu();
+
+  document.addEventListener("keydown",(e)=>{
+    if(e.key==="Escape" && !modal.classList.contains("hidden")){
+      e.preventDefault();
+      cancelUniversalEditor();
+    }
   });
 }
 
@@ -552,7 +515,12 @@ document.getElementById("manageNetworkBtn")?.addEventListener("click",openNetwor
 document.getElementById("networkManagerClose")?.addEventListener("click",closeNetworkManager);
 document.getElementById("universalEditorClose")?.addEventListener("click",closeUniversalEditor);
 document.getElementById("universalEditorCancel")?.addEventListener("click",cancelUniversalEditor);
-document.getElementById("universalEditorSave")?.addEventListener("click",()=>{applyUniversalEditor();closeUniversalEditor();});
+document.getElementById("universalEditorSave")?.addEventListener("click",()=>{
+  applyUniversalEditor();
+  const status=document.getElementById("universalEditorStatus");
+  if(status) status.textContent="Alterações salvas";
+  closeUniversalEditor();
+});
 document.querySelectorAll(".section-pencil").forEach(b=>b.addEventListener("click",editConfig));
 
 document.querySelectorAll(".manager-tab").forEach(b=>b.addEventListener("click",()=>renderManager(b.dataset.tab)));
@@ -561,4 +529,5 @@ document.getElementById("sidebarToggle")?.addEventListener("click",()=>{
 });
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closePop();closeNetworkManager();}});
 initTheme();
+initUniversalEditorUX();
 loadData().catch(e=>{console.error(e);document.getElementById("topology").innerHTML=`<div class="empty">Erro ao carregar: ${escapeHtml(e.message)}</div>`;});

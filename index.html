@@ -29,13 +29,7 @@
   <div class="subtitle" id="topSubtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
   <div class="actions">
     <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
-    <div class="theme-controls" aria-label="Tema da aplicação">
-      <button id="themeToggle" class="theme-toggle" type="button" title="Alternar tema" aria-label="Alternar tema">
-        <span class="theme-icon" aria-hidden="true">◐</span>
-        <span id="themeLabel">Sistema</span>
-      </button>
-    </div>
-    <button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
+<button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
   </div>
 </header>
 
@@ -104,17 +98,23 @@
 <div id="universalEditor" class="modal hidden">
   <section class="universal-editor">
     <div class="universal-editor-head">
-      <div>
+      <div class="universal-editor-title">
+        <span class="editor-kicker">CONFIGURAÇÃO DA TOPOLOGIA</span>
         <h2 id="editorTitle">EDITAR</h2>
-        <p id="editorSubtitle">Altere qualquer informação visível nesta tela.</p>
+        <p id="editorSubtitle">Altere as informações e salve quando terminar.</p>
       </div>
-      <button id="universalEditorClose" class="close" type="button">×</button>
+      <button id="universalEditorClose" class="close" type="button" aria-label="Fechar edição" title="Fechar">×</button>
     </div>
     <div id="universalEditorBody" class="universal-editor-body"></div>
     <div class="universal-editor-actions">
-      <span id="universalEditorStatus"></span>
-      <button id="universalEditorCancel" class="btn" type="button">Cancelar</button>
-      <button id="universalEditorSave" class="primary-btn" type="button">Salvar alterações</button>
+      <div class="editor-save-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="universalEditorStatus">Alterações não salvas</span>
+      </div>
+      <div class="editor-actions-buttons">
+        <button id="universalEditorCancel" class="btn" type="button">Cancelar</button>
+        <button id="universalEditorSave" class="primary-btn" type="button">Salvar alterações</button>
+      </div>
     </div>
   </section>
 </div>
@@ -166,31 +166,5 @@
 </div>
 
 <script src="js/app.js"></script>
-
-<div id="themeMenu" class="theme-menu hidden" role="dialog" aria-label="Escolha do tema">
-  <div class="theme-menu-card">
-    <div class="theme-menu-head">
-      <div>
-        <strong>Tema da interface</strong>
-        <small>Escolha como a topologia deve aparecer.</small>
-      </div>
-      <button id="themeMenuClose" class="close" type="button" aria-label="Fechar">×</button>
-    </div>
-    <div class="theme-options">
-      <button class="theme-option" data-theme-choice="system" type="button">
-        <span class="theme-option-icon">◌</span>
-        <span><b>Seguir navegador</b><small>Usa a preferência de tema do Windows/macOS/navegador.</small></span>
-      </button>
-      <button class="theme-option" data-theme-choice="light" type="button">
-        <span class="theme-option-icon">☀</span>
-        <span><b>Tema claro</b><small>Interface clara da UPDOWN.</small></span>
-      </button>
-      <button class="theme-option" data-theme-choice="dark" type="button">
-        <span class="theme-option-icon">☾</span>
-        <span><b>Tema escuro</b><small>Interface escura para operação/NOC.</small></span>
-      </button>
-    </div>
-  </div>
-</div>
 </body>
 </html>

@@ -1104,3 +1104,222 @@ html[data-theme="dark"] ::-webkit-scrollbar-thumb{
 html[data-theme="light"]{
   color-scheme:light!important;
 }
+
+/* Tema é automático: nenhum controle manual é exibido. */
+.theme-controls,
+#themeToggle,
+#themeMenu{
+  display:none!important;
+}
+
+/* =========================================================
+   UX — EDITOR UNIVERSAL / MODAL DE CONFIGURAÇÃO
+   ========================================================= */
+
+/* Modal não ocupa a tela inteira sem necessidade. */
+#universalEditor{
+  padding:24px;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+
+#universalEditor .universal-editor{
+  position:relative;
+  inset:auto;
+  width:min(1180px, calc(100vw - 48px));
+  max-height:min(820px, calc(100vh - 48px));
+  min-height:0;
+  border-radius:16px;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+/* Cabeçalho mais hierárquico */
+#universalEditor .universal-editor-head{
+  min-height:74px;
+  padding:17px 20px;
+  gap:20px;
+  flex:0 0 auto;
+  align-items:center;
+}
+#universalEditor .editor-kicker{
+  display:block;
+  margin-bottom:4px;
+  color:#075dff;
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+#universalEditor .universal-editor-title h2{
+  margin:0;
+  font-size:17px;
+  line-height:1.2;
+  letter-spacing:-.01em;
+}
+#universalEditor .universal-editor-title p{
+  margin:5px 0 0;
+  font-size:9px;
+  line-height:1.35;
+}
+
+/* Botão fechar com área de toque correta */
+#universalEditor .close{
+  width:38px;
+  height:38px;
+  min-width:38px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border-radius:9px;
+  font-size:23px;
+  line-height:1;
+  cursor:pointer;
+}
+#universalEditor .close:hover{
+  background:#eaf4ff!important;
+  border-color:#9fc9ee!important;
+  color:#075dff!important;
+}
+
+/* Corpo só ocupa o espaço necessário e rola quando necessário. */
+#universalEditor .universal-editor-body{
+  padding:20px;
+  overflow:auto;
+  flex:1 1 auto;
+  min-height:0;
+}
+
+/* Grade de campos com espaçamento mais confortável */
+#universalEditor .editor-grid{
+  grid-template-columns:repeat(3,minmax(220px,1fr));
+  gap:15px 16px;
+  align-content:start;
+}
+#universalEditor .editor-field span{
+  margin-bottom:6px;
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:.07em;
+}
+#universalEditor .editor-field input,
+#universalEditor .editor-field select,
+#universalEditor .editor-field textarea{
+  min-height:40px;
+  padding:10px 11px;
+  font-size:10px;
+}
+#universalEditor .editor-field textarea{
+  min-height:76px;
+  resize:vertical;
+}
+
+/* Seções com separador visual */
+#universalEditor .editor-section-title{
+  margin:24px 0 10px;
+  padding:0 0 8px;
+  font-size:9px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+}
+#universalEditor .editor-section-title::after{
+  content:"";
+  height:1px;
+  flex:1;
+  background:currentColor;
+  opacity:.12;
+}
+
+/* Toolbar */
+#universalEditor .editor-port-toolbar{
+  padding:9px 11px;
+  margin-bottom:10px;
+  border:1px solid #dce7f5;
+  border-radius:9px;
+  background:#f7faff;
+}
+#universalEditor .editor-port-toolbar .btn{
+  min-height:34px;
+}
+
+/* Rodapé sempre visível, sem área vazia gigante */
+#universalEditor .universal-editor-actions{
+  min-height:66px;
+  box-sizing:border-box;
+  padding:12px 20px;
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:15px;
+}
+#universalEditor .editor-save-status{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  color:#60768b;
+  font-size:9px;
+}
+#universalEditor .status-dot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:#f0a62a;
+  box-shadow:0 0 0 3px rgba(240,166,42,.12);
+}
+#universalEditor .editor-actions-buttons{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+#universalEditor .editor-actions-buttons button{
+  min-height:38px;
+  padding:0 16px;
+}
+
+/* Melhor experiência em telas menores */
+@media(max-width:900px){
+  #universalEditor{
+    padding:10px;
+  }
+  #universalEditor .universal-editor{
+    width:calc(100vw - 20px);
+    max-height:calc(100vh - 20px);
+    border-radius:12px;
+  }
+  #universalEditor .editor-grid{
+    grid-template-columns:1fr;
+  }
+  #universalEditor .universal-editor-actions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  #universalEditor .editor-save-status{
+    order:2;
+  }
+  #universalEditor .editor-actions-buttons{
+    width:100%;
+  }
+  #universalEditor .editor-actions-buttons button{
+    flex:1;
+  }
+}
+
+/* Dark theme counterpart */
+html[data-theme="dark"] #universalEditor .editor-kicker{
+  color:#55d2ff!important;
+}
+html[data-theme="dark"] #universalEditor .editor-port-toolbar{
+  background:#0b1b2b!important;
+  border-color:#29465e!important;
+}
+html[data-theme="dark"] #universalEditor .editor-save-status{
+  color:#91a9bb!important;
+}
+html[data-theme="dark"] #universalEditor .status-dot{
+  background:#f0b13a;
+  box-shadow:0 0 0 3px rgba(240,177,58,.12);
+}
