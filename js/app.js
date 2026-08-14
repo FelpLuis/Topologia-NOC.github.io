@@ -188,12 +188,14 @@ function openPop(id) {
   document.getElementById("popModalName").textContent = pop.nome;
   document.getElementById("popModalRoutes").textContent = pop.rotas.join(" • ");
   const body = document.getElementById("popModalEquipments");
-  body.innerHTML = pop.equipamentos.map((eq, i) => `
-    <div class="pop-modal-eq">
-      <span>${i + 1}</span>
-      <div><b>${escapeHtml(eq.nome)}</b><small>${escapeHtml(eq.modelo)}</small><p>${escapeHtml(eq.observacao || "")}</p></div>
-    </div>
-  `).join("");
+  body.innerHTML = pop.equipamentos.length
+    ? pop.equipamentos.map((eq, i) => `
+      <div class="pop-modal-eq">
+        <span>${i + 1}</span>
+        <div><b>${escapeHtml(eq.nome)}</b><small>${escapeHtml(eq.modelo)}</small><p>${escapeHtml(eq.observacao || "")}</p></div>
+      </div>
+    `).join("")
+    : `<div class="pop-modal-eq"><div><b>Nenhum equipamento cadastrado</b><small>Adicione os equipamentos deste POP em data/pops.json.</small></div></div>`;
   document.getElementById("popModal").classList.remove("hidden");
 }
 

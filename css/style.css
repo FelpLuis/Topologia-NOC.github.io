@@ -69,6 +69,7 @@ td:first-child{width:65px;font-weight:800}td:nth-child(2){width:180px}td:nth-chi
 .pop-equip b { font-size:11px; }
 .pop-equip small { display:block; color:#8198aa; font-size:9px; margin-top:3px; }
 .pop-equip p { margin:4px 0 0; color:#6f8798; font-size:9px; line-height:1.4; }
+.pop-modal.hidden { display:none !important; }
 .pop-modal { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:60; display:flex; justify-content:center; align-items:center; padding:20px; }
 .pop-modal-card { width:min(700px,94vw); max-height:85vh; overflow:auto; background:#071522; border:1px solid #4d3d82; border-radius:14px; box-shadow:0 25px 80px rgba(0,0,0,.6); }
 .pop-modal-head { padding:18px; border-bottom:1px solid #263752; display:flex; align-items:flex-start; }
