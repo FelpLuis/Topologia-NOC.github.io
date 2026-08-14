@@ -10,22 +10,18 @@
 <script>
 (function(){
   try {
-    var key="updown-theme-v2";
-    var choice=localStorage.getItem(key);
-    if(choice!=="light" && choice!=="dark" && choice!=="system") choice="system";
-    var dark=window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    var resolved=choice==="system" ? (dark ? "dark" : "light") : choice;
-    document.documentElement.dataset.theme=resolved;
-    document.documentElement.dataset.themePreference=choice;
+    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.themePreference = "system";
   } catch(e) {
-    document.documentElement.dataset.theme =
-      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
-    document.documentElement.dataset.themePreference="system";
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.themePreference = "system";
   }
 })();
 </script>
-  <script src="js/grafana.js"></script>
+<script src="js/grafana.js"></script>
   <script src="/js/auth-guard.js"></script>
+<link rel="stylesheet" href="/css/uiux-v3.css">
 </head>
 <body>
 <header class="topbar">
@@ -148,7 +144,15 @@
       </div>
       <button class="close" id="closeBtn">×</button>
     </div>
-<div class="detail-body">
+    <div id="detailEquipmentImage" class="detail-equipment-visual">
+      <div class="equipment-visual-stage">
+        <div class="equipment-visual-empty">
+          <span>Imagem do equipamento</span>
+          <small>Cadastre a imagem no campo <b>imagem</b> do equipamento.</small>
+        </div>
+      </div>
+    </div>
+    <div class="detail-body">
       <div class="meta">
         <div><label>Categoria</label><strong id="detailType"></strong></div>
         <div><label>Local</label><strong id="detailLocal"></strong></div>
