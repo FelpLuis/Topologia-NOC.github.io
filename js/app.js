@@ -488,7 +488,6 @@ document.getElementById("search").addEventListener("input", e => renderSidebar(e
 document.getElementById("closeBtn").addEventListener("click", closeModal);
 document.getElementById("connectionClose").addEventListener("click", closeConnection);
 document.getElementById("popModalClose").addEventListener("click", closePop);
-document.getElementById("exportBtn").addEventListener("click", exportData);
 document.getElementById("modal").addEventListener("click", e => {
   if (e.target.id === "modal") closeModal();
 });
@@ -500,11 +499,6 @@ document.addEventListener("keydown", e => {
   }
 });
 
-loadData().catch(error => {
-  console.error(error);
-  document.getElementById("topology").innerHTML =
-    `<div class="empty">Erro ao carregar a topologia: ${escapeHtml(error.message)}</div>`;
-});
 
 document.getElementById("editPortsBtn")?.addEventListener("click", openEditPorts);
 document.getElementById("editPortsClose")?.addEventListener("click", closeEditPorts);
@@ -542,3 +536,9 @@ if (sidebarToggle && appShell) {
     setSidebarCollapsed(!appShell.classList.contains("sidebar-collapsed"));
   });
 }
+
+loadData().catch(error => {
+  console.error(error);
+  document.getElementById("topology").innerHTML =
+    `<div class="empty">Erro ao carregar a topologia: ${escapeHtml(error.message)}</div>`;
+});

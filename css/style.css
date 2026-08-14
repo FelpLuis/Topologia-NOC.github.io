@@ -185,3 +185,9 @@ td:first-child{width:65px;font-weight:800}td:nth-child(2){width:180px}td:nth-chi
 .app:not(.sidebar-collapsed) .sidebar-toggle {
   font-size: 24px;
 }
+
+.app { position:relative; min-width:0; }
+
+/* Garantia de colapso do painel sem afetar o conteúdo central */
+.app.sidebar-collapsed .main { width:100%; min-width:0; }
+.app.sidebar-collapsed .sidebar { flex-basis:0; }
