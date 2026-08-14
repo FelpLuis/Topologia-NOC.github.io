@@ -287,3 +287,312 @@ td:first-child{width:65px;font-weight:800}td:nth-child(2){width:180px}td:nth-chi
 .pop-editor-main .editor-field:nth-last-child(-n+2){grid-column:span 1}
 .pop-editor-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:9px}
 @media(max-width:900px){.editor-grid,.pop-editor-main{grid-template-columns:1fr}.universal-editor{inset:1vh 1vw}}
+
+/* =========================================================
+   UPDOWN TELECOM — IDENTIDADE VISUAL
+   Baseada na linguagem visual pública do site institucional:
+   azul profundo + azul/ciano, branco, cards arredondados,
+   alto contraste e CTAs azuis.
+   ========================================================= */
+:root{
+  --ud-navy:#071a3d;
+  --ud-blue:#075dff;
+  --ud-blue-2:#0b7cff;
+  --ud-cyan:#20c8ff;
+  --ud-light:#f5f9ff;
+  --ud-white:#ffffff;
+  --ud-text:#10213d;
+  --ud-muted:#65758b;
+  --ud-border:#dce7f5;
+  --ud-shadow:0 12px 35px rgba(7,26,61,.10);
+}
+
+html,body{
+  background:var(--ud-light)!important;
+  color:var(--ud-text)!important;
+}
+
+body{
+  font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;
+}
+
+/* Cabeçalho */
+header,.topbar,.header{
+  background:linear-gradient(110deg,var(--ud-navy) 0%,#08275c 55%,var(--ud-blue) 100%)!important;
+  border-bottom:0!important;
+  box-shadow:0 5px 22px rgba(7,26,61,.18);
+}
+header h1,.topbar h1,.header h1,
+header .title,.topbar .title{
+  color:#fff!important;
+}
+.subtitle{
+  color:rgba(255,255,255,.78)!important;
+}
+
+/* Sidebar */
+.sidebar{
+  background:#fff!important;
+  border-right:1px solid var(--ud-border)!important;
+  box-shadow:5px 0 25px rgba(7,26,61,.06);
+}
+.sidebar-title,.sidebar h2{
+  color:var(--ud-navy)!important;
+}
+.device-link{
+  background:#fff!important;
+  border:1px solid transparent!important;
+  color:var(--ud-text)!important;
+  border-radius:10px!important;
+  margin:4px 8px!important;
+}
+.device-link:hover{
+  background:#eef6ff!important;
+  border-color:#cfe3ff!important;
+  transform:translateX(2px);
+}
+.device-link b{color:var(--ud-navy)!important}
+.device-link small{color:var(--ud-muted)!important}
+.badge{
+  background:#e7f3ff!important;
+  color:var(--ud-blue)!important;
+  border:1px solid #c9e2ff!important;
+}
+
+/* Área principal */
+.main{
+  background:
+    radial-gradient(circle at 90% 5%,rgba(32,200,255,.09),transparent 25%),
+    radial-gradient(circle at 10% 90%,rgba(7,93,255,.06),transparent 30%),
+    var(--ud-light)!important;
+}
+.section-title{
+  color:var(--ud-navy)!important;
+  border-bottom-color:var(--ud-border)!important;
+}
+.section-pencil{
+  background:#fff!important;
+  border:1px solid #cfe0f4!important;
+  color:var(--ud-blue)!important;
+}
+.section-pencil:hover{
+  background:#edf6ff!important;
+  border-color:var(--ud-blue)!important;
+}
+
+/* Equipamentos */
+.node{
+  background:#fff!important;
+  border:1px solid #d9e6f5!important;
+  border-top:4px solid var(--ud-blue)!important;
+  box-shadow:var(--ud-shadow)!important;
+  color:var(--ud-text)!important;
+  border-radius:12px!important;
+}
+.node:hover{
+  border-color:#a9d2ff!important;
+  box-shadow:0 16px 40px rgba(7,93,255,.16)!important;
+  transform:translateY(-2px);
+}
+.node h3{color:var(--ud-navy)!important}
+.node p,.node .type{color:var(--ud-muted)!important}
+.node .count{
+  background:#e9f5ff!important;
+  color:var(--ud-blue)!important;
+}
+
+/* Conexões */
+.topo-edge{
+  stroke:#0a76e8!important;
+  stroke-width:2.4!important;
+  opacity:.72;
+}
+.edge-label rect{
+  fill:#fff!important;
+  stroke:#cfe1f5!important;
+}
+.edge-label text{
+  fill:var(--ud-navy)!important;
+}
+
+/* POP cards */
+.pop{
+  background:#fff!important;
+  border:1px solid var(--ud-border)!important;
+  box-shadow:var(--ud-shadow)!important;
+  border-radius:12px!important;
+}
+.pop:hover{
+  border-color:#b8d8ff!important;
+  box-shadow:0 15px 35px rgba(7,93,255,.12)!important;
+}
+.pop b{color:var(--ud-navy)!important}
+.pop small,.pop-click{color:var(--ud-muted)!important}
+
+/* Botões */
+.primary-btn{
+  background:linear-gradient(135deg,var(--ud-blue),var(--ud-blue-2))!important;
+  border:0!important;
+  color:#fff!important;
+  border-radius:8px!important;
+  box-shadow:0 7px 18px rgba(7,93,255,.22);
+}
+.primary-btn:hover{
+  filter:brightness(1.06);
+  box-shadow:0 9px 22px rgba(7,93,255,.28);
+}
+.btn{
+  background:#fff!important;
+  border:1px solid #cbdced!important;
+  color:var(--ud-navy)!important;
+  border-radius:8px!important;
+}
+.btn:hover{
+  border-color:var(--ud-blue)!important;
+  color:var(--ud-blue)!important;
+}
+.icon-edit{
+  background:#eef6ff!important;
+  border:1px solid #cfe3ff!important;
+  color:var(--ud-blue)!important;
+  border-radius:8px!important;
+}
+
+/* Busca */
+.search{
+  background:#fff!important;
+  border:1px solid #d2e1f1!important;
+  color:var(--ud-text)!important;
+  border-radius:9px!important;
+}
+.search:focus{
+  border-color:var(--ud-blue)!important;
+  box-shadow:0 0 0 3px rgba(7,93,255,.10)!important;
+}
+
+/* Modais */
+.modal,.pop-modal{
+  background:rgba(4,17,39,.58)!important;
+  backdrop-filter:blur(5px);
+}
+.modal-card,.pop-modal-card,.network-manager,.universal-editor{
+  background:#fff!important;
+  color:var(--ud-text)!important;
+  border:1px solid #d8e5f3!important;
+  box-shadow:0 25px 80px rgba(7,26,61,.28)!important;
+}
+.detail-head,.pop-modal-head,.network-manager-head,.universal-editor-head{
+  border-bottom:1px solid var(--ud-border)!important;
+}
+.detail-head h2,.pop-modal-head h2,
+.network-manager-head h2,.universal-editor-head h2{
+  color:var(--ud-navy)!important;
+}
+.detail-head p,.pop-modal-head p,
+.network-manager-head p,.universal-editor-head p{
+  color:var(--ud-muted)!important;
+}
+.close{
+  color:var(--ud-muted)!important;
+  background:#f2f6fb!important;
+  border:1px solid var(--ud-border)!important;
+}
+.close:hover{
+  color:var(--ud-blue)!important;
+}
+
+/* Tabelas */
+.table-wrap,.editor-port-table-wrap{
+  border-color:var(--ud-border)!important;
+  border-radius:10px!important;
+  background:#fff!important;
+}
+table thead th,.editor-port-table th{
+  background:#f0f6fd!important;
+  color:var(--ud-navy)!important;
+  border-color:var(--ud-border)!important;
+}
+table td,.editor-port-table td{
+  color:var(--ud-text)!important;
+  border-color:#e8eff7!important;
+}
+tr.connected td{
+  background:#f0f9ff!important;
+}
+
+/* Formulários */
+.editor-field span{
+  color:var(--ud-muted)!important;
+}
+.editor-field input,.editor-field select,.editor-field textarea,
+.editor-port-table input,.editor-port-table select,
+.inline-edit-row input,.inline-edit-row select{
+  background:#fff!important;
+  border:1px solid #ccdced!important;
+  color:var(--ud-text)!important;
+  border-radius:7px!important;
+}
+.editor-field input:focus,.editor-field select:focus,.editor-field textarea:focus,
+.editor-port-table input:focus,.editor-port-table select:focus{
+  border-color:var(--ud-blue)!important;
+  box-shadow:0 0 0 3px rgba(7,93,255,.09)!important;
+}
+.editor-section-title{
+  color:var(--ud-navy)!important;
+  border-color:var(--ud-border)!important;
+}
+
+/* Gerenciador */
+.network-manager{
+  background:#fff!important;
+}
+.manager-tabs{
+  background:#f5f9fd!important;
+  border-color:var(--ud-border)!important;
+}
+.manager-tab{
+  color:var(--ud-muted)!important;
+}
+.manager-tab.active{
+  background:#eaf4ff!important;
+  border-color:#c6e0ff!important;
+  color:var(--ud-blue)!important;
+}
+.manager-item,.pop-editor-item{
+  background:#fff!important;
+  border-color:var(--ud-border)!important;
+  box-shadow:0 3px 12px rgba(7,26,61,.04);
+}
+.manager-item b,.pop-editor-item b{
+  color:var(--ud-navy)!important;
+}
+.manager-item small{
+  color:var(--ud-muted)!important;
+}
+.danger-btn{
+  background:#fff3f4!important;
+  border-color:#f0cbd0!important;
+  color:#c34a5c!important;
+}
+
+/* Ações e rodapés */
+.inline-edit-actions,.universal-editor-actions{
+  background:#f5f9fd!important;
+  border-color:var(--ud-border)!important;
+}
+.inline-edit-actions span,.universal-editor-actions span{
+  color:var(--ud-muted)!important;
+}
+
+/* Toggle da sidebar */
+#sidebarToggle{
+  background:#fff!important;
+  color:var(--ud-blue)!important;
+  border:1px solid #cfe0f4!important;
+  box-shadow:0 5px 16px rgba(7,26,61,.10);
+}
+
+/* Logo / marca */
+.brand-mark{
+  color:#fff!important;
+}
