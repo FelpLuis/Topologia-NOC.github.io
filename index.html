@@ -12,6 +12,7 @@
   <div class="subtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
   <div class="actions">
     <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
+    <button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
   </div>
 </header>
 
@@ -50,11 +51,31 @@
 <div id="popModal" class="pop-modal hidden">
   <div class="pop-modal-card">
     <div class="pop-modal-head">
-      <div><h2 id="popModalName"></h2><p id="popModalRoutes"></p></div>
-      <button id="popModalClose" class="close">×</button>
+      <div class="pop-modal-title">
+        <div><h2 id="popModalName"></h2><p id="popModalRoutes"></p></div>
+        <button id="editCurrentPop" class="icon-edit" type="button" title="Editar POP">✎</button>
+      </div>
+      <button id="popModalClose" class="close" type="button">×</button>
     </div>
     <div id="popModalEquipments" class="pop-modal-body"></div>
   </div>
+</div>
+
+<div id="networkManager" class="modal hidden">
+  <section class="network-manager">
+    <div class="network-manager-head">
+      <div>
+        <h2>GERENCIAR TOPOLOGIA</h2>
+        <p>Cadastre e altere equipamentos, portas, POPs e equipamentos dos POPs.</p>
+      </div>
+      <button id="networkManagerClose" class="close" type="button">×</button>
+    </div>
+    <div class="manager-tabs">
+      <button class="manager-tab active" data-tab="equipamentos">Equipamentos</button>
+      <button class="manager-tab" data-tab="pops">POPs</button>
+    </div>
+    <div id="managerContent" class="manager-content"></div>
+  </section>
 </div>
 <div id="connectionPanel" class="connection-panel hidden">
   <div id="connectionInfo"></div>
