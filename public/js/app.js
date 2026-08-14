@@ -215,15 +215,40 @@ function renderManager(tab){
   document.querySelectorAll(".manager-tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
   const box=document.getElementById("managerContent");
   if(tab==="equipamentos"){
-    box.innerHTML=`<div class="manager-toolbar"><button class="primary-btn" id="addEquipment">+ Novo equipamento</button><button class="btn" id="downloadAll">Baixar JSON</button><span class="manager-hint">Use <b>Visualizar</b> para abrir o painel frontal interativo.</span></div>
-      <div class="manager-list">${state.equipamentos.map((e,i)=>`<div class="manager-item manager-equipment-item"><div class="manager-equipment-info"><b>${escapeHtml(e.nome)}</b><small>${escapeHtml(e.modelo||"")} • ${e.portas.length} portas • ${e.portas.filter(p=>getPortConnection(e.id,p.numero)).length} conectadas</small></div><div class="manager-item-actions"><button class="btn mgr-visual" data-i="${i}">◉ Visualizar</button><button class="icon-edit mgr-edit" data-i="${i}" title="Editar equipamento">✎</button><button class="danger-btn mgr-del" data-i="${i}">Excluir</button></div></div>`).join("")}</div>`;
+    box.innerHTML=`<div class="manager-toolbar">
+        <div class="manager-toolbar-main">
+          <button class="primary-btn" id="addEquipment">+ Novo equipamento</button>
+          <button class="btn" id="downloadAll">Baixar JSON</button>
+        </div>
+        <span class="manager-hint">Abra um equipamento para consultar portas ou use os atalhos de edição.</span>
+      </div>
+      <div class="manager-list">${state.equipamentos.map((e,i)=>`<div class="manager-item manager-equipment-item">
+        <div class="manager-equipment-info">
+          <b>${escapeHtml(e.nome)}</b>
+          <small>${escapeHtml(e.modelo||"")} • ${e.portas.length} portas • ${e.portas.filter(p=>getPortConnection(e.id,p.numero)).length} conectadas</small>
+        </div>
+        <div class="manager-item-actions" aria-label="Ações do equipamento">
+          <button class="mgr-action mgr-visual" data-i="${i}" title="Abrir visualização e portas" aria-label="Abrir visualização e portas"><span class="mgr-action-icon">◉</span><span>Abrir</span></button>
+          <button class="mgr-action mgr-edit" data-i="${i}" title="Editar equipamento" aria-label="Editar equipamento"><span class="mgr-action-icon">✎</span><span>Editar</span></button>
+          <button class="mgr-action mgr-del" data-i="${i}" title="Excluir equipamento" aria-label="Excluir equipamento"><span class="mgr-action-icon">×</span><span>Excluir</span></button>
+        </div>
+      </div>`).join("")}</div>`;
     document.getElementById("addEquipment").onclick=()=>editEquipment(-1);document.getElementById("downloadAll").onclick=downloadAll;
     box.querySelectorAll(".mgr-edit").forEach(b=>b.onclick=()=>editEquipment(+b.dataset.i));
     box.querySelectorAll(".mgr-visual").forEach(b=>b.onclick=()=>openEquipmentVisual(+b.dataset.i));
     box.querySelectorAll(".mgr-del").forEach(b=>b.onclick=()=>deleteEquipment(+b.dataset.i));
   }else{
-    box.innerHTML=`<div class="manager-toolbar"><button class="primary-btn" id="addPop">+ Novo POP</button></div>
-      <div class="manager-list">${state.pops.map((p,i)=>`<div class="manager-item"><div><b>${escapeHtml(p.nome)}</b><small>${p.equipamentos.length} aparelhos • ${p.rotas.length} rotas</small></div><div><button class="icon-edit mgr-pop-edit" data-i="${i}">✎</button><button class="danger-btn mgr-pop-del" data-i="${i}">Excluir</button></div></div>`).join("")}</div>`;
+    box.innerHTML=`<div class="manager-toolbar">
+        <div class="manager-toolbar-main"><button class="primary-btn" id="addPop">+ Novo POP</button></div>
+        <span class="manager-hint">Edite os dados do POP ou remova-o com confirmação.</span>
+      </div>
+      <div class="manager-list">${state.pops.map((p,i)=>`<div class="manager-item">
+        <div><b>${escapeHtml(p.nome)}</b><small>${p.equipamentos.length} aparelhos • ${p.rotas.length} rotas</small></div>
+        <div class="manager-item-actions" aria-label="Ações do POP">
+          <button class="mgr-action mgr-pop-edit" data-i="${i}" title="Editar POP" aria-label="Editar POP"><span class="mgr-action-icon">✎</span><span>Editar</span></button>
+          <button class="mgr-action mgr-pop-del" data-i="${i}" title="Excluir POP" aria-label="Excluir POP"><span class="mgr-action-icon">×</span><span>Excluir</span></button>
+        </div>
+      </div>`).join("")}</div>`;
     document.getElementById("addPop").onclick=()=>editPop(-1);box.querySelectorAll(".mgr-pop-edit").forEach(b=>b.onclick=()=>editPop(+b.dataset.i));box.querySelectorAll(".mgr-pop-del").forEach(b=>b.onclick=()=>deletePop(+b.dataset.i));
   }
 }

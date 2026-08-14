@@ -1327,10 +1327,45 @@ html[data-theme="dark"] #universalEditor .status-dot{
 /* =========================================================
    GERENCIAMENTO — PAINEL FRONTAL INTERATIVO DO EQUIPAMENTO
    ========================================================= */
-.manager-hint{margin-left:auto;color:#60768b;font-size:9px}
-.manager-equipment-item{gap:16px}
+.manager-hint{margin-left:auto;color:#60768b;font-size:9px;line-height:1.4}
+.manager-toolbar-main{display:flex;gap:8px;align-items:center}
+.manager-equipment-item{gap:16px;transition:border-color .16s ease,background .16s ease,transform .16s ease}
+.manager-equipment-item:hover{border-color:#315d78;background:#0d2132}
 .manager-equipment-info{min-width:0}
-.manager-item-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.manager-item-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.mgr-action{
+  min-height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:7px 10px;
+  border:1px solid #29465e;
+  border-radius:7px;
+  background:#0b1d2d;
+  color:#cfe5f1;
+  cursor:pointer;
+  font-size:10px;
+  font-weight:600;
+  transition:all .16s ease;
+}
+.mgr-action:hover{transform:translateY(-1px);border-color:#3a7597;background:#102a3e;color:#fff}
+.mgr-action:focus-visible{outline:2px solid #28c7ff;outline-offset:2px}
+.mgr-action-icon{font-size:14px;line-height:1}
+.mgr-visual{border-color:#23658a;background:#0c2940;color:#d8f4ff}
+.mgr-visual:hover{border-color:#28c7ff;background:#103b56}
+.mgr-edit{color:#a9dcf1}
+.mgr-del{border-color:#553746;background:#241923;color:#e8a8b8}
+.mgr-del:hover{border-color:#a35a70;background:#351d29;color:#ffd8e0}
+.mgr-pop-edit{color:#a9dcf1}
+.mgr-pop-del{border-color:#553746;background:#241923;color:#e8a8b8}
+.mgr-pop-del:hover{border-color:#a35a70;background:#351d29;color:#ffd8e0}
+@media(max-width:700px){
+  .manager-toolbar{align-items:flex-start!important;flex-direction:column}
+  .manager-hint{margin-left:0}
+  .manager-item-actions{width:100%;justify-content:flex-start}
+  .mgr-action{flex:1}
+}
 
 .equipment-visual-modal{
   width:min(1220px,calc(100vw - 40px));
