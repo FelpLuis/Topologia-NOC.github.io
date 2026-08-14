@@ -9,16 +9,23 @@ const positions = {
 let currentDeviceId=null, currentPopId=null, detailEditMode=false, detailBackup=null;
 
 async function loadData(){
-  const cached=localStorage.getItem("updown-topologia-data");
-  if(cached){
-    try { Object.assign(state,JSON.parse(cached)); normalizeState(); persist(); renderAll(); return; } catch(e){ console.warn(e); }
+  const auth=await fetch("/api/auth/me",{cache:"no-store"});
+  const authData=await auth.json();
+  if(!authData.authenticated){ window.location.href="/login.html"; return; }
+
+  const r=await fetch("/api/topology",{cache:"no-store"});
+  if(!r.ok){
+    const d=await r.json().catch(()=>({}));
+    throw new Error(d.error==="FORBIDDEN"?"Você não possui permissão para visualizar a topologia.":"Falha ao carregar a topologia.");
   }
-  const [a,b,c]=await Promise.all([
-    fetch("data/equipamentos.json"),fetch("data/conexoes.json"),fetch("data/pops.json")
-  ]);
-  if(!a.ok||!b.ok||!c.ok) throw new Error("Falha ao carregar os arquivos JSON.");
-  state.equipamentos=await a.json(); state.conexoes=await b.json(); state.pops=await c.json();
-  normalizeState(); renderAll(); applyConfig();
+  const data=await r.json();
+  state.equipamentos=data.equipamentos;
+  state.conexoes=data.conexoes;
+  state.pops=data.pops;
+  if(data.config) Object.assign(visibleConfig,data.config);
+  normalizeState();
+  renderAll();
+  applyConfig();
 }
 function migratePortNumbering(){
   // Versão antiga do cadastro tinha o NE F1A começando em 0.
@@ -47,8 +54,36 @@ function normalizeState(){
     if(!Array.isArray(p.rotas))p.rotas=[];
   });
 }
-function persist(){
-  localStorage.setItem("updown-topologia-data",JSON.stringify(state));
+let persistInFlight=false;
+async function persist(reason="TOPOLOGY_UPDATE"){
+  if(persistInFlight) return;
+  persistInFlight=true;
+  try{
+    const payload={equipamentos:state.equipamentos,conexoes:state.conexoes,pops:state.pops,config:visibleConfig};
+    const r=await fetch("/api/topology",{
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({topology:payload,reason})
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){
+      if(r.status===401){location.href="/login.html";return;}
+      if(r.status===403){alert("Você não possui permissão para alterar a topologia.");return;}
+      throw new Error(d.error||"Falha ao salvar a topologia.");
+    }
+    if(d.topology){
+      state.equipamentos=d.topology.equipamentos;
+      state.conexoes=d.topology.conexoes;
+      state.pops=d.topology.pops;
+      if(d.topology.config) Object.assign(visibleConfig,d.topology.config);
+    }
+  }catch(e){
+    console.error(e);
+    alert("Não foi possível salvar. A alteração não foi registrada no servidor.");
+    throw e;
+  }finally{
+    persistInFlight=false;
+  }
 }
 function renderAll(){ renderSidebar(); renderTopology(); renderPops(); }
 
@@ -190,7 +225,7 @@ function enterInlineEdit(){
   }).join("");
   document.getElementById("inlineEditActions").classList.remove("hidden");document.getElementById("inlineEditStatus").textContent="Edite diretamente os campos das portas.";
 }
-function saveInlineEdit(){
+async function saveInlineEdit(){
   const d=getDevice(currentDeviceId);if(!d)return;
   document.querySelectorAll("#detailRows .inline-edit-row").forEach(tr=>{
     const num=+tr.dataset.port,p=d.portas.find(x=>+x.numero===num);if(!p)return;
@@ -199,7 +234,7 @@ function saveInlineEdit(){
     state.conexoes=state.conexoes.filter(c=>!((c.origem===d.id&&+c.portaOrigem===num)||(c.destino===d.id&&+c.portaDestino===num)));
     if(remote&&rport){state.conexoes.push({origem:d.id,portaOrigem:num,destino:remote,portaDestino:rport,capacidade:cap,tipo:type});p.status="conectada";}
   });
-  persist();detailEditMode=false;document.getElementById("inlineEditActions").classList.add("hidden");renderAll();openDetail(d.id);
+  await persist("PORTS_UPDATE");detailEditMode=false;document.getElementById("inlineEditActions").classList.add("hidden");renderAll();openDetail(d.id);
 }
 function cancelInlineEdit(){
   if(detailBackup){const o=detailBackup.equipamento,i=state.equipamentos.findIndex(e=>e.id===o.id);if(i>=0)state.equipamentos[i]=o;state.conexoes=detailBackup.conexoes;}
@@ -339,12 +374,12 @@ function editVisualPort(e,portNumber){
   },80);
 }
 
-function deleteEquipment(i){
+async function deleteEquipment(i){
   const e=state.equipamentos[i];if(!e||!confirm(`Excluir ${e.nome}?`))return;
   state.conexoes=state.conexoes.filter(c=>c.origem!==e.id&&c.destino!==e.id);
-  state.equipamentos.splice(i,1);state.pops.forEach(p=>p.equipamentos=p.equipamentos.filter(x=>x.id!==e.id));persist();renderAll();renderManager("equipamentos");
+  state.equipamentos.splice(i,1);state.pops.forEach(p=>p.equipamentos=p.equipamentos.filter(x=>x.id!==e.id));await persist("EQUIPMENT_DELETE");renderAll();renderManager("equipamentos");
 }
-function deletePop(i){if(!confirm(`Excluir ${state.pops[i]?.nome||"POP"}?`))return;state.pops.splice(i,1);persist();renderAll();renderManager("pops");}
+async function deletePop(i){if(!confirm(`Excluir ${state.pops[i]?.nome||"POP"}?`))return;state.pops.splice(i,1);await persist("POP_DELETE");renderAll();renderManager("pops");}
 function downloadAll(){
   downloadJson("equipamentos.json",state.equipamentos);setTimeout(()=>downloadJson("conexoes.json",state.conexoes),150);setTimeout(()=>downloadJson("pops.json",state.pops),300);
 }
@@ -370,15 +405,11 @@ const visibleConfig = {
 };
 
 function getConfig() {
-  const saved = localStorage.getItem("updown-topologia-config");
-  if (saved) {
-    try { Object.assign(visibleConfig, JSON.parse(saved)); } catch (_) {}
-  }
   return visibleConfig;
 }
 function saveConfig() {
-  localStorage.setItem("updown-topologia-config", JSON.stringify(visibleConfig));
   applyConfig();
+  return persist("CONFIG_UPDATE");
 }
 function applyConfig() {
   const c = getConfig();
@@ -544,13 +575,13 @@ function renderPopEquipmentEditor(p) {
   });
 }
 
-function applyUniversalEditor() {
+async function applyUniversalEditor() {
   const body=document.getElementById("universalEditorBody");
   if(universalEditorMode==="config"){
     Object.keys(visibleConfig).forEach(k=>{
       const el=body.querySelector(`[name="${k}"]`); if(el)visibleConfig[k]=el.value;
     });
-    saveConfig(); return;
+    await saveConfig(); return;
   }
   if(universalEditorMode==="equipment"){
     const i=universalEditorIndex;
@@ -596,7 +627,7 @@ function applyUniversalEditor() {
     });
     if(i<0)state.pops.push(p);else state.pops[i]=p;
   }
-  normalizeState(); persist(); renderAll();
+  normalizeState(); renderAll(); await persist(universalEditorMode === "config" ? "CONFIG_UPDATE" : "TOPOLOGY_UPDATE");
 }
 
 function closeUniversalEditor() {
@@ -671,11 +702,20 @@ document.getElementById("networkManagerClose")?.addEventListener("click",closeNe
 document.getElementById("equipmentVisualClose")?.addEventListener("click",closeEquipmentVisual);
 document.getElementById("universalEditorClose")?.addEventListener("click",closeUniversalEditor);
 document.getElementById("universalEditorCancel")?.addEventListener("click",cancelUniversalEditor);
-document.getElementById("universalEditorSave")?.addEventListener("click",()=>{
-  applyUniversalEditor();
-  const status=document.getElementById("universalEditorStatus");
-  if(status) status.textContent="Alterações salvas";
-  closeUniversalEditor();
+document.getElementById("universalEditorSave")?.addEventListener("click",async()=>{
+  const btn=document.getElementById("universalEditorSave");
+  if(btn) btn.disabled=true;
+  try{
+    await applyUniversalEditor();
+    const status=document.getElementById("universalEditorStatus");
+    if(status) status.textContent="Alterações salvas e auditadas";
+    closeUniversalEditor();
+  }catch(e){
+    const status=document.getElementById("universalEditorStatus");
+    if(status) status.textContent="Falha ao salvar";
+  }finally{
+    if(btn) btn.disabled=false;
+  }
 });
 document.querySelectorAll(".section-pencil").forEach(b=>b.addEventListener("click",editConfig));
 

@@ -15,6 +15,17 @@ const db = new Database(path.resolve(root, "backend/data/topologia.db"));
 db.pragma("foreign_keys = ON");
 db.pragma("journal_mode = WAL");
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS topology_state (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  data_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_topology_updated_at ON topology_state(updated_at);
+`);
+
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -242,10 +253,151 @@ app.get("/api/audit", requireAuth, requirePermission("audit.view"), (req,res) =>
   res.json(rows);
 });
 
-// Topology API: protects all mutation endpoints. Existing frontend can gradually migrate
-// its JSON editing operations to these endpoints.
-app.get("/api/topology/permissions", requireAuth, (req,res) => {
-  res.json({role:req.user.role, permissions:[...(rolePermCache[req.user.role]||[])]});
+
+function defaultTopologyConfig() {
+  return {
+    subtitle: "Topologia de Rede • Ascenty / BGP / MPLS",
+    coreTitle: "NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
+    ringTitle: "ANEL ÓPTICO DOS POPs",
+    ringLabel: "ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
+    popSectionTitle: "EQUIPAMENTOS POR POP"
+  };
+}
+function readInitialTopology() {
+  const dataDir = path.join(publicDir, "data");
+  const readJson = name => {
+    const p = path.join(dataDir, name);
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  };
+  return {
+    equipamentos: readJson("equipamentos.json"),
+    conexoes: readJson("conexoes.json"),
+    pops: readJson("pops.json"),
+    config: defaultTopologyConfig()
+  };
+}
+function getTopologyRow() {
+  return db.prepare("SELECT * FROM topology_state WHERE id=1").get();
+}
+function ensureTopologyState() {
+  if (!getTopologyRow()) {
+    const initial = readInitialTopology();
+    db.prepare(`
+      INSERT INTO topology_state(id,data_json,version,updated_at,updated_by)
+      VALUES(1,?,?,CURRENT_TIMESTAMP,NULL)
+    `).run(JSON.stringify(initial), 1);
+  }
+}
+ensureTopologyState();
+
+function parseTopology(row) {
+  return row ? JSON.parse(row.data_json) : readInitialTopology();
+}
+function topologySummary(t) {
+  return {
+    equipamentos: Array.isArray(t?.equipamentos) ? t.equipamentos.length : 0,
+    conexoes: Array.isArray(t?.conexoes) ? t.conexoes.length : 0,
+    pops: Array.isArray(t?.pops) ? t.pops.length : 0,
+    portas: Array.isArray(t?.equipamentos)
+      ? t.equipamentos.reduce((n,e)=>n+(Array.isArray(e.portas)?e.portas.length:0),0)
+      : 0
+  };
+}
+function topologyDiff(before, after) {
+  const diff = {equipamentos:{added:[],removed:[],changed:[]}, pops:{added:[],removed:[],changed:[]}, conexoes:{added:0,removed:0,changed:0}};
+  const byId=(arr)=>Object.fromEntries((Array.isArray(arr)?arr:[]).filter(x=>x?.id).map(x=>[x.id,x]));
+  for (const type of ["equipamentos","pops"]) {
+    const a=byId(before?.[type]), b=byId(after?.[type]);
+    for(const id of Object.keys(b)) if(!a[id]) diff[type].added.push(id);
+    for(const id of Object.keys(a)) if(!b[id]) diff[type].removed.push(id);
+    for(const id of Object.keys(a)) if(b[id] && JSON.stringify(a[id])!==JSON.stringify(b[id])) diff[type].changed.push(id);
+  }
+  const key=c=>JSON.stringify(c);
+  const aa=(before?.conexoes||[]).map(key), bb=(after?.conexoes||[]).map(key);
+  diff.conexoes.added=bb.filter(x=>!aa.includes(x)).length;
+  diff.conexoes.removed=aa.filter(x=>!bb.includes(x)).length;
+  return diff;
+}
+
+// Topology API. The browser NEVER writes topology JSON/localStorage.
+// Every mutation goes through this API, is authorized by RBAC, persisted server-side,
+// and written to the audit log with before/after snapshots and a structured diff.
+app.get("/api/topology", requireAuth, requirePermission("topology.view"), (req,res) => {
+  const row=getTopologyRow();
+  const topology=parseTopology(row);
+  res.setHeader("Cache-Control","no-store");
+  res.json({ ...topology, version: row.version, updated_at: row.updated_at, updated_by: row.updated_by });
+});
+
+app.put("/api/topology", requireAuth, requirePermission("topology.edit"), (req,res) => {
+  const beforeRow=getTopologyRow();
+  const before=parseTopology(beforeRow);
+  const incoming=req.body?.topology ?? req.body;
+  if(!incoming || !Array.isArray(incoming.equipamentos) || !Array.isArray(incoming.conexoes) || !Array.isArray(incoming.pops)) {
+    return res.status(400).json({error:"TOPOLOGIA_INVALIDA"});
+  }
+  const after={
+    equipamentos: incoming.equipamentos,
+    conexoes: incoming.conexoes,
+    pops: incoming.pops,
+    config: {...defaultTopologyConfig(), ...(incoming.config||{})}
+  };
+  const diff=topologyDiff(before,after);
+  const hasDeletion =
+    diff.equipamentos.removed.length > 0 ||
+    diff.pops.removed.length > 0 ||
+    diff.conexoes.removed > 0 ||
+    (before.equipamentos||[]).some(oldEq => {
+      const newEq=(after.equipamentos||[]).find(e=>e.id===oldEq.id);
+      return newEq && (newEq.portas?.length||0) < (oldEq.portas?.length||0);
+    });
+  if(hasDeletion && !rolePermCache[req.user.role]?.has("topology.delete")) {
+    audit(req, req.user, "TOPOLOGY_UPDATE_DENIED", "topology", "1", before, after, {reason:"missing topology.delete",diff});
+    return res.status(403).json({error:"FORBIDDEN", permission:"topology.delete"});
+  }
+  const nextVersion=Number(beforeRow.version||0)+1;
+  const tx=db.transaction(()=>{
+    db.prepare(`
+      UPDATE topology_state
+      SET data_json=?, version=?, updated_at=CURRENT_TIMESTAMP, updated_by=?
+      WHERE id=1
+    `).run(JSON.stringify(after),nextVersion,req.user.id);
+    audit(
+      req, req.user, "TOPOLOGY_UPDATE", "topology", "1",
+      before, after,
+      {version_before:beforeRow.version,version_after:nextVersion,diff,before_summary:topologySummary(before),after_summary:topologySummary(after)}
+    );
+  });
+  tx();
+  res.json({ok:true,version:nextVersion,updated_at:new Date().toISOString(),topology:after,diff});
+});
+
+app.post("/api/topology/restore", requireAuth, requirePermission("topology.edit"), (req,res) => {
+  const beforeRow=getTopologyRow();
+  const before=parseTopology(beforeRow);
+  const initial=readInitialTopology();
+  const nextVersion=Number(beforeRow.version||0)+1;
+  const tx=db.transaction(()=>{
+    db.prepare("UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1")
+      .run(JSON.stringify(initial),nextVersion,req.user.id);
+    audit(req,req.user,"TOPOLOGY_RESTORE","topology","1",before,initial,{
+      version_before:beforeRow.version,version_after:nextVersion,
+      before_summary:topologySummary(before),after_summary:topologySummary(initial)
+    });
+  });
+  tx();
+  res.json({ok:true,version:nextVersion,topology:initial});
+});
+
+app.get("/api/topology/history", requireAuth, requirePermission("audit.view"), (req,res) => {
+  const rows=db.prepare(`
+    SELECT id,occurred_at,user_id,username,action,resource_type,resource_id,method,path,
+           ip,before_json,after_json,details_json
+    FROM audit_logs
+    WHERE resource_type='topology'
+    ORDER BY id DESC LIMIT ?
+  `).all(Math.min(Number(req.query.limit||100),500));
+  res.json(rows);
 });
 
 app.post("/api/audit/test", requireAuth, requirePermission("topology.edit"), (req,res) => {

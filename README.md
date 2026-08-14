@@ -372,3 +372,82 @@ A tela permite criar, ativar/desativar e excluir usuários e consultar a auditor
 ### Importante sobre o backend
 
 A camada RBAC já está pronta e os endpoints de autenticação/usuários/auditoria estão funcionais. As operações antigas da interface que ainda escrevem diretamente nos JSONs devem ser migradas para endpoints protegidos do backend antes de serem consideradas completamente auditadas. Não é seguro declarar uma alteração como auditada enquanto ela puder contornar a API.
+
+
+## Auditoria completa da topologia
+
+A topologia deixou de ser persistida no `localStorage` do navegador.
+
+Todas as alterações realizadas pela interface passam por:
+
+```text
+Interface
+  ↓
+PUT /api/topology
+  ↓
+RBAC (topology.edit)
+  ↓
+SQLite topology_state
+  ↓
+audit_logs
+```
+
+O registro de auditoria de uma alteração de topologia contém:
+
+- usuário responsável;
+- data/hora;
+- IP;
+- método e rota;
+- versão anterior e nova;
+- snapshot completo antes da alteração;
+- snapshot completo depois da alteração;
+- resumo e diff de equipamentos, POPs e conexões.
+
+Isso cobre alterações de:
+
+- nome/modelo/categoria/local/núcleo de equipamentos;
+- quantidade e dados das portas;
+- capacidade, tipo, status e observações;
+- conexão/porta remota;
+- criação e exclusão de equipamentos;
+- POPs;
+- equipamentos dos POPs;
+- rotas e informações dos POPs;
+- títulos e textos configuráveis da tela.
+
+A API de topologia exige autenticação e a permissão `topology.edit` para qualquer alteração.
+
+### Histórico da topologia
+
+Administradores podem consultar:
+
+```text
+GET /api/topology/history
+```
+
+e a tela administrativa continua disponível em:
+
+```text
+/admin.html
+```
+
+### Importante
+
+Os arquivos em `public/data/*.json` permanecem como **dados iniciais/fallback de implantação**. Depois da inicialização, a fonte oficial de dados é o banco SQLite `backend/data/topologia.db`. O navegador não grava mais alterações nesses arquivos nem no `localStorage`.
+
+
+### Controle de exclusão
+
+O RBAC separa alteração de exclusão:
+
+- `topology.edit`: criar/alterar dados.
+- `topology.delete`: remover equipamentos, POPs, conexões ou reduzir portas.
+
+O perfil `admin` possui ambas. O perfil `editor` não pode realizar exclusões. Tentativas de exclusão sem permissão também são registradas na auditoria.
+
+
+## Login — Glassmorphism / Network Intelligence
+
+A tela de login foi redesenhada com referência estética ao conceito de glassmorphism do modelo indicado pelo usuário, sem copiar os elementos proprietários do template. Mantém a identidade UPDOWN TELECOM e usa uma composição visual própria de análise de redes: topologia, CORE, POP, BGP, MPLS, tráfego e monitoramento de portas.
+
+O fundo é vetorial/CSS e não depende de imagens externas, com animação respeitando `prefers-reduced-motion`.
