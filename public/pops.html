@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • POPs e anel óptico</title>
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">Infraestrutura de campo</span>
+        <h1 class="page-title">POPs e anel óptico</h1>
+        <p class="page-sub">Cada POP com suas rotas, os equipamentos vinculados e a ocupação de portas. O vínculo é o mesmo usado pela topologia e pelo Dashboard.</p>
+      </div>
+      <a class="btn btn-sm btn-primary" href="/">Gerenciar vínculos</a>
+    </div>
+
+    <div class="split" style="grid-template-columns:minmax(0,1fr) 340px">
+      <section class="stack" id="popList" style="gap:var(--s-4)"></section>
+
+      <aside class="stack" style="gap:var(--s-4)">
+        <section class="card">
+          <div class="card-head"><div><h2>Anel óptico</h2><p>Rotas registradas entre POPs.</p></div></div>
+          <div class="card-body"><div id="ringMap"></div></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><div><h2>Resumo</h2><p>Somatório da malha.</p></div></div>
+          <div class="card-body"><div class="kv" id="ringStats"></div></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-pops.js"></script>
+</body>
+</html>

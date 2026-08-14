@@ -1,188 +1,111 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <link rel="preconnect" href="/api" crossorigin>
-
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>UPDOWN • Topologia de Rede</title>
-  <link rel="stylesheet" href="css/style.css">
-<script>
-(function(){
-  try {
-    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    document.documentElement.dataset.themePreference = "system";
-  } catch(e) {
-    document.documentElement.dataset.theme = "dark";
-    document.documentElement.dataset.themePreference = "system";
-  }
-})();
-</script>
-<script src="js/grafana.js"></script>
-  <script src="/js/auth-guard.js"></script>
-<link rel="stylesheet" href="/css/uiux-v3.css">
-<link rel="stylesheet" href="/css/uiux-v4.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Topologia de Rede</title>
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<link rel="preconnect" href="/api" crossorigin>
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<script src="/js/auth-guard.js"></script>
 </head>
 <body>
-<header class="topbar">
-  <div class="brand" aria-label="UPDOWN TELECOM"><span>TELECOM</span></div>
-  <div class="subtitle" id="topSubtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
-  <div class="actions">
-    <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
-<button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
-<a id="dashboardBtn" class="header-dashboard-btn" href="dashboard.html" title="Abrir Dashboard NOC para TV">Dashboard</a>
-<button id="platformBtn" class="header-dashboard-btn platform-btn hidden" type="button" title="Gerenciar usuários, perfis e permissões">Gerenciar plataforma</button>
-<button id="logoutBtn" class="header-logout-btn" type="button" title="Sair da plataforma" aria-label="Sair da plataforma">
-  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-    <path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10"/>
-    <path d="M14 8l4 4-4 4"/>
-    <path d="M18 12H9"/>
-  </svg>
-</button>
-  </div>
-</header>
+<a class="skip-link" href="#stage">Ir para o mapa da topologia</a>
+<header data-appbar></header>
 
-<div class="app" id="appShell">
-  <button id="sidebarToggle" class="sidebar-toggle" type="button" title="Recolher equipamentos" aria-label="Recolher painel de equipamentos">‹</button>
-  <aside class="sidebar">
-    <div class="side-title">Equipamentos</div>
-    <div id="deviceList" class="device-list"></div>
-    <div class="side-title extra">Legenda</div>
-    <div class="legend">
-      <p><b class="cyan">Azul</b> = equipamento / porta documentada</p>
-      <p><b class="purple">Roxo</b> = anel óptico</p>
-      <p>Clique em um equipamento para consultar todas as portas.</p>
-      <p>Os dados editáveis ficam em <code>data/equipamentos.json</code> e <code>data/conexoes.json</code>.</p>
-    </div>
-  </aside>
+<div class="shell">
+  <aside data-sidebar></aside>
 
-  <main class="main">
-    <div class="canvas">
-      <div class="section-title section-editable"><span id="coreTitle">NÚCLEO / ASCENTY — FLUXO PRINCIPAL</span><button class="section-pencil" data-section="core" title="Editar informações do núcleo">✎</button></div>
-      <div id="topology" class="topology"></div>
+  <main class="content content-wide" id="main">
+    <div class="topo-layout">
 
-      <div class="section-title pop-title section-editable"><span id="ringTitle">ANEL ÓPTICO DOS POPs</span><button class="section-pencil" data-section="ring" title="Editar anel óptico">✎</button></div>
-      <div class="ring">
-        <div class="ring-grid" id="popGrid"></div>
-        <div class="ring-label" id="ringLabel">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
+      <div class="topo-toolbar">
+        <div class="row" style="gap:var(--s-2)">
+          <button class="btn btn-sm btn-icon" id="toggleSide" type="button" title="Ocultar lista de equipamentos" aria-label="Ocultar lista de equipamentos"></button>
+          <div>
+            <span class="kicker" id="topoKicker">Visão por localidade — clique para expandir</span>
+            <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Topologia de rede</h1>
+          </div>
+        </div>
+
+        <div class="row wrap grow" style="justify-content:flex-end;gap:var(--s-2)">
+          <div class="segmented" role="group" aria-label="Modo de visualização">
+            <button type="button" data-view="mapa" aria-pressed="true">Mapa</button>
+            <button type="button" data-view="lista" aria-pressed="false">Lista</button>
+          </div>
+          <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
+          <button class="btn btn-sm" id="btnFlow" type="button" aria-pressed="true">Tráfego</button>
+          <button class="btn btn-sm btn-primary" id="btnManage" type="button">Gerenciar rede</button>
+        </div>
       </div>
 
-      <div class="section-title pop-title section-editable"><span id="popSectionTitle">EQUIPAMENTOS POR POP</span><button class="section-pencil" data-section="popSection" title="Editar título">✎</button></div>
-      <div id="popDetails" class="pop-details"></div>
+      <div class="topo-main" id="topoMain">
+        <aside class="topo-side">
+          <div class="input-affix">
+            <span class="affix-icon" id="iconSearch"></span>
+            <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
+          </div>
+
+          <div class="row wrap" style="gap:6px" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
+
+          <div class="row-between" style="font-size:var(--fs-11)">
+            <span class="dim" id="listCount">—</span>
+            <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
+          </div>
+
+          <div class="topo-side-scroll grow">
+            <div class="device-list" id="deviceList"></div>
+          </div>
+
+          <div class="card" style="padding:var(--s-3);font-size:var(--fs-11)">
+            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
+            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot"></i><span>Porta livre e disponível</span></div>
+            <div class="row" style="gap:var(--s-2)"><i class="dot" style="background:var(--purple-400)"></i><span>Rota do anel óptico</span></div>
+          </div>
+        </aside>
+
+        <section class="topo-stage" id="stage" tabindex="0" role="application"
+                 aria-label="Mapa da topologia. Use as setas para deslocar e as teclas mais e menos para aproximar.">
+          <div class="topo-world" id="world">
+            <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-hud">
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomOut" type="button" aria-label="Afastar" title="Afastar (−)"></button>
+            <span class="mono dim" id="zoomLabel" style="min-width:44px;text-align:center">100%</span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomIn" type="button" aria-label="Aproximar" title="Aproximar (+)"></button>
+            <span style="width:1px;height:20px;background:var(--line)"></span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomFit" type="button" aria-label="Ajustar à tela" title="Ajustar à tela (0)"></button>
+          </div>
+        </section>
+
+        <section id="listView" hidden style="padding:var(--s-5);overflow:auto">
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Equipamento</th><th>POP</th><th>Categoria</th>
+                  <th class="num">Portas</th><th class="num">Em uso</th><th class="num">Livres</th>
+                  <th style="min-width:150px">Ocupação</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="listBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 </div>
 
+<nav data-mobile-nav aria-label="Navegação"></nav>
 
-<div id="popModal" class="pop-modal hidden">
-  <div class="pop-modal-card">
-    <div class="pop-modal-head">
-      <div class="pop-modal-title">
-        <div><h2 id="popModalName"></h2><p id="popModalRoutes"></p></div>
-        <button id="editCurrentPop" class="icon-edit" type="button" title="Editar POP">✎</button>
-      </div>
-      <button id="popModalClose" class="close" type="button">×</button>
-    </div>
-    <div id="popModalEquipments" class="pop-modal-body"></div>
-  </div>
-</div>
-
-<div id="networkManager" class="modal hidden">
-  <section class="network-manager">
-    <div class="network-manager-head">
-      <div>
-        <h2>GERENCIAR TOPOLOGIA</h2>
-        <p>Cadastre e altere equipamentos, portas, POPs e equipamentos dos POPs.</p>
-      </div>
-      <button id="networkManagerClose" class="close" type="button">×</button>
-    </div>
-    <div class="manager-tabs">
-      <button class="manager-tab active" data-tab="equipamentos">Equipamentos</button>
-      <button class="manager-tab" data-tab="pops">POPs</button>
-    </div>
-    <div id="managerContent" class="manager-content"></div>
-  </section>
-</div>
-
-<div id="universalEditor" class="modal hidden">
-  <section class="universal-editor">
-    <div class="universal-editor-head">
-      <div class="universal-editor-title">
-        <span class="editor-kicker">CONFIGURAÇÃO DA TOPOLOGIA</span>
-        <h2 id="editorTitle">EDITAR</h2>
-        <p id="editorSubtitle">Altere as informações e salve quando terminar.</p>
-      </div>
-      <button id="universalEditorClose" class="close" type="button" aria-label="Fechar edição" title="Fechar">×</button>
-    </div>
-    <div id="universalEditorBody" class="universal-editor-body"></div>
-    <div class="universal-editor-actions">
-      <div class="editor-save-status">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span id="universalEditorStatus">Alterações não salvas</span>
-      </div>
-      <div class="editor-actions-buttons">
-        <button id="universalEditorCancel" class="btn" type="button">Cancelar</button>
-        <button id="universalEditorSave" class="primary-btn" type="button">Salvar alterações</button>
-      </div>
-    </div>
-  </section>
-</div>
-<div id="connectionPanel" class="connection-panel hidden">
-  <div id="connectionInfo"></div>
-  <button id="connectionClose" class="btn" style="margin-top:10px">Fechar conexão</button>
-</div>
-
-<div id="modal" class="modal hidden">
-  <section class="detail">
-    <div class="detail-head">
-      <div class="detail-title">
-        <div>
-          <h2 id="detailName"></h2>
-          <p id="detailModel"></p>
-        </div>
-        <button id="editCurrentDevice" class="icon-edit" type="button" title="Editar aparelho e portas" aria-label="Editar aparelho e portas">✎</button>
-      </div>
-      <button class="close" id="closeBtn">×</button>
-    </div>
-    <div id="detailEquipmentImage" class="detail-equipment-visual">
-      <div class="equipment-visual-stage">
-        <div class="equipment-visual-empty">
-          <span>Imagem do equipamento</span>
-          <small>Cadastre a imagem no campo <b>imagem</b> do equipamento.</small>
-        </div>
-      </div>
-    </div>
-    <div class="detail-body">
-      <div class="meta">
-        <div><label>Categoria</label><strong id="detailType"></strong></div>
-        <div><label>Local</label><strong id="detailLocal"></strong></div>
-        <div><label>Portas listadas</label><strong id="detailCount"></strong></div>
-        <div><label>Portas conectadas</label><strong id="detailConnected"></strong></div>
-      </div>
-      <div id="detailNote" class="detail-note"></div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conexão</th></tr>
-          </thead>
-          <tbody id="detailRows"></tbody>
-        </table>
-      </div>
-      <div class="footnote">
-        A unidade de capacidade é Gbps. Onde o modelo/placa não pôde ser identificado, a capacidade permanece como “A confirmar” para evitar inventar informação.
-      </div>
-      <div id="inlineEditActions" class="inline-edit-actions hidden">
-        <span id="inlineEditStatus">Edite os campos diretamente nesta tela.</span>
-        <div>
-          <button id="inlineEditCancel" class="btn" type="button">Cancelar</button>
-          <button id="inlineEditSave" class="primary-btn" type="button">Salvar</button>
-        </div>
-      </div>
-    </div>
-  </section>
-</div>
-
-<script src="js/app.js"></script>
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-topology.js"></script>
 </body>
 </html>

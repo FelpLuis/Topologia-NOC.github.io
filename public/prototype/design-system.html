@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Design system — UPDOWN TELECOM NOC</title>
+<link rel="icon" href="../assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">Base do produto</span>
+        <h1 class="page-title">Design system</h1>
+        <p class="page-sub">Os mesmos tokens sustentam login, topologia, dashboard e administração. Trocar um valor aqui muda a plataforma inteira, sem retoque tela a tela.</p>
+      </div>
+      <button class="btn btn-sm" data-theme-toggle type="button"></button>
+    </div>
+
+    <section class="card" style="margin-bottom:var(--s-5)">
+      <div class="card-head"><div><h2>Cor</h2><p>Azul UPDOWN → ciano como acento; estado nunca depende só de cor.</p></div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--s-4)" id="cores"></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-bottom:var(--s-5)">
+      <div class="card-head"><div><h2>Tipografia</h2><p>Escala reduzida e previsível — sete tamanhos para toda a plataforma.</p></div></div>
+      <div class="card-body">
+        <div class="spec-row"><span class="dim mono">32 / -3,5%</span><h1 style="font-size:var(--fs-32)">Topologia de rede</h1></div>
+        <div class="spec-row"><span class="dim mono">24</span><h2 style="font-size:var(--fs-24)">Dashboard NOC</h2></div>
+        <div class="spec-row"><span class="dim mono">16</span><h3>Equipamentos por POP</h3></div>
+        <div class="spec-row"><span class="dim mono">14 / corpo</span><p>Centralize topologia, equipamentos, portas e indicadores em uma única interface de operação.</p></div>
+        <div class="spec-row"><span class="dim mono">12 / apoio</span><p class="muted" style="font-size:var(--fs-12)">Alterações são auditadas com usuário, IP e data/hora.</p></div>
+        <div class="spec-row"><span class="dim mono">10 / rótulo</span><span class="kicker">Núcleo / Ascenty</span></div>
+        <div class="spec-row"><span class="dim mono">mono / dados</span><span class="mono">100GE0/1/48 • 42,7 Gb/s</span></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-bottom:var(--s-5)">
+      <div class="card-head"><div><h2>Componentes</h2><p>Cada estado tem forma, não só cor.</p></div></div>
+      <div class="card-body stack" style="gap:var(--s-6)">
+        <div>
+          <span class="label">Botões</span>
+          <div class="row wrap" style="margin-top:var(--s-3)">
+            <button class="btn btn-primary" type="button">Ação principal</button>
+            <button class="btn" type="button">Secundária</button>
+            <button class="btn btn-ghost" type="button">Discreta</button>
+            <button class="btn btn-danger" type="button">Destrutiva</button>
+            <button class="btn btn-primary is-loading" type="button">Salvando</button>
+            <button class="btn" type="button" disabled title="Requer a permissão topology.edit">Sem permissão</button>
+          </div>
+        </div>
+
+        <div>
+          <span class="label">Estados e selos</span>
+          <div class="row wrap" style="margin-top:var(--s-3)">
+            <span class="badge badge-ok"><i class="dot dot-ok"></i>Online</span>
+            <span class="badge badge-warn"><i class="dot dot-warn"></i>Degradado</span>
+            <span class="badge badge-danger"><i class="dot dot-danger"></i>Offline</span>
+            <span class="badge badge-info">100 Gbps</span>
+            <span class="badge">Livre</span>
+            <span class="chip" aria-pressed="true">Filtro ativo <span class="count">9</span></span>
+            <span class="chip">Filtro <span class="count">3</span></span>
+          </div>
+        </div>
+
+        <div>
+          <span class="label">Campos</span>
+          <div class="row wrap" style="margin-top:var(--s-3);align-items:flex-start;gap:var(--s-4)">
+            <div class="field" style="width:240px"><label for="d1">Campo normal</label><input class="input" id="d1" placeholder="Digite algo"></div>
+            <div class="field" style="width:240px"><label for="d2">Campo com erro</label><input class="input" id="d2" aria-invalid="true" value="valor inválido">
+              <span class="field-error" id="e2"></span></div>
+            <div class="field" style="width:240px"><label for="d3">Seleção</label>
+              <select class="select" id="d3"><option>POP Santos</option><option>POP Cubatão</option></select></div>
+            <label class="switch" style="margin-top:26px"><input type="checkbox" checked><span class="switch-track"></span><span>Tela ativa</span></label>
+          </div>
+        </div>
+
+        <div>
+          <span class="label">Ocupação</span>
+          <div class="stack" style="margin-top:var(--s-3);max-width:420px">
+            <span class="meter"><span style="width:38%"></span></span>
+            <span class="meter is-warn"><span style="width:72%"></span></span>
+            <span class="meter is-danger"><span style="width:94%"></span></span>
+          </div>
+        </div>
+
+        <div>
+          <span class="label">Portas</span>
+          <div class="port-grid" style="margin-top:var(--s-3);max-width:520px">
+            <button class="port is-used" type="button">01</button>
+            <button class="port is-used" type="button">02</button>
+            <button class="port" type="button">03</button>
+            <button class="port" type="button">04</button>
+            <button class="port is-alert" type="button">05</button>
+            <button class="port" type="button">06</button>
+          </div>
+        </div>
+
+        <div>
+          <span class="label">Avisos e diálogos</span>
+          <div class="row wrap" style="margin-top:var(--s-3)">
+            <button class="btn" type="button" data-demo="ok">Aviso de sucesso</button>
+            <button class="btn" type="button" data-demo="undo">Aviso com desfazer</button>
+            <button class="btn" type="button" data-demo="confirm">Confirmação destrutiva</button>
+            <button class="btn" type="button" data-demo="atalhos">Atalhos</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div><h2>Acessibilidade</h2><p>Regras que valem para toda tela nova.</p></div><span class="badge badge-ok">obrigatório</span></div>
+      <div class="card-body">
+        <ul class="stack" style="gap:var(--s-3);padding-left:var(--s-5);color:var(--text-2);font-size:var(--fs-13)">
+          <li>Contraste mínimo de 4,5:1 no texto de corpo, nos dois temas.</li>
+          <li>Estado nunca comunicado só por cor: sempre ponto, ícone ou rótulo junto.</li>
+          <li>Foco visível em tudo que recebe teclado — o anel nunca é removido.</li>
+          <li>Modais e gavetas prendem o foco, fecham no <span class="kbd">Esc</span> e devolvem o foco ao elemento de origem.</li>
+          <li>Alvos de toque de 44 px ou mais no celular.</li>
+          <li><code>prefers-reduced-motion</code> desliga animação para quem pediu.</li>
+          <li>Avisos anunciados por <code>aria-live</code> sem interromper a tarefa em andamento.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="js/mock-data.js"></script>
+<script src="js/ui.js"></script>
+<script>
+(() => {
+  const { $, $$, icon, toast } = UI;
+  UI.mountShell({ active: "ds" });
+  $("#e2").innerHTML = icon("alert") + " Informe um valor entre 1 e 96.";
+
+  const cores = [
+    ["Azul UPDOWN", "var(--brand-500)", "#0b74ff — ação principal e marca"],
+    ["Ciano", "var(--cyan-400)", "#1dc9ff — acento, foco e dado vivo"],
+    ["Roxo", "var(--purple-400)", "#a56bff — anel óptico"],
+    ["Sucesso", "var(--ok-500)", "online, porta em uso"],
+    ["Atenção", "var(--warn-500)", "degradado, ocupação alta"],
+    ["Crítico", "var(--danger-500)", "offline, ação destrutiva"],
+    ["Superfície", "var(--surface-1)", "cartões e painéis"],
+    ["Fundo", "var(--bg)", "base da tela"],
+  ];
+  $("#cores").innerHTML = cores.map(([n, v, d]) => `
+    <div class="swatch">
+      <span class="chipcolor" style="background:${v}"></span>
+      <b style="font-size:var(--fs-13)">${n}</b>
+      <small class="dim">${d}</small>
+    </div>`).join("");
+
+  $$("[data-demo]").forEach((b) => (b.onclick = () => {
+    const t = b.dataset.demo;
+    if (t === "ok") toast("Equipamento atualizado", { text: "Alteração registrada na auditoria.", type: "ok" });
+    if (t === "undo") toast("NE8000-M8 vinculado a POP Santos", {
+      text: "Passa a contar na ocupação desse POP.", type: "ok",
+      action: { label: "Desfazer", run: () => toast("Alteração desfeita", { type: "info" }) },
+    });
+    if (t === "confirm") UI.confirm({
+      title: "Remover 6750-B?",
+      text: "36 portas e 3 enlaces deixam de existir na topologia.",
+      confirmLabel: "Remover equipamento", danger: true,
+      onConfirm: () => toast("Remoção registrada", { type: "warn" }),
+    });
+    if (t === "atalhos") UI.openShortcuts();
+  }));
+})();
+</script>
+</body>
+</html>

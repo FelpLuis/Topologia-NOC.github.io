@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gerenciar plataforma — UPDOWN TELECOM NOC</title>
+<link rel="icon" href="../assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker"><i class="dot dot-ok"></i> RBAC ativo • tudo auditado</span>
+        <h1 class="page-title">Gerenciar plataforma</h1>
+        <p class="page-sub">Perfis, permissões, telas, usuários e auditoria em um único lugar. Cada alteração guarda usuário, IP, data/hora e o estado anterior.</p>
+      </div>
+      <div class="row wrap">
+        <button class="btn btn-sm" id="btnExport" type="button">Exportar auditoria</button>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Módulos de administração" style="margin-bottom:var(--s-5)">
+      <button class="tab" role="tab" aria-selected="true" data-tab="perfis" id="tab-perfis" aria-controls="painel-perfis">Perfis e permissões</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="usuarios" id="tab-usuarios" aria-controls="painel-usuarios">Usuários <span class="badge" id="userCount">0</span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="telas" id="tab-telas" aria-controls="painel-telas">Telas do sistema</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="auditoria" id="tab-auditoria" aria-controls="painel-auditoria">Auditoria</button>
+    </div>
+
+    <!-- Perfis e permissões -->
+    <section id="painel-perfis" role="tabpanel" aria-labelledby="tab-perfis">
+      <div class="split">
+        <aside class="card">
+          <div class="card-head"><div><h2 style="font-size:var(--fs-14)">Perfis</h2><p>Selecione para editar.</p></div></div>
+          <div class="card-body stack" style="gap:var(--s-2)">
+            <div id="roleList" class="stack" style="gap:var(--s-2)"></div>
+            <button class="btn btn-sm btn-block" id="newRole" type="button">Criar perfil</button>
+          </div>
+        </aside>
+        <div class="card" id="roleEditor"></div>
+      </div>
+    </section>
+
+    <!-- Usuários -->
+    <section id="painel-usuarios" role="tabpanel" aria-labelledby="tab-usuarios" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Contas de acesso</h2><p>Perfil, estado e último acesso de cada conta.</p></div>
+          <button class="btn btn-sm btn-primary" id="newUser" type="button">Novo usuário</button>
+        </div>
+        <div class="card-body stack">
+          <div class="row wrap" style="gap:var(--s-3)">
+            <div class="input-affix grow" style="max-width:360px">
+              <span class="affix-icon" id="iconSearchUsers"></span>
+              <input class="input" id="userSearch" type="search" placeholder="Buscar por nome, usuário ou perfil" aria-label="Buscar usuários">
+            </div>
+            <div class="row wrap" style="gap:6px" id="userFilters">
+              <button class="chip" type="button" data-uf="todos" aria-pressed="true">Todos</button>
+              <button class="chip" type="button" data-uf="ativos" aria-pressed="false">Ativos</button>
+              <button class="chip" type="button" data-uf="inativos" aria-pressed="false">Inativos</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Usuário</th><th>Perfil</th><th>Status</th><th>Último acesso</th><th></th></tr></thead>
+              <tbody id="userRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Telas -->
+    <section id="painel-telas" role="tabpanel" aria-labelledby="tab-telas" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Telas do sistema</h2><p>Ative ou desative módulos. O acesso por perfil é definido em Perfis e permissões.</p></div>
+        </div>
+        <div class="card-body">
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Perfis com acesso</th><th>Ativa</th></tr></thead>
+              <tbody id="screenRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Auditoria -->
+    <section id="painel-auditoria" role="tabpanel" aria-labelledby="tab-auditoria" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Auditoria da plataforma</h2><p>Histórico com usuário, ação, recurso, IP e detalhes.</p></div>
+          <span class="badge" id="auditCount">0 registros</span>
+        </div>
+        <div class="card-body stack">
+          <div class="row wrap" style="gap:var(--s-3)">
+            <div class="input-affix grow" style="max-width:380px">
+              <span class="affix-icon" id="iconSearchAudit"></span>
+              <input class="input" id="auditSearch" type="search" placeholder="Buscar usuário, ação, recurso ou IP" aria-label="Buscar na auditoria">
+            </div>
+            <div class="row wrap" style="gap:6px" id="auditFilters">
+              <button class="chip" type="button" data-af="todos" aria-pressed="true">Tudo</button>
+              <button class="chip" type="button" data-af="topology" aria-pressed="false">Topologia</button>
+              <button class="chip" type="button" data-af="auth" aria-pressed="false">Acesso</button>
+              <button class="chip" type="button" data-af="user" aria-pressed="false">Usuários</button>
+            </div>
+          </div>
+          <div class="timeline" id="auditList"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="js/mock-data.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/plataforma.js"></script>
+</body>
+</html>

@@ -4,376 +4,130 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UPDOWN • Gerenciar Plataforma</title>
-<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css">
+<link rel="stylesheet" href="/css/noc/screens.css">
 <script src="/js/auth-guard.js"></script>
-<style>
-:root{
-  --p-bg:#06101d;--p-surface:#091a2a;--p-surface-2:#0d2236;--p-surface-3:#102b43;
-  --p-border:#1d405a;--p-border-strong:#2a5a78;--p-text:#edf7ff;--p-muted:#8da7ba;
-  --p-blue:#0878ff;--p-cyan:#28c7ff;--p-purple:#a56bff;--p-danger:#ef5d73;--p-ok:#31d49a;
-}
-*{box-sizing:border-box}
-html,body{min-height:100%;margin:0}
-body{
-  background:
-    radial-gradient(circle at 85% -10%,rgba(8,120,255,.18),transparent 34%),
-    radial-gradient(circle at 5% 0%,rgba(40,199,255,.08),transparent 30%),
-    var(--p-bg);
-  color:var(--p-text);
-  font-family:Inter,Segoe UI,Arial,sans-serif;
-  overflow:auto;
-}
-.platform-shell{min-height:100vh}
-.platform-topbar{
-  position:sticky;top:0;z-index:20;height:68px;
-  display:flex;align-items:center;gap:20px;padding:0 28px;
-  background:rgba(5,15,27,.92);backdrop-filter:blur(16px);
-  border-bottom:1px solid rgba(42,90,120,.7);
-}
-.brand-lockup{display:flex;align-items:center;gap:11px;min-width:220px}
-.brand-lockup img{width:42px;height:42px;object-fit:contain}
-.brand-lockup strong{font-size:18px;letter-spacing:-.02em}
-.brand-lockup strong span{color:var(--p-cyan)}
-.breadcrumb{display:flex;align-items:center;gap:8px;color:var(--p-muted);font-size:12px;border-left:1px solid var(--p-border);padding-left:20px}
-.breadcrumb b{color:#dbeeff}
-.platform-user{margin-left:auto;display:flex;align-items:center;gap:9px;min-width:145px}
-.user-avatar{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(135deg,var(--p-blue),#1452d4);font-weight:800}
-.platform-user b,.platform-user small{display:block}
-.platform-user b{font-size:11px}
-.platform-user small{color:var(--p-muted);font-size:9px;margin-top:2px;text-transform:capitalize}
-.platform-wrap{width:min(1420px,calc(100% - 48px));margin:0 auto;padding:28px 0 48px}
-.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:20px}
-.hero-copy .eyebrow{display:flex;align-items:center;gap:8px;color:var(--p-cyan);font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
-.status-dot{width:7px;height:7px;border-radius:50%;background:var(--p-ok);box-shadow:0 0 12px rgba(49,212,154,.65)}
-.hero h1{margin:0;font-size:30px;letter-spacing:-.03em}
-.hero p{margin:7px 0 0;color:var(--p-muted);font-size:12px}
-.back{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid var(--p-border-strong);border-radius:9px;background:rgba(10,30,47,.75);color:#dff4ff;text-decoration:none;font-size:11px;font-weight:700}
-.back:hover{border-color:var(--p-cyan);background:#0c2539}
-.platform-tabs{display:flex;align-items:center;gap:6px;padding:5px;margin-bottom:14px;border:1px solid var(--p-border);border-radius:12px;background:rgba(7,21,34,.85);width:max-content;max-width:100%;overflow:auto}
-.ptab{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;padding:10px 14px;border:1px solid transparent;border-radius:8px;background:transparent;color:#91aabd;cursor:pointer;font:inherit;font-size:11px;font-weight:700}
-.ptab:hover{background:#0c2235;color:#dff5ff}
-.ptab.active{background:linear-gradient(135deg,#0878ff,#1260d7);color:white;box-shadow:0 5px 18px rgba(8,120,255,.2)}
-.tab-icon{font-size:13px;opacity:.9}
-.panel{background:linear-gradient(145deg,rgba(9,27,42,.96),rgba(6,19,31,.98));border:1px solid var(--p-border);border-radius:15px;box-shadow:0 20px 55px rgba(0,0,0,.18);overflow:hidden}
-.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:20px 22px;border-bottom:1px solid var(--p-border);background:rgba(12,34,53,.45)}
-.panel-head h2{margin:0;font-size:17px}
-.panel-head p{margin:5px 0 0;color:var(--p-muted);font-size:11px;line-height:1.5}
-.panel-body{padding:20px 22px}
-.grid{display:grid;grid-template-columns:290px minmax(0,1fr);gap:20px}
-.role-column{border-right:1px solid var(--p-border);padding-right:20px}
-.section-kicker{font-size:9px;color:#6f8da2;text-transform:uppercase;letter-spacing:.13em;font-weight:800;margin-bottom:9px}
-.create-role{display:grid;gap:8px;margin-bottom:16px}
-input,select,textarea{width:100%;box-sizing:border-box;padding:10px 11px;border-radius:8px;border:1px solid #2b4d66;background:#061522;color:#e8f5fb;font:inherit;font-size:11px;outline:none}
-input::placeholder,textarea::placeholder{color:#607b8d}
-input:focus,select:focus,textarea:focus{border-color:var(--p-cyan);box-shadow:0 0 0 3px rgba(40,199,255,.08)}
-textarea{min-height:82px;resize:vertical}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 13px;border:1px solid #2779c8;border-radius:8px;background:linear-gradient(135deg,#0878ff,#1264d8);color:#fff;font-weight:800;cursor:pointer;font:inherit;font-size:10px}
-.btn:hover{filter:brightness(1.08);transform:translateY(-1px)}
-.btn.secondary{background:#0d2538;border-color:#2b4d66;color:#cfe5f0}
-.btn.danger{background:rgba(145,38,57,.2);border-color:#7e3443;color:#ffb5c1}
-.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.role-list{display:flex;flex-direction:column;gap:7px;max-height:490px;overflow:auto;padding-right:4px}
-.role-item{position:relative;padding:11px 12px;border:1px solid #1d405a;border-radius:9px;background:#071725;cursor:pointer;transition:.15s}
-.role-item:hover{border-color:#2c688c;transform:translateX(2px)}
-.role-item.active{border-color:#168cff;background:linear-gradient(90deg,rgba(8,120,255,.18),rgba(8,120,255,.05))}
-.role-item.active:before{content:"";position:absolute;left:-1px;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--p-cyan)}
-.role-item strong{display:block;font-size:11px}
-.role-item small{display:block;color:#7895a7;font-size:9px;line-height:1.4;margin-top:4px}
-.role-editor{min-width:0}
-.editor-title{display:flex;justify-content:space-between;align-items:flex-start;gap:15px}
-.editor-title h2{margin:0;font-size:16px}
-.note{color:#7895a7;font-size:10px;line-height:1.5}
-.access-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}
-.access-box{border:1px solid #1e4058;border-radius:11px;padding:14px;background:rgba(6,21,33,.75)}
-.access-box h3{margin:0 0 12px;font-size:11px;color:#cfe7f3}
-.check{display:flex;gap:9px;align-items:flex-start;margin:10px 0;padding:8px;border-radius:7px}
-.check:hover{background:#0b2134}
-.check input{width:auto;margin-top:2px;accent-color:var(--p-blue)}
-.check b{font-size:10px}
-.check small{display:block;color:#718da0;font-size:9px;line-height:1.4;margin-top:2px}
-.table-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
-.search-small{max-width:300px}
-.count{font-size:10px;color:#718da0}
-.table-wrap{overflow:auto;border:1px solid #1d405a;border-radius:10px}
-.table{width:100%;border-collapse:collapse;min-width:850px}
-.table th{position:sticky;top:0;z-index:2;padding:11px 12px;text-align:left;background:#0b2236;color:#8eb2c7;font-size:9px;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #2a4d65}
-.table td{padding:10px 12px;border-bottom:1px solid #17354a;color:#cfe1eb;font-size:10px;vertical-align:middle}
-.table tbody tr:hover td{background:rgba(18,49,72,.35)}
-.table tbody tr:last-child td{border-bottom:0}
-.table select{min-width:120px;padding:7px 8px;font-size:10px}
-.table .btn{padding:7px 9px;font-size:9px}
-.status-badge{display:inline-flex;padding:4px 7px;border-radius:99px;font-size:8px;font-weight:800;letter-spacing:.05em}
-.status-badge.ok{background:rgba(49,212,154,.1);color:#71e8ba;border:1px solid rgba(49,212,154,.22)}
-.status-badge.off{background:rgba(239,93,115,.1);color:#ff9aaa;border:1px solid rgba(239,93,115,.2)}
-.audit-date{color:#9bb4c4}
-.action-pill{display:inline-flex;padding:4px 7px;border-radius:6px;background:#102f47;color:#8fdfff;font-size:8px;font-weight:800}
-.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:9px!important;color:#8ba8b8!important}
-details summary{cursor:pointer;color:#65d6ff;font-size:9px}
-details pre{max-width:520px;white-space:pre-wrap;background:#050f19;border:1px solid #19364c;border-radius:7px;padding:10px;color:#9eb6c5;font-size:8px;overflow:auto}
-.empty-state{min-height:130px;display:grid;place-items:center;align-content:center;gap:5px;color:#6f8999}
-.empty-state span{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;border:1px solid #27516a;color:var(--p-cyan)}
-.empty-state b{font-size:11px;color:#a7c0cf}
-.empty-state small{font-size:9px}
-.loading{opacity:.6;pointer-events:none}
-@media(max-width:900px){
-  .platform-topbar{padding:0 14px}.breadcrumb{display:none}.platform-user{min-width:auto}
-  .platform-user>span:not(.user-avatar){display:none}.platform-wrap{width:calc(100% - 24px);padding:18px 0 30px}
-  .hero{align-items:flex-start;flex-direction:column}.grid{grid-template-columns:1fr}
-  .role-column{border-right:0;border-bottom:1px solid var(--p-border);padding:0 0 18px}
-  .access-grid{grid-template-columns:1fr}.platform-tabs{width:100%}
-}
-</style>
-
-<style id="platform-uiux-v2">
-/* UI/UX V2 — tela de Gerenciar Plataforma */
-html,body{
-  background:
-    radial-gradient(900px 500px at 88% -10%,rgba(8,120,255,.20),transparent 58%),
-    radial-gradient(650px 420px at 4% 0%,rgba(32,200,255,.08),transparent 55%),
-    #06101d !important;
-  color:#eaf6ff !important;
-}
-body{font-family:Inter,Segoe UI,Roboto,Arial,sans-serif!important;overflow-x:hidden!important}
-.platform-shell{min-height:100vh!important;background:linear-gradient(180deg,rgba(5,16,29,.72),rgba(5,16,29,.96))!important}
-.platform-topbar{
-  height:72px!important;padding:0 32px!important;
-  background:rgba(4,15,28,.96)!important;
-  border-bottom:1px solid #183d59!important;
-  box-shadow:0 10px 30px rgba(0,0,0,.22)!important
-}
-.brand-lockup{color:#f5fbff!important;text-decoration:none!important}
-.brand-lockup img{width:40px!important;height:40px!important;filter:drop-shadow(0 0 10px rgba(32,200,255,.15))!important}
-.brand-lockup strong{color:#f5fbff!important;font-size:18px!important}
-.brand-lockup strong span{color:#20c8ff!important}
-.breadcrumb{color:#7897ab!important;border-left-color:#21455e!important}
-.breadcrumb b{color:#dff4ff!important}
-.platform-user b{color:#eaf7ff!important}
-.platform-user small{color:#7e9aad!important}
-.user-avatar{background:linear-gradient(135deg,#0878ff,#075bd9)!important;color:#fff!important}
-.platform-wrap{width:min(1500px,calc(100% - 56px))!important;padding:34px 0 60px!important}
-.hero{margin-bottom:22px!important;padding:4px 2px!important}
-.hero-copy .eyebrow{color:#20c8ff!important}
-.hero h1{color:#f4faff!important;font-size:32px!important;font-weight:800!important;letter-spacing:-.035em!important;text-shadow:none!important}
-.hero p{color:#8ba8ba!important;max-width:700px!important}
-.back{color:#dff5ff!important;background:#0a1d2e!important;border-color:#285572!important;min-height:40px!important}
-.back:hover{color:#fff!important;background:#0d2a40!important;border-color:#20c8ff!important}
-.platform-tabs{
-  width:100%!important;padding:5px!important;margin-bottom:18px!important;
-  background:#071726!important;border:1px solid #1d425d!important;
-  box-shadow:0 10px 28px rgba(0,0,0,.16)!important
-}
-.ptab{color:#89a6b8!important;min-height:42px!important;padding:10px 16px!important}
-.ptab:hover{color:#eaf8ff!important;background:#0c2538!important}
-.ptab.active{color:#fff!important;background:linear-gradient(135deg,#0878ff,#075bd9)!important;box-shadow:0 7px 20px rgba(8,120,255,.22)!important}
-.tab-icon{color:#8fe7ff!important}
-.panel{
-  background:linear-gradient(145deg,#091b2b,#071522)!important;
-  border:1px solid #1e4661!important;border-radius:16px!important;
-  box-shadow:0 24px 70px rgba(0,0,0,.26)!important
-}
-.panel-head{
-  padding:22px 24px!important;
-  background:linear-gradient(90deg,rgba(13,42,64,.76),rgba(8,26,42,.42))!important;
-  border-bottom:1px solid #1c425b!important
-}
-.panel-head h2{color:#f0f9ff!important;font-size:18px!important;font-weight:800!important}
-.panel-head p{color:#829fb2!important}
-.panel-body{padding:24px!important}
-.grid{grid-template-columns:310px minmax(0,1fr)!important;gap:24px!important}
-.role-column{border-right-color:#1b4059!important;padding-right:22px!important}
-.section-kicker{color:#6fa0ba!important}
-.create-role input,input,select,textarea{
-  background:#061522!important;color:#eaf6ff!important;border-color:#294f69!important
-}
-input::placeholder,textarea::placeholder{color:#668397!important}
-input:focus,select:focus,textarea:focus{border-color:#20c8ff!important;box-shadow:0 0 0 3px rgba(32,200,255,.08)!important}
-.btn{min-height:38px!important;border-radius:9px!important;background:linear-gradient(135deg,#0878ff,#075dd8)!important;border-color:#147df0!important}
-.btn.secondary{background:#0b2235!important;border-color:#2a526c!important;color:#d6ebf5!important}
-.btn.danger{background:rgba(183,43,65,.12)!important;border-color:#793545!important;color:#ffacba!important}
-.role-list{max-height:510px!important;padding-right:5px!important}
-.role-item{padding:14px!important;border-color:#1c4059!important;background:#071827!important}
-.role-item strong{color:#e5f4fc!important;font-size:12px!important}
-.role-item small{color:#7f9caf!important}
-.role-item:hover{background:#0a2236!important;border-color:#2c688c!important}
-.role-item.active{background:linear-gradient(90deg,rgba(8,120,255,.18),rgba(8,120,255,.04))!important;border-color:#168cff!important}
-.role-item.active strong{color:#fff!important}
-.role-editor{
-  background:rgba(5,18,30,.32)!important;border:1px solid rgba(29,64,88,.7)!important;
-  border-radius:13px!important;padding:20px!important;min-height:470px!important
-}
-.role-editor>h2{color:#f1f9ff!important;margin:0 0 12px!important;font-size:20px!important}
-.note{color:#7f9daf!important}
-.access-grid{gap:16px!important;margin-top:18px!important}
-.access-box{background:#071725!important;border-color:#20465f!important;border-radius:12px!important;padding:16px!important}
-.access-box h3{color:#e0f3fc!important;font-size:12px!important;padding-bottom:11px!important;margin-bottom:4px!important;border-bottom:1px solid #17394f!important}
-.check{margin:6px 0!important;padding:10px!important}
-.check:hover{background:#0b2235!important}
-.check b{color:#dceefa!important}
-.check small{color:#7693a5!important}
-.table-wrap{border-color:#1e445e!important;background:#061522!important}
-.table th{background:#0a2032!important;color:#8eb7ca!important;border-bottom-color:#234b64!important}
-.table td{color:#d2e5ef!important;border-bottom-color:#16364b!important}
-.table tbody tr:hover td{background:rgba(19,53,77,.42)!important}
-.table select{background:#071827!important;color:#dceef7!important}
-.action-pill{background:#10324a!important;color:#8ee3ff!important}
-.audit-date{color:#a7c0cd!important}
-details summary{color:#4ed2ff!important}
-.status-badge.ok{color:#70e7b9!important;background:rgba(49,212,154,.09)!important;border-color:rgba(49,212,154,.22)!important}
-.platform-shell *::-webkit-scrollbar{width:8px;height:8px}
-.platform-shell *::-webkit-scrollbar-track{background:#06131f}
-.platform-shell *::-webkit-scrollbar-thumb{background:#1b425b;border-radius:10px}
-.platform-shell *::-webkit-scrollbar-thumb:hover{background:#286783}
-@media(max-width:900px){
-  .platform-topbar{padding:0 16px!important}
-  .platform-wrap{width:calc(100% - 24px)!important;padding:22px 0 35px!important}
-  .hero h1{font-size:27px!important}
-  .grid{grid-template-columns:1fr!important}
-  .role-column{border-right:0!important;border-bottom:1px solid #1b4059!important;padding:0 0 20px!important}
-  .role-editor{padding:16px!important}
-}
-</style>
-
-<link rel="stylesheet" href="/css/uiux-v3.css">
-<link rel="stylesheet" href="/css/uiux-v4.css">
 </head>
 <body>
-<div class="platform-shell">
-<header class="platform-topbar">
-  <a class="brand-lockup" href="/" aria-label="UPDOWN Telecom">
-    <img src="/assets/brand/updown-symbol.png" alt="UPDOWN">
-    <strong>UPDOWN <span>TELECOM</span></strong>
-  </a>
-  <div class="breadcrumb"><span>Plataforma</span><span>›</span><b>Administração</b></div>
-  <div id="currentUser" class="platform-user"><span class="user-avatar">A</span><span><b>Administrador</b><small>carregando...</small></span></div>
-</header>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
 
-<main class="platform-wrap">
-  <section class="hero">
-    <div class="hero-copy">
-      <div class="eyebrow"><span class="status-dot"></span> Administração da plataforma</div>
-      <h1>Gerenciar Plataforma</h1>
-      <p>Controle perfis, permissões, usuários, telas e auditoria em um único painel.</p>
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker"><i class="dot dot-ok"></i> RBAC ativo • tudo auditado</span>
+        <h1 class="page-title">Gerenciar plataforma</h1>
+        <p class="page-sub">Perfis, permissões, telas, usuários e auditoria em um único lugar. Cada alteração guarda usuário, IP, data/hora e o estado anterior.</p>
+      </div>
+      <div class="row wrap">
+        <button class="btn btn-sm" id="btnExport" type="button">Exportar auditoria</button>
+      </div>
     </div>
-    <a class="back" href="/">← Voltar para a topologia</a>
-  </section>
 
-  <nav class="platform-tabs" aria-label="Módulos de administração">
-    <button class="ptab active" data-tab="profiles"><span class="tab-icon">◈</span>Perfis e permissões</button>
-    <button class="ptab" data-tab="users"><span class="tab-icon">♙</span>Usuários</button>
-    <button class="ptab" data-tab="screens"><span class="tab-icon">▦</span>Telas do sistema</button>
-    <button class="ptab" data-tab="audit"><span class="tab-icon">◷</span>Auditoria</button>
-  </nav>
+    <div class="tabs" role="tablist" aria-label="Módulos de administração" style="margin-bottom:var(--s-5)">
+      <button class="tab" role="tab" aria-selected="true" data-tab="perfis" id="tab-perfis" aria-controls="painel-perfis">Perfis e permissões</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="usuarios" id="tab-usuarios" aria-controls="painel-usuarios">Usuários <span class="badge" id="userCount">0</span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="telas" id="tab-telas" aria-controls="painel-telas">Telas do sistema</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="auditoria" id="tab-auditoria" aria-controls="painel-auditoria">Auditoria</button>
+    </div>
 
-  <section id="profiles" class="panel">
-    <div class="panel-head"><div><h2>Perfis e permissões</h2><p>Crie perfis personalizados e defina exatamente o que cada função pode acessar.</p></div><span class="status-badge ok">RBAC ATIVO</span></div>
-    <div class="panel-body">
-      <div class="grid">
-        <aside class="role-column">
-          <div class="section-kicker">Novo perfil</div>
-          <div class="create-role"><input id="newRoleName" placeholder="Ex.: Supervisor NOC"><input id="newRoleDesc" placeholder="Descrição do perfil"></div>
-          <button class="btn" id="createRole">＋ Criar perfil</button>
-          <div class="section-kicker" style="margin-top:20px">Perfis existentes</div>
-          <div id="roleList" class="role-list"></div>
+    <!-- Perfis e permissões -->
+    <section id="painel-perfis" role="tabpanel" aria-labelledby="tab-perfis">
+      <div class="split">
+        <aside class="card">
+          <div class="card-head"><div><h2 style="font-size:var(--fs-14)">Perfis</h2><p>Selecione para editar.</p></div></div>
+          <div class="card-body stack" style="gap:var(--s-2)">
+            <div id="roleList" class="stack" style="gap:var(--s-2)"></div>
+            <button class="btn btn-sm btn-block" id="newRole" type="button">Criar perfil</button>
+          </div>
         </aside>
-        <div id="roleEditor" class="role-editor"><div class="empty-state"><span>◈</span><b>Selecione um perfil</b><small>As permissões e telas aparecerão aqui.</small></div></div>
+        <div class="card" id="roleEditor"></div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="users" class="panel" hidden>
-    <div class="panel-head"><div><h2>Gerenciar usuários</h2><p>Crie contas, altere perfis e controle o acesso operacional.</p></div><span class="status-badge ok">AUDITADO</span></div>
-    <div class="panel-body">
-      <form id="userForm">
-        <div class="form-row"><input id="uName" placeholder="Usuário de acesso" required><input id="uDisplay" placeholder="Nome completo" required></div>
-        <div class="form-row" style="margin-top:9px"><input id="uPass" type="password" placeholder="Senha inicial — mínimo 8 caracteres" required><select id="uRole"></select></div>
-        <div class="actions"><button class="btn">＋ Criar usuário</button></div>
-      </form>
-      <div id="userMsg" class="note" style="margin:10px 0"></div>
-      <div class="table-toolbar"><span class="count">Contas cadastradas</span></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Status</th><th>Último acesso</th><th>Ações</th></tr></thead><tbody id="usersBody"></tbody></table></div>
-    </div>
-  </section>
-
-  <section id="screens" class="panel" hidden>
-    <div class="panel-head"><div><h2>Telas do sistema</h2><p>Controle quais módulos estão ativos na plataforma. O acesso por função é definido em Perfis.</p></div><span class="status-badge ok">CONTROLE DE ACESSO</span></div>
-    <div class="panel-body">
-      <div class="table-wrap"><table class="table"><thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Status</th><th>Ação</th></tr></thead><tbody id="screensBody"></tbody></table></div>
-    </div>
-  </section>
-
-  <section id="audit" class="panel" hidden>
-    <div class="panel-head"><div><h2>Auditoria da plataforma</h2><p>Histórico das alterações administrativas, com usuário, recurso, IP e detalhes.</p></div><span id="auditCount" class="count">0 registros</span></div>
-    <div class="panel-body">
-      <div class="table-toolbar">
-        <input id="auditSearch" class="search-small" placeholder="Pesquisar usuário, ação, recurso ou IP">
-        <button id="refreshAudit" class="btn secondary">↻ Atualizar</button>
+    <!-- Usuários -->
+    <section id="painel-usuarios" role="tabpanel" aria-labelledby="tab-usuarios" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Contas de acesso</h2><p>Perfil, estado e último acesso de cada conta.</p></div>
+          <button class="btn btn-sm btn-primary" id="newUser" type="button">Novo usuário</button>
+        </div>
+        <div class="card-body stack">
+          <div class="row wrap" style="gap:var(--s-3)">
+            <div class="input-affix grow" style="max-width:360px">
+              <span class="affix-icon" id="iconSearchUsers"></span>
+              <input class="input" id="userSearch" type="search" placeholder="Buscar por nome, usuário ou perfil" aria-label="Buscar usuários">
+            </div>
+            <div class="row wrap" style="gap:6px" id="userFilters">
+              <button class="chip" type="button" data-uf="todos" aria-pressed="true">Todos</button>
+              <button class="chip" type="button" data-uf="ativos" aria-pressed="false">Ativos</button>
+              <button class="chip" type="button" data-uf="inativos" aria-pressed="false">Inativos</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Usuário</th><th>Perfil</th><th>Status</th><th>Último acesso</th><th></th></tr></thead>
+              <tbody id="userRows"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Data</th><th>Usuário</th><th>Ação</th><th>Recurso</th><th>IP</th><th>Detalhes</th></tr></thead><tbody id="auditBody"></tbody></table></div>
-    </div>
-  </section>
-</main>
+    </section>
+
+    <!-- Telas -->
+    <section id="painel-telas" role="tabpanel" aria-labelledby="tab-telas" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Telas do sistema</h2><p>Ative ou desative módulos. O acesso por perfil é definido em Perfis e permissões.</p></div>
+        </div>
+        <div class="card-body">
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Perfis com acesso</th><th>Ativa</th></tr></thead>
+              <tbody id="screenRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Auditoria -->
+    <section id="painel-auditoria" role="tabpanel" aria-labelledby="tab-auditoria" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Auditoria da plataforma</h2><p>Histórico com usuário, ação, recurso, IP e detalhes.</p></div>
+          <span class="badge" id="auditCount">0 registros</span>
+        </div>
+        <div class="card-body stack">
+          <div class="row wrap" style="gap:var(--s-3)">
+            <div class="input-affix grow" style="max-width:380px">
+              <span class="affix-icon" id="iconSearchAudit"></span>
+              <input class="input" id="auditSearch" type="search" placeholder="Buscar usuário, ação, recurso ou IP" aria-label="Buscar na auditoria">
+            </div>
+            <div class="row wrap" style="gap:6px" id="auditFilters">
+              <button class="chip" type="button" data-af="todos" aria-pressed="true">Tudo</button>
+              <button class="chip" type="button" data-af="topology" aria-pressed="false">Topologia</button>
+              <button class="chip" type="button" data-af="auth" aria-pressed="false">Acesso</button>
+              <button class="chip" type="button" data-af="user" aria-pressed="false">Usuários</button>
+            </div>
+          </div>
+          <div class="timeline" id="auditList"></div>
+        </div>
+      </div>
+    </section>
+  </main>
 </div>
-<script>
 
-async function api(url,opt={}){const r=await fetch(url,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"Erro");return d}
-(async()=>{try{const m=await api("/api/auth/me");if(!m.authenticated||m.user.role!=="administrador")location.replace("/");}catch(e){location.replace("/login.html")}})();
-let model={roles:[],permissions:[],screens:[],rolePermissions:[],roleScreens:[]};
-let selectedRole=null;
-function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
-async function loadModel(){model=await api("/api/platform/roles");renderRoles();renderRoleEditor();renderUsers();renderScreens();document.getElementById("uRole").innerHTML=model.roles.map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}
-function renderRoles(){roleList.innerHTML=model.roles.map(r=>`<div class="role-item ${selectedRole?.id===r.id?"active":""}" data-id="${r.id}"><strong>${esc(r.name)}</strong><small>${esc(r.description)}</small></div>`).join("");roleList.querySelectorAll(".role-item").forEach(x=>x.onclick=()=>{selectedRole=model.roles.find(r=>r.id==x.dataset.id);renderRoles();renderRoleEditor()})}
-function renderRoleEditor(){
- if(!selectedRole){roleEditor.innerHTML="<p class=note>Selecione um perfil.</p>";return}
- const pids=new Set(model.rolePermissions.filter(x=>x.role_id===selectedRole.id).map(x=>x.permission_id));
- const sids=new Set(model.roleScreens.filter(x=>x.role_id===selectedRole.id).map(x=>x.screen_id));
- roleEditor.innerHTML=`<h2>Perfil: ${esc(selectedRole.name)}</h2><textarea id=roleDesc>${esc(selectedRole.description)}</textarea>
- <div class=access-grid><div class=access-box><h3>Permissões</h3>${model.permissions.map(p=>`<label class=check><input type=checkbox data-perm="${p.id}" ${pids.has(p.id)?"checked":""}><span><b>${esc(p.code)}</b><br><small>${esc(p.description)}</small></span></label>`).join("")}</div>
- <div class=access-box><h3>Telas permitidas</h3>${model.screens.map(s=>`<label class=check><input type=checkbox data-screen="${s.id}" ${sids.has(s.id)&&s.active?"checked":""} ${!s.active?"disabled":""}><span><b>${esc(s.name)}</b><br><small>${esc(s.route)} — ${esc(s.description)}</small></span></label>`).join("")}</div></div>
- <div class=actions><button class="btn" id=saveAccess>Salvar permissões e telas</button>${selectedRole.name!=="administrador"?`<button class="btn danger" id=deleteRole>Excluir perfil</button>`:""}</div><div id=roleMsg class=note></div>`;
- document.getElementById("saveAccess").onclick=async()=>{
-  const permissionIds=[...roleEditor.querySelectorAll("[data-perm]:checked")].map(x=>Number(x.dataset.perm));
-  const screenIds=[...roleEditor.querySelectorAll("[data-screen]:checked")].map(x=>Number(x.dataset.screen));
-  try{await api("/api/platform/roles/"+selectedRole.id+"/access",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({permissionIds,screenIds,description:roleDesc.value})});
-    await api("/api/platform/roles/"+selectedRole.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:roleDesc.value})});
-    roleMsg.textContent="Permissões e telas salvas e auditadas.";await (async()=>{try{const m=await api("/api/auth/me");const u=m.user||{};const el=document.getElementById("currentUser");if(el)el.innerHTML=`<span class="user-avatar">${esc((u.display_name||u.username||"A").slice(0,1).toUpperCase())}</span><span><b>${esc(u.display_name||u.username||"Administrador")}</b><small>${esc(u.role||"administrador")}</small></span>`;}catch{}})();
-loadModel();
-  }catch(e){roleMsg.textContent=e.message}
- };
- document.getElementById("deleteRole")?.addEventListener("click",async()=>{if(!confirm("Excluir este perfil?"))return;try{await api("/api/platform/roles/"+selectedRole.id,{method:"DELETE"});selectedRole=null;await loadModel()}catch(e){alert(e.message)}});
-}
-createRole.onclick=async()=>{try{const r=await api("/api/platform/roles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:newRoleName.value,description:newRoleDesc.value})});newRoleName.value="";newRoleDesc.value="";selectedRole=r;await loadModel()}catch(e){alert(e.message)}}
-async function renderUsers(){
- const a=await api("/api/users");usersBody.innerHTML=a.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td><td><select data-user-role="${u.id}">${model.roles.map(r=>`<option value="${esc(r.name)}" ${r.name===u.role?"selected":""}>${esc(r.name)}</option>`).join("")}</select></td><td>${u.active?"SIM":"NÃO"}</td><td>${u.last_login_at||"—"}</td><td><button onclick="toggleUser(${u.id},${u.active})">${u.active?"Desativar":"Ativar"}</button> <button class=btn onclick="resetUser(${u.id})">Redefinir senha</button></td></tr>`).join("");
- usersBody.querySelectorAll("[data-user-role]").forEach(x=>x.onchange=async()=>{try{await api("/api/users/"+x.dataset.userRole,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:x.value})})}catch(e){alert(e.message);await renderUsers()}});
-}
-async function toggleUser(id,active){try{await api("/api/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:!active})});renderUsers()}catch(e){alert(e.message)}}
-async function resetUser(id){const p=prompt("Nova senha (mínimo 8 caracteres):");if(!p)return;try{await api("/api/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:p})});alert("Senha redefinida e ação auditada.")}catch(e){alert(e.message)}}
-userForm.onsubmit=async e=>{e.preventDefault();try{await api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:uName.value,display_name:uDisplay.value,password:uPass.value,role:uRole.value})});e.target.reset();await renderUsers()}catch(e){userMsg.textContent=e.message}}
-function renderScreens(){screensBody.innerHTML=model.screens.map(s=>`<tr><td><b>${esc(s.name)}</b><br><small>${esc(s.code)}</small></td><td>${esc(s.route)}</td><td>${esc(s.description)}</td><td>${s.active?"ATIVA":"INATIVA"}</td><td><button onclick="toggleScreen(${s.id},${s.active})">${s.active?"Desativar":"Ativar"}</button></td></tr>`).join("")}
-async function toggleScreen(id,active){try{await api("/api/platform/screens/"+id,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:!active})});await loadModel()}catch(e){alert(e.message)}}
-let auditCache=[];
-async function loadAudit(){
-  const a=await api("/api/audit?limit=300"); auditCache=a||[]; renderAudit();
-}
-function renderAudit(){
-  const q=(document.getElementById("auditSearch")?.value||"").toLowerCase().trim();
-  const rows=auditCache.filter(x=>!q || JSON.stringify(x).toLowerCase().includes(q));
-  auditBody.innerHTML=rows.length?rows.map(x=>`<tr>
-    <td><span class="audit-date">${esc(x.occurred_at||x.created_at||"—")}</span></td>
-    <td><strong>${esc(x.username||"sistema")}</strong></td>
-    <td><span class="action-pill">${esc(x.action)}</span></td>
-    <td>${esc(x.resource_type)} ${esc(x.resource_id||"")}</td>
-    <td class="mono">${esc(x.ip||"—")}</td>
-    <td><details><summary>Ver detalhes</summary><pre>${esc(JSON.stringify({before:x.before_json,after:x.after_json,details:x.details_json},null,2))}</pre></details></td>
-  </tr>`).join(""):`<tr><td colspan="6"><div class="empty-state"><span>✓</span><b>Nenhum registro encontrado</b><small>Tente outro termo de pesquisa.</small></div></td></tr>`;
-  const c=document.getElementById("auditCount"); if(c)c.textContent=`${rows.length} registro${rows.length===1?"":"s"}`;
-}
-document.querySelectorAll(".ptab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".ptab").forEach(x=>x.classList.remove("active"));b.classList.add("active");["profiles","users","screens","audit"].forEach(id=>document.getElementById(id).hidden=id!==b.dataset.tab);if(b.dataset.tab==="audit")loadAudit()});
-(async()=>{try{const m=await api("/api/auth/me");const u=m.user||{};const el=document.getElementById("currentUser");if(el)el.innerHTML=`<span class="user-avatar">${esc((u.display_name||u.username||"A").slice(0,1).toUpperCase())}</span><span><b>${esc(u.display_name||u.username||"Administrador")}</b><small>${esc(u.role||"administrador")}</small></span>`;}catch{}})();
-loadModel();
+<nav data-mobile-nav aria-label="Navegação"></nav>
 
-document.getElementById("auditSearch")?.addEventListener("input",renderAudit);
-document.getElementById("refreshAudit")?.addEventListener("click",async()=>{const b=document.getElementById("refreshAudit");b.classList.add("loading");try{await loadAudit()}finally{b.classList.remove("loading")}});
-</script>
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-platform.js"></script>
 </body>
 </html>

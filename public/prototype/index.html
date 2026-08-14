@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Protótipo do novo front — UPDOWN TELECOM NOC</title>
+<link rel="icon" href="../assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<a class="skip-link" href="#telas">Ir para a lista de telas</a>
+
+<header class="appbar">
+  <a class="brand" href="index.html">
+    <img src="../assets/brand/updown-symbol.png" alt="">
+    <span class="brand-name">UPDOWN <span>TELECOM</span></span>
+  </a>
+  <div class="appbar-actions">
+    <button class="btn btn-ghost btn-icon" data-palette-open type="button" aria-label="Abrir paleta de comandos">⌘K</button>
+    <button class="btn btn-ghost btn-icon" data-theme-toggle type="button"></button>
+    <a class="btn btn-sm btn-primary" href="login.html">Começar pelo login</a>
+  </div>
+</header>
+
+<main class="hub">
+  <section class="hub-hero">
+    <span class="kicker"><i class="dot dot-info dot-live"></i> Protótipo navegável • v1</span>
+    <h1>Um novo front para o NOC da UPDOWN</h1>
+    <p>Mesma identidade, mesma operação — reorganizada em torno de como o time realmente trabalha:
+    achar rápido, entender o estado da rede em segundos e alterar com segurança. Dados reais da topologia,
+    gravação desativada.</p>
+    <div class="row" style="justify-content:center;margin-top:var(--s-6);flex-wrap:wrap">
+      <a class="btn btn-primary btn-lg" href="login.html">Ver o fluxo completo</a>
+      <a class="btn btn-lg" href="topologia.html">Ir direto à topologia</a>
+    </div>
+  </section>
+
+  <section id="telas" class="hub-grid"></section>
+
+  <section style="margin-top:var(--s-16)">
+    <span class="kicker">Decisões de UX</span>
+    <h2 class="page-title" style="margin-bottom:var(--s-5)">O que muda na prática</h2>
+    <div class="hub-grid" id="decisoes"></div>
+  </section>
+
+  <section class="card" style="margin-top:var(--s-10)">
+    <div class="card-head">
+      <div><h2>Como testar em 2 minutos</h2><p>Roteiro curto para avaliar o protótipo.</p></div>
+      <span class="badge badge-info">passo a passo</span>
+    </div>
+    <div class="card-body">
+      <ol class="stack" style="gap:var(--s-3);padding-left:var(--s-5);color:var(--text-2);font-size:var(--fs-13)">
+        <li>Entre com <code>admin</code> / <code>admin</code> e veja a troca de senha obrigatória com medidor de força.</li>
+        <li>Na topologia, clique em <b>ASCENTY</b>: a localidade expande e mostra os equipamentos e os enlaces internos.</li>
+        <li>Abra um equipamento, use a aba <b>Portas</b> e clique numa porta em uso para ver o enlace.</li>
+        <li>Em <b>Gerenciar rede → Vínculo com POP</b>, vincule o <b>NE8000-M8</b> a um POP e depois abra o Dashboard: o POP passa a contar esse equipamento.</li>
+        <li>Pressione <span class="kbd">Ctrl</span> <span class="kbd">K</span> e navegue por qualquer equipamento pelo teclado.</li>
+        <li>Pressione <span class="kbd">T</span> para alternar tema claro/escuro em qualquer tela.</li>
+      </ol>
+    </div>
+  </section>
+
+  <footer style="margin-top:var(--s-12);text-align:center;color:var(--text-3);font-size:var(--fs-11)">
+    UPDOWN TELECOM • protótipo de interface do NOC — nenhuma alteração é gravada.
+  </footer>
+</main>
+
+<script src="js/mock-data.js"></script>
+<script src="js/ui.js"></script>
+<script>
+(() => {
+  const { $, esc, icon } = UI;
+  UI.applyTheme(document.documentElement.dataset.theme);
+  $("[data-theme-toggle]").onclick = UI.toggleTheme;
+  $("[data-palette-open]").onclick = () => UI.openPalette();
+
+  const telas = [
+    { href: "login.html", icon: "lock", nome: "Login", desc: "Entrada com validação por campo, aviso de Caps Lock, mostrar senha e estado de espera real no botão.", tags: ["Acesso", "Erro tratado"] },
+    { href: "nova-senha.html", icon: "shield", nome: "Definir nova senha", desc: "Troca obrigatória no primeiro acesso, com força da senha e requisitos visíveis enquanto digita.", tags: ["Segurança"] },
+    { href: "topologia.html", icon: "topology", nome: "Topologia", desc: "Mapa por localidade: cada POP é uma caixa que expande nos equipamentos, enlaces e anel óptico.", tags: ["Principal", "Zoom e teclado"] },
+    { href: "pops.html", icon: "pops", nome: "POPs e anel", desc: "Ficha de cada POP, rotas aérea e subterrânea, ocupação e vínculo de equipamentos.", tags: ["Campo"] },
+    { href: "dashboard.html", icon: "dashboard", nome: "Dashboard NOC", desc: "Indicadores, tráfego 24 h, alertas e ocupação por POP. Tem modo TV para o telão.", tags: ["Operação", "Modo TV"] },
+    { href: "plataforma.html", icon: "platform", nome: "Gerenciar plataforma", desc: "Perfis e permissões, telas, usuários e auditoria em linha do tempo.", tags: ["RBAC", "Auditoria"] },
+    { href: "design-system.html", icon: "edit", nome: "Design system", desc: "Cores, tipografia, componentes e regras de acessibilidade que sustentam todas as telas.", tags: ["Base"] },
+  ];
+
+  $("#telas").innerHTML = telas.map((t) => `
+    <a class="card card-interactive hub-card" href="${t.href}">
+      <span class="hub-icon">${icon(t.icon)}</span>
+      <h3>${esc(t.nome)}</h3>
+      <p>${esc(t.desc)}</p>
+      <span class="hub-tags">${t.tags.map((x) => `<span class="badge">${esc(x)}</span>`).join("")}</span>
+    </a>`).join("");
+
+  const decisoes = [
+    { icon: "search", nome: "Uma porta de entrada para buscar", desc: "Busca do topo e paleta de comandos são a mesma coisa (Ctrl+K). Equipamento, POP, tela ou ação — tudo pelo mesmo campo." },
+    { icon: "topology", nome: "Mapa em dois níveis", desc: "A rede começa por localidade. Só o POP que interessa é expandido, em vez de 12 caixas competindo por atenção na mesma tela." },
+    { icon: "link", nome: "Vínculo explícito com o POP", desc: "O equipamento pertence a um POP por cadastro, não por adivinhação de texto. É esse campo que organiza o Dashboard." },
+    { icon: "refresh", nome: "Desfazer em vez de confirmar", desc: "Ações reversíveis salvam direto e oferecem desfazer. Só o que é destrutivo pede confirmação, sempre dizendo o que se perde." },
+    { icon: "shield", nome: "Permissão visível", desc: "O que seu perfil não pode fazer aparece desabilitado com o motivo, em vez de sumir ou dar erro depois do clique." },
+    { icon: "keyboard", nome: "Operável sem mouse", desc: "Navegação, mapa, filtros e modais respondem ao teclado, com foco visível e leitura por leitor de tela." },
+  ];
+
+  $("#decisoes").innerHTML = decisoes.map((d) => `
+    <article class="card hub-card">
+      <span class="hub-icon">${icon(d.icon)}</span>
+      <h3>${esc(d.nome)}</h3>
+      <p>${esc(d.desc)}</p>
+    </article>`).join("");
+})();
+</script>
+</body>
+</html>

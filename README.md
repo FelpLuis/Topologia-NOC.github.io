@@ -580,3 +580,25 @@ texto `U`/`UP` como substituto.
 ## Logo oficial na tela de login
 
 A tela de login deve utilizar `public/assets/updown-symbol.png`, que é exatamente o símbolo gráfico enviado pelo usuário. Não utilizar texto `U`, `UP` ou `up` como substituto.
+
+
+## Novo front do NOC (V2)
+
+A interface foi refeita sobre a mesma API, o mesmo D1 e o mesmo RBAC:
+
+- `/` — topologia em dois níveis: **POP → equipamentos → portas**, com expandir/recolher por localidade;
+- `/pops.html` — POPs, rotas do anel e vínculo de equipamentos;
+- `/dashboard.html` — Dashboard NOC agrupado pelo POP vinculado, com modo TV;
+- `/platform.html` — perfis, permissões, telas, usuários e auditoria;
+- `/login.html` e `/change-password.html` — acesso e troca de senha;
+- `/legado.html` — **editor clássico completo**, com o markup e o `js/app.js` originais (portas, enlaces, POPs e títulos).
+
+O equipamento passou a ter o campo `popId`: um equipamento pertence a um único POP,
+e é esse vínculo que organiza o Dashboard. Vincular/desvincular fica em
+**Topologia → Gerenciar rede → Vínculo com POP** e é gravado por `PUT /api/topology`,
+com auditoria. Equipamento sem vínculo aparece em "Sem POP vinculado", nunca some.
+
+Detalhes de arquitetura, decisões de UX e o que ainda vive no editor clássico:
+[FRONT-NOC-V2.md](FRONT-NOC-V2.md).
+
+Protótipo navegável (dados fixos, sem API): `public/prototype/index.html`.

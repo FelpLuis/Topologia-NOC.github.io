@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entrar — UPDOWN TELECOM NOC</title>
+<meta name="description" content="Acesso à plataforma de topologia e operação de rede da UPDOWN TELECOM.">
+<link rel="icon" href="../assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<a class="skip-link" href="#formLogin">Ir para o formulário de acesso</a>
+
+<div class="auth">
+  <!-- Painel de marca: contexto do produto antes de pedir credencial. -->
+  <section class="auth-visual">
+    <div class="auth-net" aria-hidden="true">
+      <svg viewBox="0 0 620 620" preserveAspectRatio="xMidYMid slice">
+        <path class="net-edge is-hot" d="M70 250 C170 140 220 120 320 160 S470 200 560 110"/>
+        <path class="net-edge" d="M70 250 C140 280 200 320 300 300 S440 265 560 360"/>
+        <path class="net-edge" d="M150 430 C190 350 220 290 320 160"/>
+        <path class="net-edge" d="M300 300 C350 350 400 420 490 450"/>
+        <path class="net-edge" d="M320 160 C332 230 318 265 300 300"/>
+        <path class="net-edge" d="M490 450 C515 375 480 330 560 360"/>
+        <circle class="net-node" cx="70" cy="250" r="12"/>
+        <circle class="net-node" cx="150" cy="430" r="12"/>
+        <circle class="net-node" cx="560" cy="110" r="12"/>
+        <circle class="net-node" cx="560" cy="360" r="12"/>
+        <circle class="net-node" cx="490" cy="450" r="12"/>
+        <circle class="net-core" cx="320" cy="160" r="26"/>
+        <circle class="net-core" cx="300" cy="300" r="22"/>
+        <text class="net-label" x="298" y="164">CORE</text>
+        <text class="net-label" x="282" y="304">POP</text>
+        <text class="net-label" x="40" y="280">ASCENTY</text>
+        <text class="net-label" x="528" y="92">BGP</text>
+        <text class="net-label" x="524" y="386">MPLS</text>
+        <text class="net-label" x="462" y="476">SANTOS</text>
+        <circle class="net-pulse net-pulse-anim" cx="70" cy="250" r="4"/>
+        <circle class="net-pulse net-pulse-anim d2" cx="150" cy="430" r="4"/>
+        <circle class="net-pulse net-pulse-anim d3" cx="320" cy="160" r="4"/>
+      </svg>
+    </div>
+
+    <div style="position:relative">
+      <a class="brand brand-lg" href="index.html">
+        <img src="../assets/brand/updown-symbol.png" alt="">
+        <span class="brand-name">UPDOWN <span>TELECOM</span></span>
+      </a>
+    </div>
+
+    <div style="position:relative">
+      <span class="kicker"><i class="dot dot-info dot-live"></i> NOC • Network Intelligence</span>
+      <h1>Visibilidade total da rede, <em>em uma tela só.</em></h1>
+      <p>Topologia, POPs, equipamentos, portas e capacidade — com histórico auditado de cada alteração e controle de acesso por função.</p>
+    </div>
+
+    <div class="auth-stats">
+      <div><strong>12</strong><small>Equipamentos</small></div>
+      <div><strong>5</strong><small>POPs no anel</small></div>
+      <div><strong>275</strong><small>Portas mapeadas</small></div>
+      <div><strong>100%</strong><small>Ações auditadas</small></div>
+    </div>
+  </section>
+
+  <!-- Painel de acesso -->
+  <section class="auth-panel">
+    <main class="auth-card">
+      <a class="brand brand-lg" href="index.html">
+        <img src="../assets/brand/updown-symbol.png" alt="">
+        <span class="brand-name">UPDOWN <span>TELECOM</span></span>
+      </a>
+
+      <span class="kicker">Acesso seguro</span>
+      <h1 class="page-title" style="font-size:var(--fs-32)">Entrar no NOC</h1>
+      <p class="page-sub">Use as credenciais corporativas. Sessões expiram em 7 dias ou ao encerrar o acesso.</p>
+
+      <form class="auth-form" id="formLogin" novalidate>
+        <div class="field">
+          <label for="username">Usuário</label>
+          <div class="input-affix">
+            <span class="affix-icon" id="iconUser"></span>
+            <input class="input" id="username" name="username" autocomplete="username"
+                   placeholder="seu.usuario" required autofocus
+                   aria-describedby="errUsername">
+          </div>
+          <span class="field-error" id="errUsername" hidden></span>
+        </div>
+
+        <div class="field">
+          <label for="password">Senha</label>
+          <div class="input-affix has-action">
+            <span class="affix-icon" id="iconLock"></span>
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password"
+                   placeholder="••••••••" required aria-describedby="errPassword capsWarn">
+            <button class="affix-btn" id="togglePassword" type="button" aria-label="Mostrar senha" aria-pressed="false"></button>
+          </div>
+          <span class="field-error" id="errPassword" hidden></span>
+          <span class="caps-warn" id="capsWarn" hidden>Caps Lock está ativado.</span>
+        </div>
+
+        <div class="row-between">
+          <label class="switch">
+            <input type="checkbox" id="remember" checked>
+            <span class="switch-track"></span>
+            <span style="font-size:var(--fs-13)">Manter conectado</span>
+          </label>
+          <button class="btn btn-ghost btn-sm" type="button" id="helpAccess">Esqueci a senha</button>
+        </div>
+
+        <div class="alert" id="loginError" role="alert" hidden></div>
+
+        <button class="btn btn-primary btn-lg btn-block" id="submitLogin" type="submit">Acessar plataforma</button>
+      </form>
+
+      <div class="auth-foot">
+        <span class="shield" id="iconShield" aria-hidden="true"></span>
+        <span>Ambiente protegido por autenticação de sessão e controle de acesso por função (RBAC). Todo login, alteração e exclusão é registrado na auditoria.</span>
+      </div>
+
+      <div class="alert alert-info" style="margin-top:var(--s-4);animation:none">
+        <span id="iconInfo" aria-hidden="true"></span>
+        <span>
+          <b>Protótipo navegável.</b> Entre com <code>admin</code> / <code>admin</code> para ver o fluxo de troca de senha obrigatória,
+          ou qualquer usuário e senha para ir direto à topologia.
+        </span>
+      </div>
+    </main>
+  </section>
+</div>
+
+<button class="btn btn-ghost btn-icon" data-theme-toggle type="button"
+        style="position:fixed;top:var(--s-4);right:var(--s-4);z-index:20"></button>
+
+<script src="js/mock-data.js"></script>
+<script src="js/ui.js"></script>
+<script>
+(() => {
+  const { $, icon, toast, modal } = UI;
+
+  $("#iconUser").innerHTML = icon("user");
+  $("#iconLock").innerHTML = icon("lock");
+  $("#iconShield").innerHTML = icon("shield");
+  $("#iconInfo").innerHTML = icon("info");
+  $("[data-theme-toggle]").onclick = UI.toggleTheme;
+  UI.applyTheme(document.documentElement.dataset.theme);
+
+  const form = $("#formLogin");
+  const user = $("#username");
+  const pass = $("#password");
+  const btn = $("#submitLogin");
+  const box = $("#loginError");
+
+  // Mostrar/ocultar senha: reduz erro de digitação sem obrigar a repetir o campo.
+  const toggle = $("#togglePassword");
+  const paintToggle = () => {
+    const shown = pass.type === "text";
+    toggle.innerHTML = icon(shown ? "eyeOff" : "eye");
+    toggle.setAttribute("aria-pressed", String(shown));
+    toggle.setAttribute("aria-label", shown ? "Ocultar senha" : "Mostrar senha");
+  };
+  toggle.onclick = () => { pass.type = pass.type === "password" ? "text" : "password"; paintToggle(); pass.focus(); };
+  paintToggle();
+
+  // Caps Lock é a causa nº 1 de "senha errada" que não é senha errada.
+  const caps = $("#capsWarn");
+  const checkCaps = (e) => { caps.hidden = !(e.getModifierState && e.getModifierState("CapsLock")); };
+  pass.addEventListener("keyup", checkCaps);
+  pass.addEventListener("keydown", checkCaps);
+  pass.addEventListener("blur", () => (caps.hidden = true));
+
+  // Validação por campo, exibida só depois da primeira tentativa —
+  // nunca acusar erro naquilo que o usuário ainda está preenchendo.
+  const fieldError = (input, msg) => {
+    const el = $("#err" + input.id[0].toUpperCase() + input.id.slice(1));
+    if (!el) return;
+    el.hidden = !msg;
+    el.innerHTML = msg ? icon("alert") + " " + UI.esc(msg) : "";
+    input.setAttribute("aria-invalid", msg ? "true" : "false");
+  };
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    box.hidden = true;
+
+    let ok = true;
+    if (!user.value.trim()) { fieldError(user, "Informe o usuário."); ok = false; } else fieldError(user, "");
+    if (!pass.value) { fieldError(pass, "Informe a senha."); ok = false; } else fieldError(pass, "");
+    if (!ok) { (user.value.trim() ? pass : user).focus(); return; }
+
+    btn.classList.add("is-loading");
+    btn.setAttribute("aria-busy", "true");
+
+    // Latência simulada: o protótipo mostra o estado de espera real do botão.
+    setTimeout(() => {
+      btn.classList.remove("is-loading");
+      btn.removeAttribute("aria-busy");
+
+      const u = user.value.trim().toLowerCase();
+
+      if (u === "bloqueado") {
+        box.hidden = false;
+        box.innerHTML = icon("alert") + " <span><b>Conta desativada.</b> Procure um administrador da plataforma para reativar o acesso.</span>";
+        return;
+      }
+
+      if (u === "admin" && pass.value === "admin") {
+        UI.setSession({ name: "Administrador", username: "admin", role: "administrador" });
+        location.href = "nova-senha.html?first=1";
+        return;
+      }
+
+      const conhecido = (window.MOCK?.users || []).find((x) => x.username === u);
+      UI.setSession(conhecido
+        ? { name: conhecido.display_name, username: conhecido.username, role: conhecido.role }
+        : { name: user.value.trim(), username: u, role: "analista" });
+      location.href = "topologia.html";
+    }, 850);
+  });
+
+  $("#helpAccess").onclick = () => modal({
+    labelledBy: "recTitle",
+    html: `
+      <div class="modal-head">
+        <div><span class="kicker">${icon("lock")} Recuperação de acesso</span>
+        <h2 id="recTitle" style="margin-top:8px">Esqueci a senha</h2></div>
+        <button class="btn btn-ghost btn-icon" data-close aria-label="Fechar">${icon("close")}</button>
+      </div>
+      <div class="modal-body stack">
+        <p class="muted" style="font-size:var(--fs-13)">
+          A redefinição de senha é feita por um administrador da plataforma, com registro em auditoria.
+          Informe seu usuário e o pedido é enviado para a fila do NOC.
+        </p>
+        <div class="field">
+          <label for="recUser">Usuário</label>
+          <input class="input" id="recUser" placeholder="seu.usuario">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span class="dim" style="font-size:var(--fs-11)">Prazo médio de atendimento: 15 min</span>
+        <span class="row">
+          <button class="btn" data-close type="button">Cancelar</button>
+          <button class="btn btn-primary" data-send type="button">Enviar pedido</button>
+        </span>
+      </div>`,
+    onMount: (host, close) => {
+      $("[data-send]", host).onclick = () => {
+        close();
+        toast("Pedido enviado ao NOC", { text: "Você recebe uma senha temporária por e-mail corporativo.", type: "ok" });
+      };
+    },
+  });
+})();
+</script>
+</body>
+</html>

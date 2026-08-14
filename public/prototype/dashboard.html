@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard NOC — UPDOWN TELECOM</title>
+<link rel="icon" href="../assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o painel</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <!-- Faixa exclusiva do modo TV: relógio e estado da coleta -->
+    <div class="tv-bar tv-only" style="margin:calc(var(--s-6) * -1) calc(var(--s-6) * -1) var(--s-6)">
+      <div class="row" style="gap:var(--s-4)">
+        <img src="../assets/brand/updown-symbol.png" alt="" style="width:44px;height:44px">
+        <div>
+          <span class="kicker"><i class="dot dot-ok dot-live"></i> Operação em tempo real</span>
+          <h1 style="font-size:var(--fs-24);margin-top:4px">DASHBOARD NOC • TOPOLOGIA E INFRAESTRUTURA</h1>
+        </div>
+      </div>
+      <div class="tv-clock"><strong id="tvClock">--:--:--</strong><small id="tvDate">—</small></div>
+    </div>
+
+    <div class="page-head">
+      <div>
+        <span class="kicker"><i class="dot dot-ok dot-live"></i> Atualizado <span id="lastUpdate">agora</span></span>
+        <h1 class="page-title">Dashboard NOC</h1>
+        <p class="page-sub">Capacidade, ocupação e estado da infraestrutura por POP. Os equipamentos aparecem no POP ao qual estão vinculados na gerência de rede.</p>
+      </div>
+      <div class="row wrap">
+        <button class="btn btn-sm" id="btnRefresh" type="button">Atualizar</button>
+        <button class="btn btn-sm" id="btnTv" type="button">Modo TV</button>
+        <a class="btn btn-sm btn-primary" href="topologia.html">Abrir topologia</a>
+      </div>
+    </div>
+
+    <section class="kpi-grid" id="kpis" aria-label="Indicadores gerais"></section>
+
+    <div class="stack" style="margin-top:var(--s-5);gap:var(--s-5)">
+      <div class="split" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr)">
+        <section class="card">
+          <div class="card-head">
+            <div><h2>Tráfego agregado — 24 h</h2><p>Soma do RX das interfaces de núcleo e transporte.</p></div>
+            <span class="badge badge-info" id="trafficNow">—</span>
+          </div>
+          <div class="card-body"><div id="spark"></div></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div><h2>Alertas abertos</h2><p>Ordenados por severidade.</p></div>
+            <span class="badge badge-warn" id="alertCount">0</span>
+          </div>
+          <div id="alerts"></div>
+        </section>
+      </div>
+
+      <section>
+        <div class="row-between" style="margin-bottom:var(--s-4)">
+          <h2>POPs e equipamentos vinculados</h2>
+          <div class="segmented" role="group" aria-label="Ordenar POPs">
+            <button type="button" data-sort="nome" aria-pressed="true">Por nome</button>
+            <button type="button" data-sort="ocupacao" aria-pressed="false">Por ocupação</button>
+          </div>
+        </div>
+        <div class="pop-grid" id="popGrid"></div>
+      </section>
+
+      <!-- Equipamentos sem vínculo: pendência operacional explícita -->
+      <section id="pendentes" hidden></section>
+    </div>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="js/mock-data.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>
