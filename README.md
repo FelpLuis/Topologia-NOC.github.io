@@ -285,3 +285,90 @@ Não configure o diretório de assets como `.`. Ele deve ser:
 ./public
 ```
 
+
+
+## Backend, Login, RBAC e Auditoria
+
+O projeto agora possui backend Node.js + SQLite.
+
+### Primeiro acesso
+
+```text
+Usuário: admin
+Senha:   admin
+```
+
+**A senha é temporária.** No primeiro login o sistema força a troca para uma senha forte.
+
+### Perfis RBAC
+
+- `admin`: acesso total, incluindo usuários, auditoria e configurações.
+- `editor`: pode visualizar e alterar a topologia.
+- `viewer`: somente visualização.
+
+Permissões disponíveis:
+
+- `topology.view`
+- `topology.edit`
+- `topology.delete`
+- `users.view`
+- `users.manage`
+- `audit.view`
+- `settings.manage`
+
+### Auditoria
+
+Toda operação relevante do backend gera um registro em `audit_logs`, incluindo:
+
+- login bem-sucedido e falho;
+- logout;
+- troca de senha;
+- criação de usuário;
+- alteração de usuário;
+- ativação/desativação;
+- exclusão;
+- alterações de topologia quando feitas pela API.
+
+O registro guarda usuário, data/hora, ação, recurso, IP, user-agent e, quando aplicável, estado anterior e posterior.
+
+### Banco
+
+O banco SQLite fica em:
+
+```text
+backend/data/topologia.db
+```
+
+Ele é criado pelo:
+
+```bash
+npm run init-db
+```
+
+### Instalação
+
+```bash
+npm install
+npm run init-db
+npm start
+```
+
+O servidor escuta por padrão em:
+
+```text
+http://127.0.0.1:3000
+```
+
+### Administração
+
+Depois de entrar como admin:
+
+```text
+/admin.html
+```
+
+A tela permite criar, ativar/desativar e excluir usuários e consultar a auditoria.
+
+### Importante sobre o backend
+
+A camada RBAC já está pronta e os endpoints de autenticação/usuários/auditoria estão funcionais. As operações antigas da interface que ainda escrevem diretamente nos JSONs devem ser migradas para endpoints protegidos do backend antes de serem consideradas completamente auditadas. Não é seguro declarar uma alteração como auditada enquanto ela puder contornar a API.
