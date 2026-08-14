@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS screens (
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
-  route TEXT NOT NULL DEFAULT '/',
   active INTEGER NOT NULL DEFAULT 1
 );
 
@@ -70,7 +69,7 @@ INSERT OR IGNORE INTO roles(name,description) VALUES
 ('tecnico','Técnico'),
 ('logistica','Logística');
 
-INSERT OR IGNORE INTO screens(code,name,description,route) VALUES
-('network','Gerenciar Rede','Equipamentos, portas, POPs e conexões','/'),
-('dashboard','Dashboard','Dashboard operacional','/dashboard.html'),
-('platform','Gerenciar Plataforma','Usuários, perfis, permissões e auditoria','/platform.html');
+INSERT OR IGNORE INTO screens(code,name,description) VALUES
+('network','Gerenciar Rede','Equipamentos, portas, POPs e conexões'),
+('dashboard','Dashboard','Dashboard operacional'),
+('platform','Gerenciar Plataforma','Usuários, perfis, permissões e auditoria');

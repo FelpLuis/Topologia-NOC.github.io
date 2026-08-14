@@ -9,21 +9,38 @@ const positions = {
 let currentDeviceId=null, currentPopId=null, detailEditMode=false, detailBackup=null;
 
 async function loadData(){
-  const auth=await fetch("/api/auth/me",{cache:"no-store"});
-  const authData=await auth.json();
-  if(!authData.authenticated){ window.location.href="/login.html"; return; }
+  // O guard e a topologia são independentes. Disparamos as duas requisições
+  // em paralelo para evitar o atraso de uma cadeia auth -> topology.
+  const authPromise = window.UPDOWN_AUTH
+    ? Promise.resolve({authenticated:true,user:window.UPDOWN_AUTH})
+    : fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"}).then(r=>r.json());
 
-  const r=await fetch("/api/topology",{cache:"no-store"});
-  if(!r.ok){
-    const d=await r.json().catch(()=>({}));
-    throw new Error(d.error==="FORBIDDEN"?"Você não possui permissão para visualizar a topologia.":"Falha ao carregar a topologia.");
+  const topologyPromise = fetch("/api/topology",{cache:"no-store",credentials:"same-origin"})
+    .then(async r=>{
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok){
+        throw new Error(data.error==="FORBIDDEN"
+          ?"Você não possui permissão para visualizar a topologia."
+          :"Falha ao carregar a topologia.");
+      }
+      return data;
+    });
+
+  const [authData,data] = await Promise.all([authPromise,topologyPromise]);
+
+  if(!authData.authenticated){
+    window.location.href="/login.html";
+    return;
   }
-  const data=await r.json();
+
   state.equipamentos=data.equipamentos;
   state.conexoes=data.conexoes;
   state.pops=data.pops;
   if(data.config) Object.assign(visibleConfig,data.config);
   normalizeState();
+
+  // Renderiza imediatamente assim que a resposta chega, sem esperar
+  // outras integrações ou componentes secundários.
   renderAll();
   applyConfig();
 }

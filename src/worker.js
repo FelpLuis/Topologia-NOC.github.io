@@ -292,58 +292,28 @@ async function requireAdmin(env, request) {
   return { user, response:null };
 }
 
-let databaseReady = false;
-
-async function ensureColumn(db, table, column, definition) {
-  const info = await db.prepare(`PRAGMA table_info(${table})`).all();
-  const exists = (info.results || []).some(row => row.name === column);
-  if (!exists) {
-    await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
-  }
-}
-
-async function migrateExistingSchema(db) {
-  // O banco do projeto já passou por versões anteriores. CREATE TABLE IF NOT EXISTS
-  // não altera tabelas existentes, portanto garantimos aqui as colunas necessárias.
-  await ensureColumn(db, "screens", "route", "TEXT NOT NULL DEFAULT '/'");
-
-  // Versões antigas do backend usavam occurred_at; o Worker atual padroniza created_at.
-  await ensureColumn(db, "audit_logs", "created_at", "TEXT");
-  const auditInfo = await db.prepare(`PRAGMA table_info(audit_logs)`).all();
-  const auditCols = new Set((auditInfo.results || []).map(row => row.name));
-  if (auditCols.has("occurred_at") && auditCols.has("created_at")) {
-    await db.prepare(`
-      UPDATE audit_logs
-      SET created_at = COALESCE(created_at, occurred_at, CURRENT_TIMESTAMP)
-      WHERE created_at IS NULL OR created_at = ''
-    `).run();
-  }
-
-  // A versão Cloudflare usa token_hash para sessão. Se a tabela antiga só possuir
-  // id, adicionamos token_hash sem remover dados existentes.
-  await ensureColumn(db, "sessions", "token_hash", "TEXT");
-
-  // Campos opcionais de sessão usados por auditoria/diagnóstico.
-  await ensureColumn(db, "sessions", "ip", "TEXT");
-  await ensureColumn(db, "sessions", "user_agent", "TEXT");
-}
+let databaseReadyPromise = null;
 
 async function ensureDatabase(env) {
+  if (databaseReadyPromise) return databaseReadyPromise;
+
+  databaseReadyPromise = ensureDatabaseImpl(env).catch((error) => {
+    // Permite uma nova tentativa se uma migração/inicialização falhar.
+    databaseReadyPromise = null;
+    throw error;
+  });
+
+  return databaseReadyPromise;
+}
+
+async function ensureDatabaseImpl(env) {
   const db = getDB(env);
   if (!db) throw new Error('Binding D1 "bd" não encontrado.');
 
-  if (!databaseReady) {
-    const statements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE INDEX)/)
-      .map(x => x.trim()).filter(Boolean)
-      .map(x => db.prepare(x));
-    await db.batch(statements);
-    await migrateExistingSchema(db);
-    databaseReady = true;
-  }
-
-  // Mesmo com databaseReady, a primeira requisição após uma atualização do projeto
-  // deve encontrar o schema compatível antes de executar os seeds.
-  await migrateExistingSchema(db);
+  const statements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE INDEX)/)
+    .map(x => x.trim()).filter(Boolean)
+    .map(x => db.prepare(x));
+  await db.batch(statements);
 
   for (const [name, description] of ROLES) {
     await db.prepare(`
