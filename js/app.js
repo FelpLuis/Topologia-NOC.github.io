@@ -273,10 +273,28 @@ function openDetail(id, editMode = false) {
 
   detailEditMode = false;
   detailEditBackup = null;
-  renderDetailRows(d);
+  try {
+    renderDetailRows(d);
+  } catch (error) {
+    console.error("Erro ao montar portas do equipamento:", error);
+    document.getElementById("detailRows").innerHTML =
+      `<tr><td colspan="5">Não foi possível carregar as portas deste equipamento.</td></tr>`;
+  }
   document.getElementById("modal").classList.remove("hidden");
 
   if (editMode) enterInlineEdit();
+}
+
+function getPortConnection(eqId, port) {
+  const c = state.conexoes.find(c =>
+    (c.origem === eqId && Number(c.portaOrigem) === Number(port)) ||
+    (c.destino === eqId && Number(c.portaDestino) === Number(port))
+  );
+  if (!c) return null;
+  return {
+    c,
+    isOrigin: c.origem === eqId && Number(c.portaOrigem) === Number(port)
+  };
 }
 
 function renderDetailRows(d) {
