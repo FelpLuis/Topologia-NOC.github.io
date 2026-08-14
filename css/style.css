@@ -2399,3 +2399,24 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
 #modal .equipment-image-caption span{color:#39d6ff;font-size:7px;font-weight:900;letter-spacing:.13em}
 #modal .equipment-image-caption strong{color:#eaf8ff;font-size:9px}
 #modal .equipment-image-caption small{margin-left:auto;color:#55dcff;font-size:8px;font-weight:800}
+
+/* NE F1A — matriz física de 56 portas: 2 linhas x 28 portas */
+#modal .equipment-hotspots.f1a-hotspots{
+  display:block;
+}
+#modal .equipment-hotspots.f1a-hotspots .equipment-port-hotspot{
+  aspect-ratio:1/1;
+  min-width:8px;
+  min-height:8px;
+  border-radius:2px;
+}
+#modal .equipment-hotspots.f1a-hotspots .equipment-port-hotspot span{
+  font-size:6px;
+  bottom:calc(100% + 2px);
+}
+@media (max-width:900px){
+  #modal .equipment-hotspots.f1a-hotspots .equipment-port-hotspot{
+    min-width:6px;
+    min-height:6px;
+  }
+}
