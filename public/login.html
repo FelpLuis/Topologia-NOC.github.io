@@ -8,8 +8,8 @@
 <link rel="stylesheet" href="/css/style.css">
 <style>
 :root{
-  --up-blue:#0b74ff;
-  --up-cyan:#1dc9ff;
+  --up-blue:#1117d9;
+  --up-cyan:#00bdef;
   --up-navy:#04111f;
   --up-panel:rgba(6,23,40,.66);
   --up-border:rgba(102,190,255,.22);
@@ -56,19 +56,24 @@ body.login-page{
 }
 .visual-copy{position:relative;z-index:2;max-width:520px}
 .brand-lockup{display:flex;align-items:center;gap:12px;margin-bottom:62px}
-.brand-mark{
-  width:42px;height:42px;border-radius:12px;display:grid;place-items:center;
-  background:linear-gradient(145deg,#0b78ff,#0ab6ed);
-  box-shadow:0 8px 28px rgba(11,120,255,.32);font-weight:950;color:#fff;font-size:19px;
+ .brand-logo-wrap{
+  width:178px;height:64px;display:flex;align-items:center;justify-content:flex-start;
 }
-.brand-word{font-size:22px;font-weight:900;letter-spacing:-.055em}
-.brand-word span{color:var(--up-cyan)}
+.brand-logo{
+  width:178px;height:auto;display:block;object-fit:contain;
+  filter:drop-shadow(0 8px 24px rgba(15,139,255,.18));
+}
 .eyebrow{
   display:inline-flex;align-items:center;gap:8px;padding:7px 11px;border-radius:999px;
   border:1px solid rgba(82,188,255,.22);background:rgba(21,111,190,.09);
   color:#8edbff;font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
 }
-.live-dot{width:6px;height:6px;border-radius:50%;background:#29d9ff;box-shadow:0 0 12px #29d9ff}
+.live-dot{
+  width:10px;height:10px;border-radius:3px;
+  background:linear-gradient(135deg,#00bdef 0 50%,#cb73ff 50% 100%);
+  transform:rotate(45deg);
+  box-shadow:0 0 13px rgba(0,189,239,.55);
+}
 .visual-copy h1{font-size:48px;line-height:1.02;letter-spacing:-.055em;margin:20px 0 16px;max-width:500px}
 .visual-copy h1 span{background:linear-gradient(90deg,#fff,#54d6ff);-webkit-background-clip:text;background-clip:text;color:transparent}
 .visual-copy p{margin:0;color:#8ea9bd;font-size:15px;line-height:1.7;max-width:485px}
@@ -78,11 +83,11 @@ body.login-page{
 }
 .network-svg{width:100%;height:100%;overflow:visible}
 .net-line{fill:none;stroke:rgba(77,192,255,.23);stroke-width:1.2}
-.net-line.hot{stroke:rgba(29,201,255,.60);stroke-width:1.8}
-.net-node{fill:#071a2a;stroke:#54cfff;stroke-width:1.4}
-.net-core{fill:rgba(17,129,255,.14);stroke:#1dc9ff;stroke-width:1.6}
+.net-line.hot{stroke:rgba(0,189,239,.72);stroke-width:1.8}
+.net-node{fill:#071a2a;stroke:#00bdef;stroke-width:1.4}
+.net-core{fill:rgba(17,23,217,.14);stroke:#cb73ff;stroke-width:1.6}
 .net-text{fill:#8fb5cb;font:700 9px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em}
-.pulse{fill:#58dcff;filter:drop-shadow(0 0 5px #1dc9ff)}
+.pulse{fill:#00bdef;filter:drop-shadow(0 0 5px #00bdef)}
 .traffic{animation:traffic 4.2s linear infinite}
 .traffic.t2{animation-delay:-1.4s}.traffic.t3{animation-delay:-2.8s}
 .network-card{
@@ -124,7 +129,15 @@ body.login-page{
   display:flex;align-items:center;gap:8px;margin-top:22px;padding-top:20px;
   border-top:1px solid rgba(121,187,220,.11);color:#607b8d;font-size:10px;line-height:1.5;
 }
-.shield{width:18px;height:18px;display:grid;place-items:center;border:1px solid rgba(69,197,255,.3);border-radius:6px;color:#5cd8ff}
+.shield{
+  width:24px;height:24px;display:grid;place-items:center;
+  border:1px solid rgba(0,189,239,.28);border-radius:7px;
+  background:rgba(0,189,239,.045);overflow:hidden;flex:0 0 auto;
+}
+.shield img{
+  width:20px;height:20px;object-fit:contain;
+  filter:drop-shadow(0 0 5px rgba(0,189,239,.28));
+}
 .error{display:none;margin-top:14px;padding:12px;border-radius:10px;border:1px solid rgba(255,91,112,.25);background:rgba(104,19,34,.30);color:#ffb7c1;font-size:12px}
 .hint{margin-top:14px;color:#597386;font-size:10px;line-height:1.5}
 @keyframes traffic{0%{transform:translate(0,0);opacity:0}12%{opacity:1}80%{opacity:1}100%{transform:translate(260px,100px);opacity:0}}
@@ -133,7 +146,7 @@ body.login-page{
   body.login-page{overflow:auto}
   .login-shell{grid-template-columns:1fr;width:min(560px,calc(100vw - 28px));min-height:0;margin:20px 0}
   .login-visual{min-height:300px;padding:34px 30px;border-right:0;border-bottom:1px solid rgba(114,202,255,.14)}
-  .brand-lockup{margin-bottom:28px}.visual-copy h1{font-size:35px}.network-stage{opacity:.48;right:-10%;top:15%;width:68%;min-width:330px}
+  .brand-lockup{margin-bottom:28px}.brand-logo-wrap{width:160px;height:58px}.brand-logo{width:160px}.visual-copy h1{font-size:35px}.network-stage{opacity:.48;right:-10%;top:15%;width:68%;min-width:330px}
   .login-panel{padding:36px 30px}.login-card h2{font-size:28px}
 }
 @media(max-width:520px){
@@ -148,10 +161,9 @@ body.login-page{
   <section class="login-visual" aria-hidden="true">
     <div class="visual-copy">
       <div class="brand-lockup">
-        <div class="brand-mark">U</div>
-        <div class="brand-word">UPDOWN <span>TELECOM</span></div>
+        <div class="brand-logo-wrap"><img class="brand-logo" src="/assets/brand/updown-logo.png" alt="UPDOWN"></div>
       </div>
-      <div class="eyebrow"><i class="live-dot"></i> NOC • NETWORK INTELLIGENCE</div>
+      <div class="eyebrow"><i class="live-dot" aria-hidden="true"></i> NOC • NETWORK INTELLIGENCE</div>
       <h1>Visibilidade para uma rede <span>conectada.</span></h1>
       <p>Centralize topologia, equipamentos, portas e indicadores de infraestrutura em uma única interface de operação.</p>
     </div>
@@ -196,7 +208,7 @@ body.login-page{
         <div class="error" id="error" role="alert"></div>
       </form>
       <div class="login-security">
-        <span class="shield">✓</span>
+        <span class="shield"><img src="/assets/brand/updown-symbol.png" alt=""></span>
         <span>Ambiente protegido por autenticação e controle de acesso por função (RBAC).</span>
       </div>
       <div class="hint">No primeiro acesso, o usuário administrador deverá trocar a senha inicial.</div>
@@ -218,6 +230,10 @@ form.addEventListener("submit",async e=>{
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({username:username.value.trim(),password:password.value})
     });
+    const contentType=r.headers.get("content-type")||"";
+    if(!contentType.includes("application/json")){
+      throw new Error("O serviço de autenticação não está conectado. Execute o backend no servidor Linux e acesse a aplicação por ele.");
+    }
     const d=await r.json();
     if(!r.ok) throw new Error(d.error||"Não foi possível entrar.");
     location.href=d.user.must_change_password?"/change-password.html":"/";
@@ -232,3 +248,11 @@ fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{
 </script>
 </body>
 </html>
+
+<style>
+.updown-brand-icon{
+  width:28px;height:28px;object-fit:contain;
+  display:inline-block;vertical-align:middle;
+  filter:drop-shadow(0 0 7px rgba(0,189,239,.22));
+}
+</style>

@@ -2447,3 +2447,26 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
 .hidden{display:none!important}
 .platform-btn{border:1px solid rgba(29,201,255,.25);cursor:pointer;font:inherit}
 .platform-btn:hover{border-color:rgba(29,201,255,.55)}
+
+/* Login logo */
+.login-page .brand-logo-wrap{flex:0 0 auto}
+.login-page .brand-logo{max-width:100%;height:auto}
+
+/* UPDOWN iconography — derived from the supplied brand symbol */
+:root{
+  --updown-cyan:#00bdef;
+  --updown-blue:#1117d9;
+  --updown-purple:#cb73ff;
+}
+.updown-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:30px;height:30px;
+  border-radius:8px;
+  border:1px solid rgba(0,189,239,.20);
+  background:rgba(0,189,239,.045);
+}
+.updown-icon img{
+  width:22px;height:22px;object-fit:contain;
+}

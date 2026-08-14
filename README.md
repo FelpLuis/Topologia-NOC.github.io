@@ -496,3 +496,55 @@ A tela `/platform.html` concentra:
 - **Auditoria:** consultar as alterações administrativas.
 
 O perfil `administrador` é o único autorizado a administrar perfis, permissões e telas. As alterações são auditadas.
+
+
+## Identidade visual do login
+
+A tela de login utiliza o logotipo oficial UPDOWN fornecido no projeto, substituindo o antigo ícone isolado "U". O arquivo utilizado fica em:
+
+`public/assets/brand/updown-logo.png`
+
+A imagem foi apenas recortada para remover espaço vazio e o fundo sólido da imagem fornecida, preservando o desenho do logotipo.
+
+
+## Iconografia UPDOWN
+
+A identidade dos ícones passou a utilizar o símbolo gráfico UPDOWN fornecido na referência, especialmente nos elementos de estado, segurança e indicadores visuais. O símbolo foi extraído da referência e convertido para PNG com fundo transparente em:
+
+`public/assets/brand/updown-symbol.png`
+
+Paleta de apoio da iconografia:
+- Ciano: `#00BDEF`
+- Azul: `#1117D9`
+- Roxo: `#CB73FF`
+
+A folha de referência não é carregada como imagem no site; somente o símbolo gráfico preparado é utilizado.
+
+
+## Login e backend
+
+A tela de login não funciona como página estática isolada. Ela chama:
+
+`POST /api/auth/login`
+
+Portanto, o projeto deve ser executado com o backend Node.js no servidor Linux (ou em um Worker/API compatível). Se apenas os arquivos `public/` forem publicados como Static Assets no Cloudflare, o HTML abre, mas a autenticação não terá a API necessária.
+
+No servidor Linux:
+
+```bash
+cd backend
+npm install
+cd ..
+node backend/scripts/init-db.js
+node backend/server.js
+```
+
+O bootstrap cria:
+
+- usuário: `admin`
+- senha inicial: `admin`
+- perfil: `administrador`
+
+No primeiro login a troca de senha é obrigatória.
+
+**Importante:** se o banco já existir, o script preserva a senha existente do `admin`.

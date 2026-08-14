@@ -113,14 +113,19 @@ function hashPassword(password) {
   return `pbkdf2$sha256$210000$${salt}$${derived}`;
 }
 
-const admin = db.prepare("SELECT id FROM users WHERE username=?").get("admin");
+const admin = db.prepare("SELECT id,role_id FROM users WHERE username=?").get("admin");
 if (!admin) {
   db.prepare(`
     INSERT INTO users(username,display_name,password_hash,role_id,active,must_change_password)
     VALUES(?,?,?,?,1,1)
-  `).run("admin", "Administrador", hashPassword("admin"), roleIds.administradoristrador);
+  `).run("admin", "Administrador", hashPassword("admin"), roleIds.administrador);
   console.log("Usuário inicial criado: admin / admin (troca de senha obrigatória no primeiro login).");
 } else {
-  console.log("Usuário admin já existe; senha não foi alterada.");
+  db.prepare(`
+    UPDATE users
+    SET role_id=?, active=1, must_change_password=1, updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).run(roleIds.administrador, admin.id);
+  console.log("Usuário admin confirmado como Administrador; senha existente preservada.");
 }
 db.close();
