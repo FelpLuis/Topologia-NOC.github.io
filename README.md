@@ -558,3 +558,20 @@ O D1 existente já tinha a tabela `screens`, mas sem a coluna `route`. O Worker 
 
 ## Correção V5 — símbolo da marca
 O ícone compacto da tela de login não usa mais apenas `U`. Ele foi substituído pelo símbolo textual `up`, mantendo azul/ciano e o restante da identidade visual UPDOWN.
+
+
+## V6 — compatibilidade D1 e marca compacta
+
+- O login agora usa `UP` em maiúsculas no símbolo compacto.
+- A classe `.brand-mark` foi ajustada para impedir retorno visual a `U`/`up`.
+- O Worker faz migração incremental das colunas de `users`, `sessions`, `audit_logs`, `screens` e `topology_state`.
+- `sessions.token_hash` é garantido para compatibilidade com versões anteriores.
+- A criação de sessão fornece um ID explícito, evitando conflito com bancos antigos.
+- Não apaga o D1 existente.
+
+
+## V7 — Ícone oficial UPDOWN
+
+O ícone compacto da interface agora utiliza exatamente a imagem fornecida pelo usuário,
+armazenada em `public/assets/up-symbol.png`. O sistema não redesenha o símbolo nem usa
+texto `U`/`UP` como substituto.

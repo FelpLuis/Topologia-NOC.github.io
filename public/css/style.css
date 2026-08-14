@@ -2459,3 +2459,48 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
   background:linear-gradient(145deg,#0b78ff 0%,#11bfe9 100%);
   box-shadow:0 6px 18px rgba(11,120,255,.22);
 }
+
+/* =========================================================
+   UPDOWN — MARCA COMPACTA
+   O ícone compacto deve representar "UP", nunca somente "U"
+   nem "up" minúsculo.
+   ========================================================= */
+.brand-mark,
+.up-symbol,
+.equipment-static-icon.up-symbol {
+  text-transform: uppercase !important;
+  font-family: "Arial Black", "Inter", system-ui, sans-serif !important;
+  font-weight: 950 !important;
+  letter-spacing: -0.08em !important;
+}
+
+/* Marca compacta do login */
+.login-visual .brand-mark {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #0b74ff 0%, #19c9ff 100%) !important;
+  color: #fff !important;
+  font-size: 21px !important;
+  line-height: 1 !important;
+  box-shadow: 0 8px 24px rgba(11,116,255,.28) !important;
+}
+
+/* A marca compacta não pode voltar para minúsculas */
+.login-visual .brand-mark::first-letter {
+  text-transform: uppercase !important;
+}
+
+
+.brand-symbol-image {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  display: block;
+  flex: 0 0 auto;
+  border-radius: 12px;
+}
