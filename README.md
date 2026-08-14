@@ -16,18 +16,6 @@ updown-topologia/
     └── conexoes.json
 ```
 
-## Como publicar no GitHub Pages
-
-1. Crie um repositório no GitHub.
-2. Envie todos os arquivos mantendo a estrutura das pastas.
-3. Entre em **Settings → Pages**.
-4. Em **Build and deployment**, selecione:
-   - Source: **Deploy from a branch**
-   - Branch: **main**
-   - Folder: **/ (root)**
-5. Salve.
-6. O GitHub fornecerá o endereço do site.
-
 ## Como editar a topologia
 
 A interface está separada dos dados.
@@ -92,8 +80,3 @@ Para alterar a documentação de forma permanente, edite os arquivos JSON no Git
 
 Se futuramente for necessário permitir que usuários editem equipamentos/portas diretamente pela interface e salvem as alterações, será necessário adicionar um backend/API ou integração autenticada com o GitHub.
 
-## Observação técnica
-
-As capacidades devem ser conferidas contra o modelo exato e as placas instaladas antes de tratar o documento como inventário físico/as-built.
-
-Onde o modelo Nokia/Datacom não pôde ser identificado na imagem original, a aplicação mantém a capacidade como **A confirmar**.
