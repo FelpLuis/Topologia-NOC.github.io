@@ -9,7 +9,7 @@
 <body>
 <header class="topbar">
   <div class="brand">UPDOWN <span>TELECOM</span></div>
-  <div class="subtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
+  <div class="subtitle" id="topSubtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
   <div class="actions">
     <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
     <button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
@@ -32,16 +32,16 @@
 
   <main class="main">
     <div class="canvas">
-      <div class="section-title">NÚCLEO / ASCENTY — FLUXO PRINCIPAL</div>
+      <div class="section-title section-editable"><span id="coreTitle">NÚCLEO / ASCENTY — FLUXO PRINCIPAL</span><button class="section-pencil" data-section="core" title="Editar informações do núcleo">✎</button></div>
       <div id="topology" class="topology"></div>
 
-      <div class="section-title pop-title">ANEL ÓPTICO DOS POPs</div>
+      <div class="section-title pop-title section-editable"><span id="ringTitle">ANEL ÓPTICO DOS POPs</span><button class="section-pencil" data-section="ring" title="Editar anel óptico">✎</button></div>
       <div class="ring">
         <div class="ring-grid" id="popGrid"></div>
-        <div class="ring-label">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
+        <div class="ring-label" id="ringLabel">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
       </div>
 
-      <div class="section-title pop-title">EQUIPAMENTOS POR POP</div>
+      <div class="section-title pop-title section-editable"><span id="popSectionTitle">EQUIPAMENTOS POR POP</span><button class="section-pencil" data-section="popSection" title="Editar título">✎</button></div>
       <div id="popDetails" class="pop-details"></div>
     </div>
   </main>
@@ -75,6 +75,24 @@
       <button class="manager-tab" data-tab="pops">POPs</button>
     </div>
     <div id="managerContent" class="manager-content"></div>
+  </section>
+</div>
+
+<div id="universalEditor" class="modal hidden">
+  <section class="universal-editor">
+    <div class="universal-editor-head">
+      <div>
+        <h2 id="editorTitle">EDITAR</h2>
+        <p id="editorSubtitle">Altere qualquer informação visível nesta tela.</p>
+      </div>
+      <button id="universalEditorClose" class="close" type="button">×</button>
+    </div>
+    <div id="universalEditorBody" class="universal-editor-body"></div>
+    <div class="universal-editor-actions">
+      <span id="universalEditorStatus"></span>
+      <button id="universalEditorCancel" class="btn" type="button">Cancelar</button>
+      <button id="universalEditorSave" class="primary-btn" type="button">Salvar alterações</button>
+    </div>
   </section>
 </div>
 <div id="connectionPanel" class="connection-panel hidden">

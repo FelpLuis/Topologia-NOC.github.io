@@ -18,7 +18,7 @@ async function loadData(){
   ]);
   if(!a.ok||!b.ok||!c.ok) throw new Error("Falha ao carregar os arquivos JSON.");
   state.equipamentos=await a.json(); state.conexoes=await b.json(); state.pops=await c.json();
-  normalizeState(); renderAll();
+  normalizeState(); renderAll(); applyConfig();
 }
 function normalizeState(){
   state.equipamentos=Array.isArray(state.equipamentos)?state.equipamentos:[];
@@ -184,28 +184,10 @@ function renderManager(tab){
     document.getElementById("addPop").onclick=()=>editPop(-1);box.querySelectorAll(".mgr-pop-edit").forEach(b=>b.onclick=()=>editPop(+b.dataset.i));box.querySelectorAll(".mgr-pop-del").forEach(b=>b.onclick=()=>deletePop(+b.dataset.i));
   }
 }
-function editEquipment(i){
-  const e=i>=0?state.equipamentos[i]:{id:"eq-"+Date.now(),nome:"Novo equipamento",modelo:"",categoria:"Equipamento",local:"",observacao:"",portas:[]};
-  const nome=prompt("Nome do equipamento:",e.nome);if(nome===null)return;e.nome=nome;
-  const modelo=prompt("Modelo:",e.modelo||"");if(modelo===null)return;e.modelo=modelo;
-  const cat=prompt("Categoria:",e.categoria||"Equipamento");if(cat===null)return;e.categoria=cat;
-  const local=prompt("Local / POP:",e.local||"");if(local===null)return;e.local=local;
-  let count=parseInt(prompt("Quantidade de portas:",String(e.portas.length)),10);if(Number.isNaN(count)||count<0)count=e.portas.length;
-  while(e.portas.length<count)e.portas.push({numero:e.portas.length+1,capacidade:"",tipo:"",status:"livre"});
-  e.portas=e.portas.slice(0,count);e.observacao=prompt("Observação:",e.observacao||"")??e.observacao;
-  if(i<0)state.equipamentos.push(e);else state.equipamentos[i]=e;
-  persist();renderAll();renderManager("equipamentos");
-}
 function deleteEquipment(i){
   const e=state.equipamentos[i];if(!e||!confirm(`Excluir ${e.nome}?`))return;
   state.conexoes=state.conexoes.filter(c=>c.origem!==e.id&&c.destino!==e.id);
   state.equipamentos.splice(i,1);state.pops.forEach(p=>p.equipamentos=p.equipamentos.filter(x=>x.id!==e.id));persist();renderAll();renderManager("equipamentos");
-}
-function editPop(i){
-  const p=i>=0?state.pops[i]:{id:"pop-"+Date.now(),nome:"Novo POP",rotas:[],equipamentos:[]};
-  const nome=prompt("Nome do POP:",p.nome);if(nome===null)return;p.nome=nome;
-  const rotas=prompt("Rotas do anel (separadas por vírgula):",p.rotas.join(", "));if(rotas===null)return;p.rotas=rotas.split(",").map(x=>x.trim()).filter(Boolean);
-  if(i<0)state.pops.push(p);else state.pops[i]=p;persist();renderAll();renderManager("pops");
 }
 function deletePop(i){if(!confirm(`Excluir ${state.pops[i]?.nome||"POP"}?`))return;state.pops.splice(i,1);persist();renderAll();renderManager("pops");}
 function downloadAll(){
@@ -219,9 +201,273 @@ function closeConnection(){document.getElementById("connectionPanel").classList.
 function escapeAttr(v){return escapeHtml(v).replace(/`/g,"&#096;");}
 function escapeHtml(v){return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");}
 
+
+let universalEditorMode = null;
+let universalEditorIndex = null;
+let universalEditorBackup = null;
+
+const visibleConfig = {
+  coreTitle: "NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
+  ringTitle: "ANEL ÓPTICO DOS POPs",
+  ringLabel: "ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
+  popSectionTitle: "EQUIPAMENTOS POR POP",
+  subtitle: "Topologia de Rede • Ascenty / BGP / MPLS"
+};
+
+function getConfig() {
+  const saved = localStorage.getItem("updown-topologia-config");
+  if (saved) {
+    try { Object.assign(visibleConfig, JSON.parse(saved)); } catch (_) {}
+  }
+  return visibleConfig;
+}
+function saveConfig() {
+  localStorage.setItem("updown-topologia-config", JSON.stringify(visibleConfig));
+  applyConfig();
+}
+function applyConfig() {
+  const c = getConfig();
+  document.getElementById("topSubtitle").textContent = c.subtitle;
+  document.getElementById("coreTitle").textContent = c.coreTitle;
+  document.getElementById("ringTitle").textContent = c.ringTitle;
+  document.getElementById("ringLabel").textContent = c.ringLabel;
+  document.getElementById("popSectionTitle").textContent = c.popSectionTitle;
+}
+function field(label, value, name, type="text", extra="") {
+  return `<label class="editor-field"><span>${escapeHtml(label)}</span><input type="${type}" name="${escapeAttr(name)}" value="${escapeAttr(value ?? "")}" ${extra}></label>`;
+}
+function textareaField(label, value, name) {
+  return `<label class="editor-field editor-wide"><span>${escapeHtml(label)}</span><textarea name="${escapeAttr(name)}" rows="3">${escapeHtml(value ?? "")}</textarea></label>`;
+}
+function selectField(label, value, name, options) {
+  return `<label class="editor-field"><span>${escapeHtml(label)}</span><select name="${escapeAttr(name)}">${options.map(o=>`<option value="${escapeAttr(o)}" ${o===value?"selected":""}>${escapeHtml(o)}</option>`).join("")}</select></label>`;
+}
+
+function openUniversalEditor(mode, index=-1) {
+  universalEditorMode = mode;
+  universalEditorIndex = index;
+  universalEditorBackup = JSON.parse(JSON.stringify({
+    equipamentos: state.equipamentos,
+    conexoes: state.conexoes,
+    pops: state.pops,
+    config: getConfig()
+  }));
+
+  const body = document.getElementById("universalEditorBody");
+  const title = document.getElementById("editorTitle");
+  const subtitle = document.getElementById("editorSubtitle");
+
+  if (mode === "equipment") {
+    const e = index >= 0 ? state.equipamentos[index] :
+      {id:"eq-"+Date.now(),nome:"Novo equipamento",modelo:"",categoria:"Equipamento",nucleo:"",local:"",observacao:"",portas:[]};
+    title.textContent = index >= 0 ? "EDITAR EQUIPAMENTO" : "NOVO EQUIPAMENTO";
+    subtitle.textContent = "Todas as informações exibidas para este equipamento podem ser alteradas.";
+    body.innerHTML = `
+      <div class="editor-grid">
+        ${field("Nome do equipamento",e.nome,"nome")}
+        ${field("Modelo",e.modelo,"modelo")}
+        ${field("Categoria / tipo",e.categoria,"categoria")}
+        ${field("Núcleo / rede",e.nucleo || e.nucleoRede || "","nucleo")}
+        ${field("Local / POP",e.local,"local")}
+        ${field("Fabricante",e.fabricante || "","fabricante")}
+        ${field("IP / gerenciamento",e.ip || e.ipGerencia || "","ip")}
+        ${field("Quantidade de portas",e.portas.length,"portaCount","number","min=\"0\"")}
+        ${field("Rack / posição",e.rack || "","rack")}
+        ${field("VLAN / identificação",e.vlan || "","vlan")}
+        ${textareaField("Observação",e.observacao,"observacao")}
+        ${textareaField("Descrição exibida","", "descricao")}
+      </div>
+      <div class="editor-section-title">PORTAS</div>
+      <div class="editor-port-toolbar">
+        <button type="button" class="btn" id="addPortEditor">+ Adicionar porta</button>
+        <span>Você pode editar cada campo abaixo. A quantidade de portas também pode ser alterada.</span>
+      </div>
+      <div class="editor-port-table-wrap">
+        <table class="editor-port-table">
+          <thead><tr><th>#</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conectado a / string</th><th>Porta remota</th><th>Observação</th><th></th></tr></thead>
+          <tbody id="editorPortRows"></tbody>
+        </table>
+      </div>`;
+    body.querySelector('[name="descricao"]').value = e.descricao || "";
+    renderEditorPorts(e);
+    document.getElementById("addPortEditor").onclick = () => {
+      e.portas.push({numero: e.portas.length+1, capacidade:"", tipo:"", status:"livre", observacao:""});
+      renderEditorPorts(e);
+    };
+  } else if (mode === "pop") {
+    const p = index >= 0 ? state.pops[index] : {id:"pop-"+Date.now(),nome:"Novo POP",rotas:[],local:"",cidade:"",nucleo:"",observacao:"",equipamentos:[]};
+    title.textContent = index >= 0 ? "EDITAR POP" : "NOVO POP";
+    subtitle.textContent = "Altere todas as informações visíveis e os equipamentos deste POP.";
+    body.innerHTML = `
+      <div class="editor-grid">
+        ${field("Nome do POP",p.nome,"nome")}
+        ${field("Local",p.local || "","local")}
+        ${field("Cidade / região",p.cidade || "","cidade")}
+        ${field("Núcleo / anel",p.nucleo || "","nucleo")}
+        ${field("Rotas do anel","", "rotas")}
+        ${textareaField("Observação",p.observacao,"observacao")}
+      </div>
+      <div class="editor-section-title">APARELHOS DO POP</div>
+      <div class="editor-port-toolbar">
+        <button type="button" class="btn" id="addPopEquipmentEditor">+ Adicionar aparelho</button>
+        <span>Os aparelhos cadastrados aqui também ficam disponíveis para edição completa.</span>
+      </div>
+      <div id="popEquipmentEditorList" class="pop-editor-list"></div>`;
+    body.querySelector('[name="rotas"]').value = p.rotas.join(", ");
+    renderPopEquipmentEditor(p);
+    document.getElementById("addPopEquipmentEditor").onclick = () => {
+      p.equipamentos.push({id:"pop-eq-"+Date.now(),nome:"Novo aparelho",modelo:"",observacao:"",portas:[]});
+      renderPopEquipmentEditor(p);
+    };
+  } else if (mode === "config") {
+    const c = getConfig();
+    title.textContent = "EDITAR INFORMAÇÕES DA TELA";
+    subtitle.textContent = "Todos os títulos e textos principais visíveis na topologia podem ser personalizados.";
+    body.innerHTML = `<div class="editor-grid">
+      ${field("Subtítulo do cabeçalho",c.subtitle,"subtitle")}
+      ${field("Título do núcleo",c.coreTitle,"coreTitle")}
+      ${field("Título do anel óptico",c.ringTitle,"ringTitle")}
+      ${field("Descrição do anel",c.ringLabel,"ringLabel")}
+      ${field("Título dos equipamentos por POP",c.popSectionTitle,"popSectionTitle")}
+    </div>`;
+  }
+  document.getElementById("universalEditor").classList.remove("hidden");
+}
+
+function renderEditorPorts(e) {
+  const tbody=document.getElementById("editorPortRows");
+  if(!tbody)return;
+  tbody.innerHTML=e.portas.map((p,i)=>{
+    const info=getPortConnection(e.id,p.numero), c=info?.c;
+    const remoteId=c?(info.isOrigin?c.destino:c.origem):"";
+    const remotePort=c?(info.isOrigin?c.portaDestino:c.portaOrigem):"";
+    return `<tr data-index="${i}">
+      <td><input class="ep-number" type="number" min="1" value="${escapeAttr(p.numero)}"></td>
+      <td><input class="ep-cap" value="${escapeAttr(c?.capacidade||p.capacidade||"")}"></td>
+      <td><input class="ep-type" value="${escapeAttr(c?.tipo||p.tipo||"")}"></td>
+      <td>${selectField("",c?"conectada":(p.status||"livre"),"status",["livre","conectada","reservada","manutencao"])}</td>
+      <td><input class="ep-remote" value="${escapeAttr(remoteId)}" placeholder="Equipamento / string"></td>
+      <td><input class="ep-rport" value="${escapeAttr(remotePort)}" placeholder="Porta"></td>
+      <td><input class="ep-note" value="${escapeAttr(p.observacao||"")}"></td>
+      <td><button class="danger-btn ep-del" type="button">×</button></td>
+    </tr>`;
+  }).join("");
+  tbody.querySelectorAll(".ep-del").forEach(b=>b.onclick=()=>{
+    const tr=b.closest("tr"); e.portas.splice(+tr.dataset.index,1);
+    e.portas.forEach((p,i)=>p.numero=i+1); renderEditorPorts(e);
+  });
+}
+
+function renderPopEquipmentEditor(p) {
+  const box=document.getElementById("popEquipmentEditorList"); if(!box)return;
+  box.innerHTML=p.equipamentos.map((e,i)=>`
+    <div class="pop-editor-item">
+      <div class="pop-editor-main">
+        ${field("Nome",e.nome,`pe-${i}-nome`)}
+        ${field("Modelo",e.modelo,`pe-${i}-modelo`)}
+        ${field("Núcleo / rede",e.nucleo||"",`pe-${i}-nucleo`)}
+        ${field("Local",e.local||p.local||"",`pe-${i}-local`)}
+        ${field("Quantidade de portas",Array.isArray(e.portas)?e.portas.length:0,`pe-${i}-count`,"number","min=\"0\"")}
+        ${textareaField("Observação",e.observacao,`pe-${i}-obs`)}
+      </div>
+      <div class="pop-editor-actions">
+        <button class="icon-edit pop-open-equipment" type="button" data-index="${i}" title="Editar todas as portas">✎ Portas</button>
+        <button class="danger-btn pop-remove-equipment" type="button" data-index="${i}">Excluir</button>
+      </div>
+    </div>`).join("");
+  box.querySelectorAll(".pop-open-equipment").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.index;
+    const temp=Object.assign({id:p.equipamentos[i].id||"pop-eq-"+Date.now()},p.equipamentos[i]);
+    // Put POP equipment into the main equipment registry if it is not there, so it can use the same editor.
+    let idx=state.equipamentos.findIndex(x=>x.id===temp.id);
+    if(idx<0){state.equipamentos.push(temp);idx=state.equipamentos.length-1;}
+    closeUniversalEditor();
+    openUniversalEditor("equipment",idx);
+  });
+  box.querySelectorAll(".pop-remove-equipment").forEach(b=>b.onclick=()=>{
+    p.equipamentos.splice(+b.dataset.index,1);renderPopEquipmentEditor(p);
+  });
+}
+
+function applyUniversalEditor() {
+  const body=document.getElementById("universalEditorBody");
+  if(universalEditorMode==="config"){
+    Object.keys(visibleConfig).forEach(k=>{
+      const el=body.querySelector(`[name="${k}"]`); if(el)visibleConfig[k]=el.value;
+    });
+    saveConfig(); return;
+  }
+  if(universalEditorMode==="equipment"){
+    const i=universalEditorIndex;
+    let e=i>=0?state.equipamentos[i]:{id:"eq-"+Date.now(),portas:[]};
+    ["nome","modelo","categoria","nucleo","local","fabricante","ip","rack","vlan","observacao","descricao"].forEach(k=>{
+      const el=body.querySelector(`[name="${k}"]`);if(el)e[k]=el.value;
+    });
+    const count=Math.max(0,parseInt(body.querySelector('[name="portaCount"]').value||"0",10));
+    while(e.portas.length<count)e.portas.push({numero:e.portas.length+1,capacidade:"",tipo:"",status:"livre",observacao:""});
+    e.portas=e.portas.slice(0,count);
+    [...body.querySelectorAll("#editorPortRows tr")].forEach((tr,idx)=>{
+      const p=e.portas[idx];if(!p)return;
+      p.numero=parseInt(tr.querySelector(".ep-number").value,10)||idx+1;
+      p.capacidade=tr.querySelector(".ep-cap").value;
+      p.tipo=tr.querySelector(".ep-type").value;
+      p.status=tr.querySelector("select[name='status']").value;
+      p.observacao=tr.querySelector(".ep-note").value;
+      const remote=tr.querySelector(".ep-remote").value.trim(), rport=tr.querySelector(".ep-rport").value.trim();
+      state.conexoes=state.conexoes.filter(c=>!((c.origem===e.id&&+c.portaOrigem===+p.numero)||(c.destino===e.id&&+c.portaDestino===+p.numero)));
+      if(remote&&rport)state.conexoes.push({origem:e.id,portaOrigem:p.numero,destino:remote,portaDestino:rport,capacidade:p.capacidade,tipo:p.tipo});
+    });
+    if(i<0)state.equipamentos.push(e);else state.equipamentos[i]=e;
+  } else if(universalEditorMode==="pop"){
+    const i=universalEditorIndex;
+    let p=i>=0?state.pops[i]:{id:"pop-"+Date.now(),equipamentos:[]};
+    ["nome","local","cidade","nucleo","observacao"].forEach(k=>{const el=body.querySelector(`[name="${k}"]`);if(el)p[k]=el.value;});
+    p.rotas=(body.querySelector('[name="rotas"]').value||"").split(",").map(x=>x.trim()).filter(Boolean);
+    p.equipamentos.forEach((e,i)=>{
+      const get=n=>body.querySelector(`[name="pe-${i}-${n}"]`);
+      if(get("nome"))e.nome=get("nome").value;
+      if(get("modelo"))e.modelo=get("modelo").value;
+      if(get("nucleo"))e.nucleo=get("nucleo").value;
+      if(get("local"))e.local=get("local").value;
+      if(get("obs"))e.observacao=get("obs").value;
+      const count=Math.max(0,parseInt(get("count")?.value||String(e.portas?.length||0),10));
+      e.portas=Array.isArray(e.portas)?e.portas:[];
+      while(e.portas.length<count)e.portas.push({numero:e.portas.length+1,capacidade:"",tipo:"",status:"livre"});
+      e.portas=e.portas.slice(0,count);
+      if(e.id){
+        const idx=state.equipamentos.findIndex(x=>x.id===e.id);
+        if(idx>=0)state.equipamentos[idx]=e;
+      }
+    });
+    if(i<0)state.pops.push(p);else state.pops[i]=p;
+  }
+  normalizeState(); persist(); renderAll();
+}
+
+function closeUniversalEditor() {
+  document.getElementById("universalEditor").classList.add("hidden");
+  universalEditorMode=null; universalEditorIndex=null; universalEditorBackup=null;
+}
+
+function cancelUniversalEditor() {
+  if(universalEditorBackup) {
+    state.equipamentos=universalEditorBackup.equipamentos;
+    state.conexoes=universalEditorBackup.conexoes;
+    state.pops=universalEditorBackup.pops;
+    Object.assign(visibleConfig,universalEditorBackup.config);
+    applyConfig();
+  }
+  closeUniversalEditor(); renderAll();
+}
+
+function editEquipment(i){openUniversalEditor("equipment",i);}
+function editPop(i){openUniversalEditor("pop",i);}
+function editCurrentDeviceAll(){ if(currentDeviceId!==null) { closeModal(); openUniversalEditor("equipment",state.equipamentos.findIndex(e=>e.id===currentDeviceId)); } }
+function editConfig(){openUniversalEditor("config",0);}
+
 document.getElementById("search")?.addEventListener("input",e=>renderSidebar(e.target.value));
 document.getElementById("closeBtn")?.addEventListener("click",closeModal);
-document.getElementById("editCurrentDevice")?.addEventListener("click",enterInlineEdit);
+document.getElementById("editCurrentDevice")?.addEventListener("click",editCurrentDeviceAll);
 document.getElementById("inlineEditSave")?.addEventListener("click",saveInlineEdit);
 document.getElementById("inlineEditCancel")?.addEventListener("click",cancelInlineEdit);
 document.getElementById("popModalClose")?.addEventListener("click",closePop);
@@ -229,6 +475,11 @@ document.getElementById("editCurrentPop")?.addEventListener("click",()=>editPop(
 document.getElementById("connectionClose")?.addEventListener("click",closeConnection);
 document.getElementById("manageNetworkBtn")?.addEventListener("click",openNetworkManager);
 document.getElementById("networkManagerClose")?.addEventListener("click",closeNetworkManager);
+document.getElementById("universalEditorClose")?.addEventListener("click",closeUniversalEditor);
+document.getElementById("universalEditorCancel")?.addEventListener("click",cancelUniversalEditor);
+document.getElementById("universalEditorSave")?.addEventListener("click",()=>{applyUniversalEditor();closeUniversalEditor();});
+document.querySelectorAll(".section-pencil").forEach(b=>b.addEventListener("click",editConfig));
+
 document.querySelectorAll(".manager-tab").forEach(b=>b.addEventListener("click",()=>renderManager(b.dataset.tab)));
 document.getElementById("sidebarToggle")?.addEventListener("click",()=>{
   document.getElementById("appShell").classList.toggle("sidebar-collapsed");
