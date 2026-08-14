@@ -204,20 +204,64 @@ function closePop() {
 }
 
 
-function openEditPorts() {
-  const modal = document.getElementById("editPortsModal");
-  const select = document.getElementById("editDeviceSelect");
-  const search = document.getElementById("editPortSearch");
-  select.innerHTML = state.equipamentos.map((eq, i) =>
-    `<option value="${i}">${escapeHtml(eq.nome || eq.id)} — ${escapeHtml(eq.modelo || "")}</option>`
-  ).join("");
-  search.value = "";
+let currentDeviceId = null;
+
+function openEditPortsForDevice(deviceId) {
+  currentDeviceId = deviceId;
+  const eq = getDevice(deviceId);
+  if (!eq) return;
+
+  // Reuse the existing editor modal if present; otherwise create it.
+  let modal = document.getElementById("editPortsModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "editPortsModal";
+    modal.className = "edit-ports-modal";
+    modal.innerHTML = `
+      <div class="edit-ports-card">
+        <div class="edit-ports-head">
+          <div>
+            <h2 id="editDeviceTitle">EDITAR APARELHO</h2>
+            <p id="editDeviceSubtitle"></p>
+          </div>
+          <button id="editPortsClose" class="close" type="button">×</button>
+        </div>
+        <div class="edit-device-summary">
+          <label><span>Nome</span><input id="editDeviceName"></label>
+          <label><span>Modelo</span><input id="editDeviceModel"></label>
+          <label><span>Local</span><input id="editDeviceLocal"></label>
+        </div>
+        <div class="edit-ports-toolbar">
+          <label>
+            <span>Buscar porta</span>
+            <input id="editPortSearch" type="search" placeholder="Número, conexão ou capacidade">
+          </label>
+        </div>
+        <div id="editPortsTableWrap" class="edit-ports-table-wrap"></div>
+        <div class="edit-ports-actions">
+          <span id="editPortsStatus"></span>
+          <button id="editPortsSave" class="primary-btn" type="button">Salvar alterações</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    document.getElementById("editPortsClose").addEventListener("click", closeEditPorts);
+    document.getElementById("editPortSearch").addEventListener("input", renderEditPorts);
+    document.getElementById("editPortsSave").addEventListener("click", saveCurrentDevice);
+  }
+
+  document.getElementById("editDeviceName").value = eq.nome || "";
+  document.getElementById("editDeviceModel").value = eq.modelo || "";
+  document.getElementById("editDeviceLocal").value = eq.local || "";
+  document.getElementById("editDeviceSubtitle").textContent = `${eq.nome || ""} • ${eq.modelo || ""}`;
+  document.getElementById("editPortSearch").value = "";
   modal.classList.remove("hidden");
   renderEditPorts();
 }
 
 function closeEditPorts() {
-  document.getElementById("editPortsModal").classList.add("hidden");
+  const modal = document.getElementById("editPortsModal");
+  if (modal) modal.classList.add("hidden");
 }
 
 function getConnectionsForDevice(eqId) {
@@ -261,11 +305,10 @@ function getPortRows(eq) {
 }
 
 function renderEditPorts() {
-  const select = document.getElementById("editDeviceSelect");
   const wrap = document.getElementById("editPortsTableWrap");
   const search = document.getElementById("editPortSearch");
-  const eq = state.equipamentos[Number(select.value)];
-  if (!eq) return;
+  const eq = getDevice(currentDeviceId);
+  if (!eq || !wrap) return;
 
   const term = (search.value || "").toLowerCase().trim();
   const rows = getPortRows(eq).filter(r => {
@@ -300,16 +343,9 @@ function renderEditPorts() {
                 `).join("")}
               </select>
             </td>
-            <td>
-              <input class="port-remote-port" type="number" min="1"
-                value="${r.portaRemota || ""}" placeholder="Porta">
-            </td>
+            <td><input class="port-remote-port" type="number" min="1" value="${r.portaRemota || ""}" placeholder="Porta"></td>
             <td><input class="port-type" value="${escapeAttr(r.tipo)}" placeholder="Ex.: BGP/MPLS"></td>
-            <td>
-              <button type="button" class="disconnect-port" data-port="${r.porta}">
-                ${r.conectado ? "Desconectar" : "Livre"}
-              </button>
-            </td>
+            <td><button type="button" class="disconnect-port" data-port="${r.porta}">${r.conectado ? "Desconectar" : "Livre"}</button></td>
           </tr>
         `).join("")}
       </tbody>
@@ -336,46 +372,38 @@ function disconnectPort(eqId, port) {
 }
 
 function applyPortEdits() {
-  const select = document.getElementById("editDeviceSelect");
-  const eq = state.equipamentos[Number(select.value)];
+  const eq = getDevice(currentDeviceId);
+  if (!eq) return;
+
+  eq.nome = document.getElementById("editDeviceName").value.trim() || eq.nome;
+  eq.modelo = document.getElementById("editDeviceModel").value.trim() || eq.modelo;
+  eq.local = document.getElementById("editDeviceLocal").value.trim();
+
   const rows = [...document.querySelectorAll("#editPortsTableWrap tbody tr")];
 
   rows.forEach(tr => {
     const port = Number(tr.dataset.port);
+    const portObj = Array.isArray(eq.portas) ? eq.portas.find(p => Number(p.numero) === port) : null;
     const capacity = tr.querySelector(".port-capacity").value.trim();
-    const remote = tr.querySelector(".port-remote").value.trim();
+    const remote = tr.querySelector(".port-remote").value;
     const remotePort = Number(tr.querySelector(".port-remote-port").value);
     const type = tr.querySelector(".port-type").value.trim();
 
-    // Update local port metadata if the equipment JSON has a ports array.
-    if (Array.isArray(eq.portasDetalhes)) {
-      let pd = eq.portasDetalhes.find(x => Number(x.porta) === port);
-      if (!pd) {
-        pd = { porta: port };
-        eq.portasDetalhes.push(pd);
-      }
-      pd.capacidade = capacity;
+    if (portObj) {
+      portObj.capacidade = capacity;
+      if (type) portObj.tipo = type;
     }
 
-    // Remove any existing connection on this local port.
     state.conexoes = state.conexoes.filter(c =>
       !((c.origem === eq.id && Number(c.portaOrigem) === port) ||
         (c.destino === eq.id && Number(c.portaDestino) === port))
     );
 
     if (remote && remotePort) {
-      const remoteEq = state.equipamentos.find(e =>
-        e.id === remote || e.nome === remote
-      );
-
-      // Prefer exact equipment ID. If no exact match exists, use the entered value
-      // as a reference so the user can still document an external/unknown endpoint.
-      const remoteId = remoteEq ? remoteEq.id : remote;
-
       state.conexoes.push({
         origem: eq.id,
         portaOrigem: port,
-        destino: remoteId,
+        destino: remote,
         portaDestino: remotePort,
         capacidade: capacity,
         tipo: type
@@ -384,12 +412,11 @@ function applyPortEdits() {
   });
 
   document.getElementById("editPortsStatus").textContent =
-    "Alterações aplicadas nesta sessão. Use os botões de download para gerar os JSON atualizados.";
+    "Alterações aplicadas. Gere os JSON atualizados para publicar no GitHub.";
   renderTopology();
   renderSidebar();
-}
-
-function downloadJson(filename, data) {
+  openDetail(eq.id);
+}(filename, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -428,6 +455,7 @@ function closeConnection() {
 }
 
 function openDetail(id) {
+  currentDeviceId = id;
   const d = getDevice(id);
   if (!d) return;
   document.getElementById("detailName").textContent = d.nome;
@@ -486,6 +514,9 @@ function escapeHtml(value) {
 
 document.getElementById("search").addEventListener("input", e => renderSidebar(e.target.value));
 document.getElementById("closeBtn").addEventListener("click", closeModal);
+document.getElementById("editCurrentDevice").addEventListener("click", () => {
+  if (currentDeviceId) openEditPortsForDevice(currentDeviceId);
+});
 document.getElementById("connectionClose").addEventListener("click", closeConnection);
 document.getElementById("popModalClose").addEventListener("click", closePop);
 document.getElementById("modal").addEventListener("click", e => {
@@ -500,11 +531,6 @@ document.addEventListener("keydown", e => {
 });
 
 
-document.getElementById("editPortsBtn")?.addEventListener("click", openEditPorts);
-document.getElementById("editPortsClose")?.addEventListener("click", closeEditPorts);
-document.getElementById("editDeviceSelect")?.addEventListener("change", renderEditPorts);
-document.getElementById("editPortSearch")?.addEventListener("input", renderEditPorts);
-document.getElementById("editPortsSave")?.addEventListener("click", () => {
   applyPortEdits();
   exportEditedData();
 });
