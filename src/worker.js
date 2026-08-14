@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   username TEXT,
   action TEXT NOT NULL,
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS topology_state (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_occurred_at ON audit_logs(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_role_screens_role ON role_screens(role_id);
@@ -866,7 +866,7 @@ async function handleAudit(env,request) {
   const url=new URL(request.url);
   const limit=Math.min(Number(url.searchParams.get("limit")||200),1000);
   const rows=(await db.prepare(`
-    SELECT id,occurred_at,user_id,username,action,resource_type,resource_id,method,path,ip,user_agent,before_json,after_json,details_json
+    SELECT id,created_at,user_id,username,action,resource_type,resource_id,method,path,ip,user_agent,before_json,after_json,details_json
     FROM audit_logs ORDER BY id DESC LIMIT ?
   `).bind(limit)).results;
   return json(rows);

@@ -544,3 +544,8 @@ CREATE TABLE IF NOT EXISTS roles (: incomplete input
 
 O Worker cria cada tabela individualmente e de forma idempotente.
 
+
+
+## Correção de compatibilidade da auditoria D1
+
+O erro `no such column: occurred_at` foi corrigido. O projeto agora usa `audit_logs.created_at`, compatível com a tabela criada nas versões anteriores. O Worker também verifica a estrutura existente do D1 e cria `created_at` quando necessário, sem apagar os dados existentes.
