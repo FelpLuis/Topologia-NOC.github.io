@@ -145,121 +145,186 @@ function portConnectionDetails(d,p){
 function renderDetailEquipmentImage(d){
   const host=document.getElementById("detailEquipmentImage");
   if(!host)return;
-  const image=getEquipmentImage(d);
-  if(!image){
-    host.innerHTML=`<div class="equipment-visual-stage no-image">
-      <div class="equipment-visual-empty">
-        <span>Imagem não cadastrada</span>
-        <small>Adicione o caminho/URL no campo <b>imagem</b> do equipamento para habilitar a visualização física.</small>
-      </div>
-    </div>`;
-    return;
-  }
 
-  const cfg=d.hotspots||{top:55,height:28,cols:Math.max(1,d.portas?.length||1)};
   const ports=Array.isArray(d.portas)?d.portas:[];
-  host.innerHTML=`<div class="equipment-visual-stage">
-    <div class="equipment-image-viewport">
-      <img src="${escapeAttr(image)}" alt="${escapeAttr(d.imagemAlt||d.modelo||d.nome)}" class="equipment-photo">
-      <div class="equipment-hotspots" style="top:${Number(cfg.top)||55}%;height:${Number(cfg.height)||28}%;grid-template-columns:repeat(${Number(cfg.cols)||ports.length||1},minmax(0,1fr));">
-        ${ports.map(p=>{
-          const st=portVisualState(d,p);
-          return `<button type="button" class="equipment-hotspot ${st}" data-port="${escapeAttr(p.numero)}" aria-label="Porta ${escapeAttr(p.numero)}">
-            <span>${escapeHtml(String(p.numero))}</span>
-          </button>`;
-        }).join("")}
+  const cfg=d.hotspots||{};
+  const total=Math.max(1,ports.length);
+  const cols=Number(cfg.cols)||(
+    total<=8?total:
+    total<=24?12:
+    total<=48?12:
+    14
+  );
+  const rows=Math.max(1,Math.ceil(total/cols));
+
+  const modelClass=(String(d.modelo||d.nome||"equipamento")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-|-$/g,"")) || "equipamento";
+
+  host.innerHTML=`<div class="equipment-3d-stage" data-device="${escapeAttr(d.id||"")}" data-model="${escapeAttr(modelClass)}">
+    <div class="equipment-3d-scene">
+      <div class="equipment-3d-shadow"></div>
+
+      <div class="equipment-3d-chassis">
+        <div class="equipment-3d-top"></div>
+        <div class="equipment-3d-side"></div>
+
+        <div class="equipment-3d-front">
+          <div class="equipment-3d-brand">
+            <span>${escapeHtml(d.fabricante||"UPDOWN")}</span>
+            <strong>${escapeHtml(d.modelo||d.nome||"EQUIPAMENTO")}</strong>
+          </div>
+
+          <div class="equipment-3d-display">
+            <span></span><span></span><span></span>
+          </div>
+
+          <div class="equipment-3d-ports"
+               style="--port-cols:${cols};--port-rows:${rows};">
+            ${ports.map((p,index)=>{
+              const st=portVisualState(d,p);
+              return `<button
+                type="button"
+                class="equipment-3d-port ${st}"
+                data-port="${escapeAttr(p.numero)}"
+                data-index="${index}"
+                aria-label="Porta ${escapeAttr(p.numero)}">
+                  <i></i>
+                  <b>${escapeHtml(String(p.numero))}</b>
+              </button>`;
+            }).join("")}
+          </div>
+
+          <div class="equipment-3d-status">
+            <span class="led"></span>
+            <span>${escapeHtml(d.nome||"Equipamento")}</span>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <div class="equipment-port-magnifier hidden" id="equipmentPortMagnifier" aria-hidden="true">
-      <div class="magnifier-image" id="equipmentMagnifierImage"></div>
-      <div class="magnifier-port-badge" id="equipmentMagnifierPort"></div>
-    </div>
+      <div class="equipment-3d-tooltip hidden" id="equipment3DTooltip"></div>
 
-    <div class="equipment-photo-tooltip hidden" id="equipmentPhotoTooltip"></div>
-
-    <div class="equipment-photo-caption">
-      <span>● Conectada</span><span>○ Livre</span><span>● Reservada</span><span>● Manutenção</span>
-      <em>Passe o mouse sobre uma porta para ampliar</em>
+      <div class="equipment-3d-help">
+        <span>↖ Passe o mouse diretamente sobre uma porta</span>
+        <small>O equipamento aproxima automaticamente a região selecionada.</small>
+      </div>
     </div>
   </div>`;
 
-  const stage=host.querySelector(".equipment-visual-stage");
-  const viewport=host.querySelector(".equipment-image-viewport");
-  const photo=host.querySelector(".equipment-photo");
-  const tooltip=host.querySelector("#equipmentPhotoTooltip");
-  const magnifier=host.querySelector("#equipmentPortMagnifier");
-  const magnifierImage=host.querySelector("#equipmentMagnifierImage");
-  const magnifierPort=host.querySelector("#equipmentMagnifierPort");
+  const stage=host.querySelector(".equipment-3d-stage");
+  const scene=host.querySelector(".equipment-3d-scene");
+  const chassis=host.querySelector(".equipment-3d-chassis");
+  const tooltip=host.querySelector("#equipment3DTooltip");
+  const buttons=[...host.querySelectorAll(".equipment-3d-port")];
 
-  const hideZoom=()=>{
-    magnifier.classList.add("hidden");
-    tooltip.classList.add("hidden");
-    host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active","zoomed"));
-  };
+  let resetTimer=null;
 
-  const showZoom=(btn,port,event)=>{
+  const portByNumber=(num)=>ports.find(x=>+x.numero===+num);
+
+  const detailsHtml=(port)=>{
     const details=portConnectionDetails(d,port);
-    host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active","zoomed"));
-    btn.classList.add("active","zoomed");
-
-    tooltip.innerHTML=`<b>Porta ${escapeHtml(String(port.numero))}</b>
-      <span>${escapeHtml(details.status)}</span>
-      <span><strong>Capacidade:</strong> ${escapeHtml(port.capacidade||"Não informada")}</span>
-      <span><strong>Tipo:</strong> ${escapeHtml(port.tipo||"Não informado")}</span>
-      <span><strong>Conexão:</strong> ${escapeHtml(details.remote)}</span>`;
-    tooltip.classList.remove("hidden");
-
-    const stageRect=stage.getBoundingClientRect();
-    const vpRect=viewport.getBoundingClientRect();
-    const btnRect=btn.getBoundingClientRect();
-
-    // Centro da porta em coordenadas relativas à imagem/viewport.
-    const px=(btnRect.left+btnRect.width/2-vpRect.left)/Math.max(1,vpRect.width);
-    const py=(btnRect.top+btnRect.height/2-vpRect.top)/Math.max(1,vpRect.height);
-
-    // Magnificação 3x com o ponto da porta no centro da lente.
-    const zoom=3.2;
-    magnifierImage.style.backgroundImage=`url("${image.replace(/"/g,'\\"')}")`;
-    magnifierImage.style.backgroundSize=`${zoom*100}% ${zoom*100}%`;
-    magnifierImage.style.backgroundPosition=`${Math.max(0,Math.min(100,px*100))}% ${Math.max(0,Math.min(100,py*100))}%`;
-    magnifierPort.textContent=`PORTA ${port.numero} • ${port.capacidade||"capacidade n/i"}`;
-
-    // A lente acompanha o mouse, mas nunca sai do painel.
-    const mx=(event?.clientX??(btnRect.left+btnRect.width/2))-stageRect.left;
-    const my=(event?.clientY??(btnRect.top+btnRect.height/2))-stageRect.top;
-    const lensW=190,lensH=142,gap=14;
-    let lx=mx+gap,ly=my-lensH/2;
-    if(lx+lensW>stage.clientWidth-10) lx=mx-lensW-gap;
-    if(ly<10) ly=10;
-    if(ly+lensH>stage.clientHeight-48) ly=stage.clientHeight-lensH-48;
-    magnifier.style.left=`${Math.max(10,lx)}px`;
-    magnifier.style.top=`${Math.max(10,ly)}px`;
-    magnifier.classList.remove("hidden");
+    return `<div class="tooltip-kicker">INTERFACE FÍSICA</div>
+      <strong>Porta ${escapeHtml(String(port.numero))}</strong>
+      <span class="tooltip-status ${portVisualState(d,port)}">${escapeHtml(details.status)}</span>
+      <dl>
+        <dt>Capacidade</dt><dd>${escapeHtml(port.capacidade||"Não informada")}</dd>
+        <dt>Tipo</dt><dd>${escapeHtml(port.tipo||"Não informado")}</dd>
+        <dt>Conexão</dt><dd>${escapeHtml(details.remote)}</dd>
+      </dl>`;
   };
 
-  host.querySelectorAll(".equipment-hotspot").forEach(btn=>{
-    const port=ports.find(x=>+x.numero===+btn.dataset.port);
+  const positionTooltip=(btn)=>{
+    const sr=scene.getBoundingClientRect();
+    const br=btn.getBoundingClientRect();
+    const tw=260, th=150, gap=18;
+
+    let x=br.right-sr.left+gap;
+    let y=br.top-sr.top+(br.height/2)-(th/2);
+
+    if(x+tw>sr.width-12) x=br.left-sr.left-tw-gap;
+    if(y<12)y=12;
+    if(y+th>sr.height-12)y=sr.height-th-12;
+
+    tooltip.style.left=`${Math.max(12,x)}px`;
+    tooltip.style.top=`${Math.max(12,y)}px`;
+  };
+
+  const activate=(btn,event)=>{
+    const port=portByNumber(btn.dataset.port);
     if(!port)return;
 
-    btn.addEventListener("mouseenter",(e)=>showZoom(btn,port,e));
-    btn.addEventListener("mousemove",(e)=>showZoom(btn,port,e));
-    btn.addEventListener("mouseleave",hideZoom);
-    btn.addEventListener("focus",(e)=>showZoom(btn,port,e));
-    btn.addEventListener("blur",hideZoom);
+    clearTimeout(resetTimer);
+    buttons.forEach(x=>x.classList.remove("active","zoom-port"));
+    btn.classList.add("active","zoom-port");
+
+    // Aproxime o chassi em 3D e incline levemente para a porta selecionada.
+    const index=Number(btn.dataset.index)||0;
+    const col=index%cols;
+    const row=Math.floor(index/cols);
+    const xTilt=((col/(Math.max(1,cols-1)))-.5)*8;
+    const yTilt=((row/(Math.max(1,rows-1)))-.5)*5;
+
+    scene.style.setProperty("--focus-x", `${xTilt}deg`);
+    scene.style.setProperty("--focus-y", `${yTilt}deg`);
+    scene.classList.add("port-focused");
+
+    tooltip.innerHTML=detailsHtml(port);
+    tooltip.classList.remove("hidden");
+    positionTooltip(btn);
+
+    if(event){
+      scene.style.setProperty("--pointer-x", `${event.clientX}px`);
+      scene.style.setProperty("--pointer-y", `${event.clientY}px`);
+    }
+  };
+
+  const deactivate=(btn)=>{
+    btn.classList.remove("active","zoom-port");
+    resetTimer=setTimeout(()=>{
+      if(!buttons.some(x=>x.matches(":hover")||x===document.activeElement)){
+        scene.classList.remove("port-focused");
+        tooltip.classList.add("hidden");
+      }
+    },100);
+  };
+
+  buttons.forEach(btn=>{
+    const port=portByNumber(btn.dataset.port);
+    if(!port)return;
+
+    btn.addEventListener("mouseenter",e=>activate(btn,e));
+    btn.addEventListener("mousemove",e=>{
+      if(btn.classList.contains("active")){
+        positionTooltip(btn);
+      }
+    });
+    btn.addEventListener("mouseleave",()=>deactivate(btn));
+    btn.addEventListener("focus",()=>activate(btn));
+    btn.addEventListener("blur",()=>deactivate(btn));
 
     btn.addEventListener("click",()=>{
-      const details=portConnectionDetails(d,port);
-      tooltip.classList.remove("hidden");
-      const row=[...document.querySelectorAll("#detailRows tr")].find(tr=>+tr.dataset.port===+port.numero);
+      activate(btn);
+      const row=[...document.querySelectorAll("#detailRows tr")]
+        .find(tr=>+tr.dataset.port===+port.numero);
       row?.scrollIntoView({behavior:"smooth",block:"center"});
       row?.classList.add("port-row-highlight");
       setTimeout(()=>row?.classList.remove("port-row-highlight"),1400);
-      // Mantém a porta selecionada no clique para uso com touch.
-      btn.classList.add("active","zoomed");
-      magnifier.classList.remove("hidden");
-      magnifierPort.textContent=`PORTA ${port.numero} • ${details.status}`;
     });
+  });
+
+  // Movimento do mouse cria uma pequena sensação de câmera 3D.
+  scene.addEventListener("mousemove",e=>{
+    if(scene.classList.contains("port-focused"))return;
+    const r=scene.getBoundingClientRect();
+    const px=(e.clientX-r.left)/r.width-.5;
+    const py=(e.clientY-r.top)/r.height-.5;
+    chassis.style.setProperty("--mouse-y", `${px*4}deg`);
+    chassis.style.setProperty("--mouse-x", `${-py*3}deg`);
+  });
+  scene.addEventListener("mouseleave",()=>{
+    chassis.style.setProperty("--mouse-y","0deg");
+    chassis.style.setProperty("--mouse-x","0deg");
   });
 }
 
