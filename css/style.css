@@ -2154,3 +2154,217 @@ html[data-theme="light"] #modal .equipment-3d-tooltip dt{
     width:220px;
   }
 }
+
+/* =========================================================
+   VISTA FRONTAL REAL + HOTSPOTS FÍSICOS
+   ========================================================= */
+#modal .equipment-image-stage{
+  position:relative;
+  width:100%;
+  height:100%;
+  min-height:360px;
+  overflow:hidden;
+  border:1px solid rgba(62,132,170,.28);
+  border-radius:14px;
+  background:
+    radial-gradient(circle at 50% 48%,rgba(29,156,223,.10),transparent 40%),
+    linear-gradient(rgba(64,136,181,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(64,136,181,.045) 1px,transparent 1px),
+    #061522;
+  background-size:auto,24px 24px,24px 24px,auto;
+}
+#modal .equipment-image-view{
+  position:absolute;
+  left:5%;
+  right:5%;
+  top:50%;
+  transform:
+    translateY(-50%)
+    perspective(1200px)
+    rotateX(var(--tilt-x,0deg))
+    rotateY(var(--tilt-y,0deg));
+  transform-style:preserve-3d;
+  transition:transform .35s cubic-bezier(.2,.8,.2,1);
+  filter:drop-shadow(0 30px 25px rgba(0,0,0,.42));
+}
+#modal .equipment-image-view.image-port-focused{
+  transform:
+    translateY(-50%)
+    perspective(1200px)
+    rotateX(var(--tilt-x,0deg))
+    rotateY(var(--tilt-y,0deg))
+    scale(1.055);
+}
+#modal .equipment-real-image{
+  display:block;
+  width:100%;
+  height:auto;
+  max-height:290px;
+  object-fit:contain;
+  object-position:center;
+  user-select:none;
+  pointer-events:none;
+  border-radius:4px;
+}
+#modal .equipment-hotspots{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+#modal .equipment-port-hotspot{
+  position:absolute;
+  pointer-events:auto;
+  border:1px solid transparent;
+  border-radius:4px;
+  background:transparent;
+  padding:0;
+  cursor:crosshair;
+  z-index:5;
+}
+#modal .equipment-port-hotspot span{
+  position:absolute;
+  left:50%;
+  bottom:calc(100% + 3px);
+  transform:translateX(-50%);
+  display:none;
+  padding:2px 4px;
+  border-radius:3px;
+  background:rgba(3,15,25,.92);
+  color:#e9faff;
+  font-size:7px;
+  font-weight:900;
+  line-height:1;
+}
+#modal .equipment-port-hotspot:hover,
+#modal .equipment-port-hotspot:focus,
+#modal .equipment-port-hotspot.active{
+  outline:none;
+  border-color:#63e4ff;
+  background:rgba(38,214,255,.16);
+  box-shadow:0 0 0 2px rgba(38,214,255,.13),0 0 15px rgba(38,214,255,.7);
+}
+#modal .equipment-port-hotspot:hover span,
+#modal .equipment-port-hotspot:focus span,
+#modal .equipment-port-hotspot.active span{display:block}
+#modal .equipment-port-hotspot.connected{border-color:rgba(21,139,255,.12)}
+#modal .equipment-port-hotspot.reserved{border-color:rgba(241,182,67,.28)}
+#modal .equipment-port-hotspot.maintenance{border-color:rgba(240,91,109,.28)}
+
+#modal .equipment-image-caption{
+  position:absolute;
+  left:14px;
+  right:14px;
+  bottom:12px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  pointer-events:none;
+}
+#modal .equipment-image-caption span{
+  color:#39d6ff;
+  font-size:7px;
+  font-weight:900;
+  letter-spacing:.13em;
+}
+#modal .equipment-image-caption strong{
+  color:#eaf8ff;
+  font-size:9px;
+}
+#modal .equipment-image-caption small{
+  color:#658da4;
+  font-size:7px;
+}
+#modal .equipment-port-tooltip{
+  position:absolute;
+  z-index:40;
+  width:250px;
+  min-height:130px;
+  padding:12px 14px;
+  border:1px solid #3e86aa;
+  border-radius:10px;
+  background:rgba(4,17,28,.98);
+  color:#dff7ff;
+  box-shadow:0 18px 45px rgba(0,0,0,.48),0 0 18px rgba(43,192,255,.12);
+  pointer-events:none;
+}
+#modal .equipment-port-tooltip.hidden{display:none}
+#modal .equipment-port-tooltip .tooltip-kicker{
+  margin-bottom:3px;color:#4ed6ff;font-size:7px;font-weight:900;letter-spacing:.12em
+}
+#modal .equipment-port-tooltip strong{display:block;color:#fff;font-size:15px}
+#modal .equipment-port-tooltip .tooltip-status{
+  display:inline-block;margin:5px 0 8px;padding:3px 6px;border-radius:5px;background:#0c2b42;color:#62dbff;font-size:7px;font-weight:900;text-transform:uppercase
+}
+#modal .equipment-port-tooltip dl{display:grid;grid-template-columns:75px 1fr;gap:4px 7px;margin:0}
+#modal .equipment-port-tooltip dt{color:#7e9caf;font-size:7px}
+#modal .equipment-port-tooltip dd{margin:0;color:#d9edf7;font-size:8px;font-weight:700}
+
+#modal .equipment-generic-image{
+  position:relative;
+  width:100%;
+  height:220px;
+  border:2px solid #46677b;
+  border-radius:6px;
+  background:linear-gradient(180deg,#203b4d,#0b1b2a 42%,#07131e);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 20px 30px rgba(0,0,0,.35);
+}
+#modal .generic-brand{position:absolute;left:20px;top:15px;color:#a2baca;font-size:8px;font-weight:800;letter-spacing:.08em}
+#modal .generic-model{position:absolute;left:20px;top:30px;color:#f3fbff;font-size:11px;font-weight:900}
+#modal .generic-port-bank{position:absolute;left:18px;right:18px;top:75px;height:82px;display:grid;grid-template-columns:repeat(16,1fr);gap:4px;padding:9px;background:#06111a;border:1px solid #24455a}
+#modal .generic-port-slot{display:block;border:1px solid #42657a;border-radius:2px;background:#091821;box-shadow:inset 0 0 3px #000}
+
+html[data-theme="light"] #modal .equipment-image-stage{
+  background:
+    radial-gradient(circle at 50% 48%,rgba(7,93,255,.08),transparent 40%),
+    linear-gradient(rgba(7,93,255,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(7,93,255,.045) 1px,transparent 1px),
+    #edf5fb;
+}
+html[data-theme="light"] #modal .equipment-port-tooltip{
+  background:rgba(255,255,255,.98);
+  border-color:#9bc5e0;
+  color:#10213d;
+  box-shadow:0 18px 45px rgba(7,26,61,.22);
+}
+html[data-theme="light"] #modal .equipment-port-tooltip strong{color:#071a3d}
+html[data-theme="light"] #modal .equipment-port-tooltip dd{color:#183b57}
+html[data-theme="light"] #modal .equipment-port-hotspot:hover,
+html[data-theme="light"] #modal .equipment-port-hotspot:focus,
+html[data-theme="light"] #modal .equipment-port-hotspot.active{
+  background:rgba(7,137,255,.15);
+}
+
+/* Botão Dashboard NOC ao lado de Gerenciar rede */
+.header-dashboard-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:40px;
+  padding:0 16px;
+  margin-left:8px;
+  border:1px solid #1685ff;
+  border-radius:8px;
+  background:linear-gradient(135deg,#0d6fe8,#1685ff);
+  color:#fff !important;
+  text-decoration:none !important;
+  font-size:13px;
+  font-weight:800;
+  letter-spacing:.01em;
+  box-shadow:0 5px 14px rgba(22,133,255,.18);
+  transition:transform .16s ease,box-shadow .16s ease,background .16s ease;
+  white-space:nowrap;
+}
+.header-dashboard-btn:hover{
+  background:linear-gradient(135deg,#1685ff,#26bdf5);
+  transform:translateY(-1px);
+  box-shadow:0 8px 20px rgba(22,133,255,.28);
+}
+.header-dashboard-btn:active{transform:translateY(0)}
+@media(max-width:760px){
+  .header-dashboard-btn{
+    min-height:36px;
+    padding:0 11px;
+    font-size:11px;
+    margin-left:5px;
+  }
+}

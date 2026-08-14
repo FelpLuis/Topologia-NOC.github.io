@@ -11,7 +11,7 @@ let currentDeviceId=null, currentPopId=null, detailEditMode=false, detailBackup=
 async function loadData(){
   const cached=localStorage.getItem("updown-topologia-data");
   if(cached){
-    try { Object.assign(state,JSON.parse(cached)); normalizeState(); renderAll(); return; } catch(e){ console.warn(e); }
+    try { Object.assign(state,JSON.parse(cached)); normalizeState(); persist(); renderAll(); return; } catch(e){ console.warn(e); }
   }
   const [a,b,c]=await Promise.all([
     fetch("data/equipamentos.json"),fetch("data/conexoes.json"),fetch("data/pops.json")
@@ -20,8 +20,20 @@ async function loadData(){
   state.equipamentos=await a.json(); state.conexoes=await b.json(); state.pops=await c.json();
   normalizeState(); renderAll(); applyConfig();
 }
+function migratePortNumbering(){
+  // Versão antiga do cadastro tinha o NE F1A começando em 0.
+  // A topologia atual é 100% 1-based. Conexões já utilizam a numeração 1-based.
+  state.equipamentos.forEach(e=>{
+    if(!Array.isArray(e.portas)||!e.portas.length)return;
+    const nums=e.portas.map(p=>Number(p.numero)).filter(Number.isFinite);
+    if(nums.length && Math.min(...nums)===0){
+      e.portas.forEach(p=>{ p.numero=Number(p.numero)+1; });
+    }
+  });
+}
 function normalizeState(){
   state.equipamentos=Array.isArray(state.equipamentos)?state.equipamentos:[];
+  migratePortNumbering();
   state.conexoes=Array.isArray(state.conexoes)?state.conexoes:[];
   state.pops=Array.isArray(state.pops)?state.pops:[];
   state.equipamentos.forEach((e,i)=>{
@@ -147,164 +159,131 @@ function renderDetailEquipmentImage(d){
   if(!host)return;
 
   const ports=Array.isArray(d.portas)?d.portas:[];
-  const cfg=d.hotspots||{};
-  const total=Math.max(1,ports.length);
-  const cols=Number(cfg.cols)||(
-    total<=8?total:
-    total<=24?12:
-    total<=48?12:
-    14
-  );
-  const rows=Math.max(1,Math.ceil(total/cols));
+  const image=d.imagem||"";
+  const isF1A=d.layoutPortas==="f1a" || d.id==="f1a";
 
-  const modelClass=(String(d.modelo||d.nome||"equipamento")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g,"-")
-    .replace(/^-|-$/g,"")) || "equipamento";
-
-  host.innerHTML=`<div class="equipment-3d-stage" data-device="${escapeAttr(d.id||"")}" data-model="${escapeAttr(modelClass)}">
-    <div class="equipment-3d-scene">
-      <div class="equipment-3d-shadow"></div>
-
-      <div class="equipment-3d-chassis">
-        <div class="equipment-3d-top"></div>
-        <div class="equipment-3d-side"></div>
-
-        <div class="equipment-3d-front">
-          <div class="equipment-3d-brand">
-            <span>${escapeHtml(d.fabricante||"UPDOWN")}</span>
-            <strong>${escapeHtml(d.modelo||d.nome||"EQUIPAMENTO")}</strong>
-          </div>
-
-          <div class="equipment-3d-display">
-            <span></span><span></span><span></span>
-          </div>
-
-          <div class="equipment-3d-ports"
-               style="--port-cols:${cols};--port-rows:${rows};">
-            ${ports.map((p,index)=>{
-              const st=portVisualState(d,p);
-              return `<button
-                type="button"
-                class="equipment-3d-port ${st}"
-                data-port="${escapeAttr(p.numero)}"
-                data-index="${index}"
-                aria-label="Porta ${escapeAttr(p.numero)}">
-                  <i></i>
-                  <b>${escapeHtml(String(p.numero))}</b>
-              </button>`;
-            }).join("")}
-          </div>
-
-          <div class="equipment-3d-status">
-            <span class="led"></span>
-            <span>${escapeHtml(d.nome||"Equipamento")}</span>
-          </div>
-        </div>
+  host.innerHTML=`<div class="equipment-image-stage ${isF1A?"real-front":"generic-front"}"
+      data-device="${escapeAttr(d.id||"")}">
+      <div class="equipment-image-view">
+        ${image
+          ? `<img class="equipment-real-image" src="${escapeAttr(image)}"
+               alt="Vista frontal de ${escapeAttr(d.nome||d.modelo||"equipamento")}">`
+          : `<div class="equipment-generic-image">
+               <div class="generic-brand">${escapeHtml(d.fabricante||"EQUIPAMENTO")}</div>
+               <div class="generic-model">${escapeHtml(d.modelo||d.nome||"")}</div>
+               <div class="generic-port-bank">
+                 ${ports.map(p=>`<span class="generic-port-slot" data-port="${escapeAttr(p.numero)}"></span>`).join("")}
+               </div>
+             </div>`
+        }
+        <div class="equipment-hotspots ${isF1A?"f1a-hotspots":"generic-hotspots"}"></div>
       </div>
-
-      <div class="equipment-3d-tooltip hidden" id="equipment3DTooltip"></div>
-
-      <div class="equipment-3d-help">
-        <span>↖ Passe o mouse diretamente sobre uma porta</span>
-        <small>O equipamento aproxima automaticamente a região selecionada.</small>
+      <div class="equipment-image-caption">
+        <span>VISTA FRONTAL</span>
+        <strong>${escapeHtml(d.nome||d.modelo||"EQUIPAMENTO")}</strong>
+        <small>Passe o mouse diretamente sobre a interface física.</small>
       </div>
-    </div>
-  </div>`;
+      <div class="equipment-port-tooltip hidden" id="equipmentPortTooltip"></div>
+    </div>`;
 
-  const stage=host.querySelector(".equipment-3d-stage");
-  const scene=host.querySelector(".equipment-3d-scene");
-  const chassis=host.querySelector(".equipment-3d-chassis");
-  const tooltip=host.querySelector("#equipment3DTooltip");
-  const buttons=[...host.querySelectorAll(".equipment-3d-port")];
+  const stage=host.querySelector(".equipment-image-stage");
+  const view=host.querySelector(".equipment-image-view");
+  const hotspots=host.querySelector(".equipment-hotspots");
+  const tooltip=host.querySelector("#equipmentPortTooltip");
 
-  let resetTimer=null;
-
-  const portByNumber=(num)=>ports.find(x=>+x.numero===+num);
-
-  const detailsHtml=(port)=>{
-    const details=portConnectionDetails(d,port);
-    return `<div class="tooltip-kicker">INTERFACE FÍSICA</div>
-      <strong>Porta ${escapeHtml(String(port.numero))}</strong>
-      <span class="tooltip-status ${portVisualState(d,port)}">${escapeHtml(details.status)}</span>
-      <dl>
-        <dt>Capacidade</dt><dd>${escapeHtml(port.capacidade||"Não informada")}</dd>
-        <dt>Tipo</dt><dd>${escapeHtml(port.tipo||"Não informado")}</dd>
-        <dt>Conexão</dt><dd>${escapeHtml(details.remote)}</dd>
-      </dl>`;
-  };
-
-  const positionTooltip=(btn)=>{
-    const sr=scene.getBoundingClientRect();
-    const br=btn.getBoundingClientRect();
-    const tw=260, th=150, gap=18;
-
-    let x=br.right-sr.left+gap;
-    let y=br.top-sr.top+(br.height/2)-(th/2);
-
-    if(x+tw>sr.width-12) x=br.left-sr.left-tw-gap;
-    if(y<12)y=12;
-    if(y+th>sr.height-12)y=sr.height-th-12;
-
-    tooltip.style.left=`${Math.max(12,x)}px`;
-    tooltip.style.top=`${Math.max(12,y)}px`;
-  };
-
-  const activate=(btn,event)=>{
-    const port=portByNumber(btn.dataset.port);
-    if(!port)return;
-
-    clearTimeout(resetTimer);
-    buttons.forEach(x=>x.classList.remove("active","zoom-port"));
-    btn.classList.add("active","zoom-port");
-
-    // Aproxime o chassi em 3D e incline levemente para a porta selecionada.
-    const index=Number(btn.dataset.index)||0;
-    const col=index%cols;
-    const row=Math.floor(index/cols);
-    const xTilt=((col/(Math.max(1,cols-1)))-.5)*8;
-    const yTilt=((row/(Math.max(1,rows-1)))-.5)*5;
-
-    scene.style.setProperty("--focus-x", `${xTilt}deg`);
-    scene.style.setProperty("--focus-y", `${yTilt}deg`);
-    scene.classList.add("port-focused");
-
-    tooltip.innerHTML=detailsHtml(port);
-    tooltip.classList.remove("hidden");
-    positionTooltip(btn);
-
-    if(event){
-      scene.style.setProperty("--pointer-x", `${event.clientX}px`);
-      scene.style.setProperty("--pointer-y", `${event.clientY}px`);
+  function hotspotPosition(port,index){
+    if(isF1A){
+      // A imagem real possui 48 interfaces principais e 8 interfaces no breakout.
+      // As posições são percentuais para permanecerem alinhadas ao redimensionar.
+      if(index<48){
+        const x=5.35 + (index/47)*73.35;
+        return {x,y:57.0,w:1.32,h:21};
+      }
+      const x=79.2 + ((index-48)/7)*17.0;
+      return {x,y:57.0,w:3.0,h:21};
     }
-  };
+    const total=Math.max(1,ports.length);
+    const cols=Math.min(total,16);
+    const row=Math.floor(index/cols),col=index%cols;
+    const rows=Math.ceil(total/cols);
+    return {
+      x:8 + (col/Math.max(1,cols-1))*84,
+      y:42 + (row/Math.max(1,rows-1))*20,
+      w:Math.min(84/cols*1.5,6), h:14
+    };
+  }
 
-  const deactivate=(btn)=>{
-    btn.classList.remove("active","zoom-port");
-    resetTimer=setTimeout(()=>{
-      if(!buttons.some(x=>x.matches(":hover")||x===document.activeElement)){
-        scene.classList.remove("port-focused");
+  function connectionText(port){
+    const c=getPortConnection(d.id,port.numero);
+    if(!c)return {status:"Livre",remote:"Livre"};
+    const remoteId=c.isOrigin?c.c.destino:c.c.origem;
+    const remote=getDevice(remoteId);
+    const remotePort=c.isOrigin?c.c.portaDestino:c.c.portaOrigem;
+    return {
+      status:"Conectada",
+      remote:`${remote?.nome||remoteId} • porta ${remotePort}`
+    };
+  }
+
+  function showPort(btn,port){
+    const info=connectionText(port);
+    const cap=port.capacidade||"Não informada";
+    const tipo=port.tipo||"Não informado";
+    tooltip.innerHTML=`
+      <div class="tooltip-kicker">INTERFACE FÍSICA</div>
+      <strong>PORTA ${escapeHtml(String(port.numero))}</strong>
+      <span class="tooltip-status ${portVisualState(d,port)}">${escapeHtml(info.status)}</span>
+      <dl>
+        <dt>Capacidade</dt><dd>${escapeHtml(cap)}</dd>
+        <dt>Tipo</dt><dd>${escapeHtml(tipo)}</dd>
+        <dt>Conexão</dt><dd>${escapeHtml(info.remote)}</dd>
+      </dl>`;
+    tooltip.classList.remove("hidden");
+
+    const br=btn.getBoundingClientRect(), sr=stage.getBoundingClientRect();
+    let left=br.right-sr.left+14;
+    let top=br.top-sr.top+(br.height/2)-65;
+    if(left+250>sr.width)left=br.left-sr.left-264;
+    top=Math.max(10,Math.min(top,sr.height-145));
+    tooltip.style.left=`${left}px`;
+    tooltip.style.top=`${top}px`;
+
+    view.classList.add("image-port-focused");
+    stage.style.setProperty("--zoom-x",`${br.left+br.width/2}px`);
+    stage.style.setProperty("--zoom-y",`${br.top+br.height/2}px`);
+  }
+
+  function hidePort(btn){
+    btn.classList.remove("active");
+    setTimeout(()=>{
+      if(!hotspots.querySelector(".active")){
         tooltip.classList.add("hidden");
+        view.classList.remove("image-port-focused");
       }
-    },100);
-  };
+    },80);
+  }
 
-  buttons.forEach(btn=>{
-    const port=portByNumber(btn.dataset.port);
-    if(!port)return;
+  ports.forEach((port,index)=>{
+    const pos=hotspotPosition(port,index);
+    const stateClass=portVisualState(d,port);
+    const btn=document.createElement("button");
+    btn.type="button";
+    btn.className=`equipment-port-hotspot ${stateClass}`;
+    btn.dataset.port=port.numero;
+    btn.style.left=`${pos.x}%`;
+    btn.style.top=`${pos.y}%`;
+    btn.style.width=`${pos.w}%`;
+    btn.style.height=`${pos.h}%`;
+    btn.innerHTML=`<span>${escapeHtml(String(port.numero))}</span>`;
+    btn.title=`Porta ${port.numero}`;
+    hotspots.appendChild(btn);
 
-    btn.addEventListener("mouseenter",e=>activate(btn,e));
-    btn.addEventListener("mousemove",e=>{
-      if(btn.classList.contains("active")){
-        positionTooltip(btn);
-      }
-    });
-    btn.addEventListener("mouseleave",()=>deactivate(btn));
-    btn.addEventListener("focus",()=>activate(btn));
-    btn.addEventListener("blur",()=>deactivate(btn));
-
+    btn.addEventListener("mouseenter",()=>showPort(btn,port));
+    btn.addEventListener("focus",()=>showPort(btn,port));
+    btn.addEventListener("mouseleave",()=>hidePort(btn));
+    btn.addEventListener("blur",()=>hidePort(btn));
     btn.addEventListener("click",()=>{
-      activate(btn);
+      showPort(btn,port);
       const row=[...document.querySelectorAll("#detailRows tr")]
         .find(tr=>+tr.dataset.port===+port.numero);
       row?.scrollIntoView({behavior:"smooth",block:"center"});
@@ -313,18 +292,16 @@ function renderDetailEquipmentImage(d){
     });
   });
 
-  // Movimento do mouse cria uma pequena sensação de câmera 3D.
-  scene.addEventListener("mousemove",e=>{
-    if(scene.classList.contains("port-focused"))return;
-    const r=scene.getBoundingClientRect();
+  stage.addEventListener("mousemove",e=>{
+    const r=stage.getBoundingClientRect();
     const px=(e.clientX-r.left)/r.width-.5;
     const py=(e.clientY-r.top)/r.height-.5;
-    chassis.style.setProperty("--mouse-y", `${px*4}deg`);
-    chassis.style.setProperty("--mouse-x", `${-py*3}deg`);
+    view.style.setProperty("--tilt-x",`${-py*2.2}deg`);
+    view.style.setProperty("--tilt-y",`${px*3.2}deg`);
   });
-  scene.addEventListener("mouseleave",()=>{
-    chassis.style.setProperty("--mouse-y","0deg");
-    chassis.style.setProperty("--mouse-x","0deg");
+  stage.addEventListener("mouseleave",()=>{
+    view.style.setProperty("--tilt-x","0deg");
+    view.style.setProperty("--tilt-y","0deg");
   });
 }
 

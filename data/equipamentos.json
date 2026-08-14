@@ -8,12 +8,6 @@
     "observacao": "Capacidade de interface depende da configuração e licenciamento do equipamento.",
     "portas": [
       {
-        "numero": 0,
-        "capacidade": "1 / 10 Gbps",
-        "tipo": "GE / 10GE",
-        "status": "livre"
-      },
-      {
         "numero": 1,
         "capacidade": "1 / 10 Gbps",
         "tipo": "GE / 10GE",
@@ -177,8 +171,8 @@
       },
       {
         "numero": 28,
-        "capacidade": "10 / 25 Gbps",
-        "tipo": "SFP28",
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
         "status": "livre"
       },
       {
@@ -297,15 +291,15 @@
       },
       {
         "numero": 48,
-        "capacidade": "40 / 100 Gbps",
-        "tipo": "QSFP28",
-        "status": "conectada"
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
       },
       {
         "numero": 49,
         "capacidade": "40 / 100 Gbps",
         "tipo": "QSFP28",
-        "status": "livre"
+        "status": "conectada"
       },
       {
         "numero": 50,
@@ -342,15 +336,22 @@
         "capacidade": "40 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
+      },
+      {
+        "numero": 56,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
       }
     ],
-    "imagem": "/assets/equipamentos/ne-f1a.png",
+    "imagem": "assets/equipamentos/ne-f1a.png",
     "imagemAlt": "Huawei NetEngine 8000 F1A — vista frontal",
     "hotspots": {
       "top": 55,
       "height": 28,
       "cols": 56
-    }
+    },
+    "layoutPortas": "f1a"
   },
   {
     "id": "s6730a",
