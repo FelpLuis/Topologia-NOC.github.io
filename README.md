@@ -529,3 +529,18 @@ Login inicial:
 Usuário: admin
 Senha: admin
 ```
+
+
+## CORREÇÃO DO ERRO D1_EXEC_ERROR
+
+O bootstrap do banco foi alterado para usar `db.prepare()` + `db.batch()`, em vez de enviar o schema inteiro via `db.exec()` durante o login.
+
+Isso elimina o erro:
+
+```text
+D1_EXEC_ERROR: Error in line 1:
+CREATE TABLE IF NOT EXISTS roles (: incomplete input
+```
+
+O Worker cria cada tabela individualmente e de forma idempotente.
+

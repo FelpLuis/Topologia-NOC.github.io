@@ -207,9 +207,77 @@ async function audit(env, request, userId, action, resource, resourceId = null, 
 
 async function ensureDatabase(env) {
   const db = getDB(env);
-  if (!db) throw new Error('Binding D1 não encontrado. Crie um binding D1 chamado "bd" ou "DB".');
+  if (!db) {
+    throw new Error('Binding D1 não encontrado. Use o binding "bd" no Worker.');
+  }
 
-  await db.exec(SCHEMA);
+  // Não usamos db.exec() aqui. O D1 aceita exec(), mas para o bootstrap
+  // da aplicação é mais seguro preparar cada CREATE individualmente.
+  // Isso também evita o D1_EXEC_ERROR "incomplete input" que ocorreu no
+  // primeiro deploy.
+
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role_id INTEGER NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      must_change_password INTEGER NOT NULL DEFAULT 0,
+      last_login_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(role_id) REFERENCES roles(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      action TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      resource_id TEXT,
+      details TEXT DEFAULT '',
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS screens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS role_screens (
+      role_id INTEGER NOT NULL,
+      screen_id INTEGER NOT NULL,
+      PRIMARY KEY(role_id, screen_id),
+      FOREIGN KEY(role_id) REFERENCES roles(id),
+      FOREIGN KEY(screen_id) REFERENCES screens(id)
+    )`
+  ];
+
+  await db.batch(statements.map(sql => db.prepare(sql)));
 
   for (const [name, description] of ROLES) {
     await db.prepare(`
@@ -223,17 +291,22 @@ async function ensureDatabase(env) {
     await db.prepare(`
       INSERT INTO screens(code, name, description)
       VALUES (?, ?, ?)
-      ON CONFLICT(code) DO UPDATE SET name=excluded.name, description=excluded.description
+      ON CONFLICT(code) DO UPDATE SET
+        name=excluded.name,
+        description=excluded.description
     `).bind(code, name, description).run();
   }
 
-  // Admin inicial: admin / admin
   const adminRole = await db.prepare(
-    `SELECT id FROM roles WHERE name='administrador'`
+    `SELECT id FROM roles WHERE name='administrador' LIMIT 1`
   ).first();
 
+  if (!adminRole) {
+    throw new Error("Não foi possível criar/encontrar o perfil administrador.");
+  }
+
   const admin = await db.prepare(
-    `SELECT id FROM users WHERE username='admin'`
+    `SELECT id FROM users WHERE username='admin' LIMIT 1`
   ).first();
 
   if (!admin) {
@@ -242,11 +315,14 @@ async function ensureDatabase(env) {
     await db.prepare(`
       INSERT INTO users
         (username, display_name, password_hash, role_id, active, must_change_password)
-      VALUES ('admin', 'Administrador', ?, ?, 1, 0)
-    `).bind(passwordHash, adminRole.id).run();
+      VALUES (?, ?, ?, ?, 1, 0)
+    `).bind(
+      "admin",
+      "Administrador",
+      passwordHash,
+      adminRole.id
+    ).run();
   } else {
-    // Garante que o usuário admin consiga entrar.
-    // Não sobrescreve uma senha que já tenha sido alterada.
     await db.prepare(`
       UPDATE users
       SET role_id=?, active=1, updated_at=CURRENT_TIMESTAMP
@@ -254,15 +330,13 @@ async function ensureDatabase(env) {
     `).bind(adminRole.id).run();
   }
 
-  // O administrador visualiza todas as telas.
-  const adminId = adminRole.id;
   const screenRows = await db.prepare(`SELECT id FROM screens`).all();
 
-  for (const screen of screenRows.results || []) {
+  for (const screen of (screenRows.results || [])) {
     await db.prepare(`
       INSERT OR IGNORE INTO role_screens(role_id, screen_id)
       VALUES (?, ?)
-    `).bind(adminId, screen.id).run();
+    `).bind(adminRole.id, screen.id).run();
   }
 }
 
@@ -420,7 +494,16 @@ async function handleLogout(env, request) {
 
 async function handleHealth(env) {
   const db = getDB(env);
+  if (!db) {
+    return json({
+      ok: false,
+      service: "topologia-noc",
+      error: 'Binding D1 "bd" não encontrado.'
+    }, 500);
+  }
+
   const row = await db.prepare(`SELECT 1 AS ok`).first();
+
   return json({
     ok: row?.ok === 1,
     service: "topologia-noc",
