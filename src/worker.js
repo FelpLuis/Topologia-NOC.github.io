@@ -596,7 +596,13 @@ async function handleLogout(env, request) {
   }
 
   if (user) {
-    await audit(env, request, user, "LOGOUT", "auth", String(user.id));
+    // Auditing must never prevent session invalidation. Older D1 schemas may
+    // still have stricter audit columns, so isolate this write from logout.
+    try {
+      await audit(env, request, user, "LOGOUT", "auth", String(user.id));
+    } catch (auditError) {
+      console.error("Falha ao auditar LOGOUT:", auditError);
+    }
   }
 
   return json({ ok: true }, 200, {

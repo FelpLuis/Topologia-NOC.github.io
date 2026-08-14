@@ -1,7 +1,41 @@
-(async function(){
+(function(){
   const path=location.pathname;
   if(path==="/login.html"||path==="/change-password.html") return;
 
+  // Bind logout immediately, before authentication/access requests finish.
+  // This prevents the button from becoming inert when /api/access has an error.
+  function bindLogout(){
+    const logout=document.getElementById("logoutBtn");
+    if(!logout || logout.dataset.logoutBound === "1") return;
+    logout.dataset.logoutBound = "1";
+    logout.addEventListener("click", async (event)=>{
+      event.preventDefault();
+      if(logout.dataset.loggingOut === "1") return;
+      logout.dataset.loggingOut = "1";
+      logout.disabled = true;
+      logout.classList.add("is-loading");
+      try{
+        const response = await fetch("/api/auth/logout", {
+          method:"POST",
+          credentials:"same-origin",
+          cache:"no-store",
+          headers:{"Content-Type":"application/json"}
+        });
+        if(!response.ok) console.error("Logout retornou HTTP", response.status);
+      }catch(e){
+        console.error("Falha ao encerrar sessão:",e);
+      }finally{
+        // Never leave the user on the authenticated page. The Worker clears
+        // the HttpOnly cookie; the redirect also prevents stale UI state.
+        window.location.replace("/login.html?logged_out=1");
+      }
+    });
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", bindLogout, {once:true});
+  else bindLogout();
+
+  (async function(){
   try{
     const authResponse=await fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"});
     const authData=await authResponse.json();
@@ -27,28 +61,6 @@
     const platform=document.getElementById("platformBtn");
     const dashboard=document.getElementById("dashboardBtn");
     const manageNetwork=document.getElementById("manageNetworkBtn");
-    const logout=document.getElementById("logoutBtn");
-
-    if(logout){
-      logout.addEventListener("click", async ()=>{
-        if(logout.disabled) return;
-        logout.disabled=true;
-        logout.classList.add("is-loading");
-        try{
-          await fetch("/api/auth/logout", {
-            method:"POST",
-            credentials:"same-origin",
-            cache:"no-store",
-            headers:{"Content-Type":"application/json"}
-          });
-        }catch(e){
-          console.error("Falha ao encerrar sessão:",e);
-        }finally{
-          window.location.href="/login.html";
-        }
-      });
-    }
-
     if(platform){
       if(screens.some(s=>s.code==="platform")){
         platform.classList.remove("hidden");
@@ -81,4 +93,5 @@
     console.error("Falha ao inicializar autenticação:",e);
     location.href="/login.html";
   }
+})();
 })();
