@@ -27,6 +27,27 @@
     const platform=document.getElementById("platformBtn");
     const dashboard=document.getElementById("dashboardBtn");
     const manageNetwork=document.getElementById("manageNetworkBtn");
+    const logout=document.getElementById("logoutBtn");
+
+    if(logout){
+      logout.addEventListener("click", async ()=>{
+        if(logout.disabled) return;
+        logout.disabled=true;
+        logout.classList.add("is-loading");
+        try{
+          await fetch("/api/auth/logout", {
+            method:"POST",
+            credentials:"same-origin",
+            cache:"no-store",
+            headers:{"Content-Type":"application/json"}
+          });
+        }catch(e){
+          console.error("Falha ao encerrar sessão:",e);
+        }finally{
+          window.location.href="/login.html";
+        }
+      });
+    }
 
     if(platform){
       if(screens.some(s=>s.code==="platform")){

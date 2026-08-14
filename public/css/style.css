@@ -2518,3 +2518,55 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
   border: 0;
   background: transparent;
 }
+
+
+/* Logout — somente ícone, após Gerenciar plataforma */
+.header-logout-btn{
+  width:40px;
+  height:40px;
+  min-width:40px;
+  margin-left:2px;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid rgba(255,77,96,.42);
+  border-radius:9px;
+  background:rgba(130,24,38,.18);
+  color:#ff5b6d;
+  cursor:pointer;
+  transition:transform .16s ease, background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
+}
+.header-logout-btn svg{
+  width:20px;
+  height:20px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.header-logout-btn:hover{
+  color:#fff;
+  border-color:#ff4d60;
+  background:#c92f43;
+  transform:translateY(-1px);
+  box-shadow:0 7px 18px rgba(255,64,82,.22);
+}
+.header-logout-btn:active{transform:translateY(0)}
+.header-logout-btn:focus-visible{
+  outline:2px solid #ff6978;
+  outline-offset:2px;
+}
+.header-logout-btn.is-loading{
+  opacity:.65;
+  cursor:wait;
+}
+@media(max-width:760px){
+  .header-logout-btn{
+    width:36px;
+    height:36px;
+    min-width:36px;
+  }
+  .header-logout-btn svg{width:18px;height:18px}
+}
