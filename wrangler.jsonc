@@ -1,14 +1,20 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "topologia-noc",
-  "main": "src/worker.js",
   "compatibility_date": "2026-08-14",
-  "observability": {
-    "enabled": true
-  },
+  "main": "src/worker.js",
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "bd",
+      "database_name": "topologia-noc",
+      "database_id": "COLOQUE_AQUI_O_DATABASE_ID_DO_SEU_D1"
+    }
+  ],
+  "observability": {
+    "enabled": true
   }
 }
