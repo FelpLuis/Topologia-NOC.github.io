@@ -1323,3 +1323,68 @@ html[data-theme="dark"] #universalEditor .status-dot{
   background:#f0b13a;
   box-shadow:0 0 0 3px rgba(240,177,58,.12);
 }
+
+/* =========================================================
+   GERENCIAMENTO — PAINEL FRONTAL INTERATIVO DO EQUIPAMENTO
+   ========================================================= */
+.manager-hint{margin-left:auto;color:#60768b;font-size:9px}
+.manager-equipment-item{gap:16px}
+.manager-equipment-info{min-width:0}
+.manager-item-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+
+.equipment-visual-modal{
+  width:min(1220px,calc(100vw - 40px));
+  height:min(760px,calc(100vh - 40px));
+  border-radius:16px;
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  background:var(--ud-surface,#fff);
+  border:1px solid var(--ud-border,#d7e3ef);
+  box-shadow:0 25px 80px rgba(0,0,0,.35);
+}
+.equipment-visual-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;border-bottom:1px solid var(--ud-border,#d7e3ef);flex:0 0 auto}
+.equipment-visual-head h2{margin:3px 0 3px;font-size:18px;color:var(--ud-heading,#102236)}
+.equipment-visual-head p{margin:0;color:var(--ud-muted,#60768b);font-size:10px}
+.equipment-visual-head-actions{display:flex;align-items:center;gap:8px}
+.equipment-visual-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:16px;padding:16px;min-height:0;flex:1}
+.equipment-front-wrap{min-width:0;display:flex;flex-direction:column;gap:10px}
+.equipment-front-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 12px;border:1px solid #dbe6f1;border-radius:10px;background:#f8fbfe;font-size:10px;color:#29435a}
+.equipment-front-toolbar b{display:block;color:#102236;font-size:11px}.equipment-front-toolbar span{color:#71859a;margin-left:8px}
+.visual-legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.visual-legend span{display:flex;align-items:center;gap:5px;color:#667b8d;font-size:9px}
+.legend-dot{width:8px;height:8px;border-radius:2px;display:inline-block;background:#9aa9b5}.legend-dot.connected{background:#1b8fff}.legend-dot.reserved{background:#e6a528}.legend-dot.free{background:#9aa9b5}
+.equipment-front{min-height:0;flex:1;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto;border:1px dashed #cbd9e7;border-radius:12px;background:radial-gradient(circle at 50% 20%,rgba(10,110,190,.08),transparent 45%),#eef4f8}
+.equipment-rack-shell{position:relative;width:min(900px,100%);min-width:560px;min-height:270px;padding:48px 58px 30px;border-radius:10px;background:linear-gradient(180deg,#3a4650,#20282f 16%,#161c21 85%,#303a42);border:2px solid #586570;box-shadow:inset 0 0 0 1px #101519,0 18px 35px rgba(0,0,0,.28)}
+.rack-ear{position:absolute;top:20px;width:42px;height:230px;background:#343f47;border:1px solid #5d6972}.rack-ear.left{left:-18px;border-radius:6px 0 0 6px}.rack-ear.right{right:-18px;border-radius:0 6px 6px 0}
+.rack-brand{height:42px;display:flex;align-items:center;gap:10px;color:#dce7ee;border-bottom:1px solid #56616a;margin-bottom:13px}.rack-brand span{font-size:9px;letter-spacing:.12em;color:#67cfff}.rack-brand b{font-size:12px}.rack-brand small{margin-left:auto;color:#9eacb5;font-size:8px;max-width:40%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rack-display{position:absolute;right:70px;top:57px;display:flex;align-items:center;gap:5px;color:#67d8ff;font-size:7px}.rack-display i{width:5px;height:5px;border-radius:50%;background:#55d27d;box-shadow:0 0 7px #55d27d}.rack-display i:nth-child(3){background:#e3ad36;box-shadow:0 0 7px #e3ad36}.rack-display i:nth-child(4){background:#4ca9ff;box-shadow:0 0 7px #4ca9ff}
+.rack-port-grid{display:grid;grid-template-columns:repeat(var(--port-cols),minmax(24px,1fr));gap:7px 6px;padding:14px;border-radius:5px;background:#0d1216;border:1px solid #4b565e;box-shadow:inset 0 3px 10px rgba(0,0,0,.45)}
+.rack-port{position:relative;min-width:24px;height:29px;border:1px solid #68737a;border-radius:3px;background:#273037;color:#bfcbd3;padding:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:8px;transition:.12s;box-shadow:inset 0 0 0 2px #151a1e}
+.rack-port i{position:absolute;left:4px;right:4px;bottom:4px;height:3px;border-radius:2px;background:#6e7b84}.rack-port.connected i{background:#25a7ff;box-shadow:0 0 7px rgba(37,167,255,.7)}.rack-port.free i{background:#8b979f}.rack-port.reserved i{background:#e5a82e}.rack-port.maintenance i{background:#e05b5b}.rack-port:hover,.rack-port:focus,.rack-port.selected{transform:translateY(-2px);border-color:#63d3ff;box-shadow:0 0 0 2px rgba(58,194,255,.22),inset 0 0 0 2px #172128;color:#fff;outline:none}
+.rack-vents{display:flex;justify-content:flex-end;gap:5px;margin-top:18px}.rack-vents i{display:block;width:25px;height:3px;border-radius:2px;background:#0b1013}
+.port-inspector{border:1px solid #dbe6f1;border-radius:12px;background:#fff;overflow:auto;min-width:0;padding:16px}.port-inspector-empty{height:100%;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#647a8d}.port-inspector-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#edf6ff;color:#0b77d8;font-size:22px;margin-bottom:12px}.port-inspector-empty b{color:#173149;font-size:12px}.port-inspector-empty p{max-width:220px;font-size:9px;line-height:1.5;margin:7px 0 0}
+.port-inspector-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding-bottom:13px;border-bottom:1px solid #e1e9f1}.port-inspector-head span:first-child{font-size:8px;color:#71869a;letter-spacing:.1em;font-weight:800}.port-inspector-head h3{margin:3px 0 0;font-size:25px;color:#102236}.port-status{padding:5px 8px;border-radius:999px;font-size:8px;font-weight:800}.port-status.free{background:#edf2f5;color:#61727d}.port-status.connected{background:#e8f5ff;color:#0877c9}.port-status.reserved{background:#fff5df;color:#a86d00}.port-status.maintenance{background:#ffebeb;color:#b33d3d}
+.port-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.port-info-grid>div{padding:10px;border-radius:9px;background:#f7fafc;border:1px solid #e3ebf2}.port-info-grid .wide{grid-column:1/-1}.port-info-grid small{display:block;color:#7a8d9d;font-size:8px;margin-bottom:4px}.port-info-grid b{display:block;color:#1d354a;font-size:10px;line-height:1.35;overflow-wrap:anywhere}.port-inspector-actions{margin-top:14px}.port-inspector-actions .primary-btn{width:100%}
+.port-edit-highlight{animation:portFlash .8s ease 2}.port-edit-highlight td{background:#eaf7ff!important}@keyframes portFlash{50%{box-shadow:inset 0 0 0 2px #2ca9ff}}
+
+html[data-theme="dark"] .equipment-visual-modal{background:#081827!important;border-color:#29465e!important;color:#dcecff}.dark{}
+html[data-theme="dark"] .equipment-visual-head{border-color:#29465e!important}
+html[data-theme="dark"] .equipment-visual-head h2{color:#f1f7fb!important}
+html[data-theme="dark"] .equipment-visual-head p{color:#91a9bb!important}
+html[data-theme="dark"] .equipment-front-toolbar{background:#0b1b2b!important;border-color:#29465e!important;color:#dcecff!important}
+html[data-theme="dark"] .equipment-front-toolbar b{color:#eef7fc!important}
+html[data-theme="dark"] .equipment-front-toolbar span,
+html[data-theme="dark"] .equipment-front{background:#071522!important;border-color:#29465e!important}
+html[data-theme="dark"] .port-inspector{background:#0b1b2b!important;border-color:#29465e!important}
+html[data-theme="dark"] .port-inspector-empty{color:#91a9bb!important}
+html[data-theme="dark"] .port-inspector-empty b{color:#edf7fc!important}
+html[data-theme="dark"] .port-inspector-icon{background:#0d2b45!important;color:#5bd5ff!important}
+html[data-theme="dark"] .port-inspector-head{border-color:#29465e!important}
+html[data-theme="dark"] .port-inspector-head h3{color:#f3f8fc!important}
+html[data-theme="dark"] .port-info-grid>div{background:#071522!important;border-color:#29465e!important}
+html[data-theme="dark"] .port-info-grid b{color:#e5f1f8!important}
+html[data-theme="dark"] .port-info-grid small{color:#91a9bb!important}
+
+@media(max-width:900px){
+  .manager-hint{display:none}.equipment-visual-modal{width:calc(100vw - 20px);height:calc(100vh - 20px)}
+  .equipment-visual-layout{grid-template-columns:1fr;overflow:auto}.port-inspector{min-height:220px}.equipment-front{min-height:330px}.equipment-rack-shell{min-width:650px}
+}

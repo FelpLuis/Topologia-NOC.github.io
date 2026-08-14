@@ -174,16 +174,105 @@ function renderManager(tab){
   document.querySelectorAll(".manager-tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
   const box=document.getElementById("managerContent");
   if(tab==="equipamentos"){
-    box.innerHTML=`<div class="manager-toolbar"><button class="primary-btn" id="addEquipment">+ Novo equipamento</button><button class="btn" id="downloadAll">Baixar JSON</button></div>
-      <div class="manager-list">${state.equipamentos.map((e,i)=>`<div class="manager-item"><div><b>${escapeHtml(e.nome)}</b><small>${escapeHtml(e.modelo||"")} • ${e.portas.length} portas</small></div><div><button class="icon-edit mgr-edit" data-i="${i}">✎</button><button class="danger-btn mgr-del" data-i="${i}">Excluir</button></div></div>`).join("")}</div>`;
+    box.innerHTML=`<div class="manager-toolbar"><button class="primary-btn" id="addEquipment">+ Novo equipamento</button><button class="btn" id="downloadAll">Baixar JSON</button><span class="manager-hint">Use <b>Visualizar</b> para abrir o painel frontal interativo.</span></div>
+      <div class="manager-list">${state.equipamentos.map((e,i)=>`<div class="manager-item manager-equipment-item"><div class="manager-equipment-info"><b>${escapeHtml(e.nome)}</b><small>${escapeHtml(e.modelo||"")} • ${e.portas.length} portas • ${e.portas.filter(p=>getPortConnection(e.id,p.numero)).length} conectadas</small></div><div class="manager-item-actions"><button class="btn mgr-visual" data-i="${i}">◉ Visualizar</button><button class="icon-edit mgr-edit" data-i="${i}" title="Editar equipamento">✎</button><button class="danger-btn mgr-del" data-i="${i}">Excluir</button></div></div>`).join("")}</div>`;
     document.getElementById("addEquipment").onclick=()=>editEquipment(-1);document.getElementById("downloadAll").onclick=downloadAll;
-    box.querySelectorAll(".mgr-edit").forEach(b=>b.onclick=()=>editEquipment(+b.dataset.i));box.querySelectorAll(".mgr-del").forEach(b=>b.onclick=()=>deleteEquipment(+b.dataset.i));
+    box.querySelectorAll(".mgr-edit").forEach(b=>b.onclick=()=>editEquipment(+b.dataset.i));
+    box.querySelectorAll(".mgr-visual").forEach(b=>b.onclick=()=>openEquipmentVisual(+b.dataset.i));
+    box.querySelectorAll(".mgr-del").forEach(b=>b.onclick=()=>deleteEquipment(+b.dataset.i));
   }else{
     box.innerHTML=`<div class="manager-toolbar"><button class="primary-btn" id="addPop">+ Novo POP</button></div>
       <div class="manager-list">${state.pops.map((p,i)=>`<div class="manager-item"><div><b>${escapeHtml(p.nome)}</b><small>${p.equipamentos.length} aparelhos • ${p.rotas.length} rotas</small></div><div><button class="icon-edit mgr-pop-edit" data-i="${i}">✎</button><button class="danger-btn mgr-pop-del" data-i="${i}">Excluir</button></div></div>`).join("")}</div>`;
     document.getElementById("addPop").onclick=()=>editPop(-1);box.querySelectorAll(".mgr-pop-edit").forEach(b=>b.onclick=()=>editPop(+b.dataset.i));box.querySelectorAll(".mgr-pop-del").forEach(b=>b.onclick=()=>deletePop(+b.dataset.i));
   }
 }
+
+let visualEquipmentIndex = -1;
+let visualSelectedPort = null;
+
+function portVisualState(e,p){
+  const conn=getPortConnection(e.id,p.numero);
+  if(conn) return "connected";
+  const st=(p.status||"livre").toLowerCase();
+  if(st.includes("reserv")) return "reserved";
+  if(st.includes("manut")) return "maintenance";
+  return "free";
+}
+function portConnectionLabel(e,p){
+  const info=getPortConnection(e.id,p.numero);
+  if(!info) return "Livre";
+  const c=info.c;
+  const remote=info.isOrigin?getDevice(c.destino):getDevice(c.origem);
+  const remoteName=remote?.nome || (info.isOrigin?c.destino:c.origem);
+  const remotePort=info.isOrigin?c.portaDestino:c.portaOrigem;
+  return `${remoteName} • porta ${remotePort}`;
+}
+function openEquipmentVisual(index){
+  const e=state.equipamentos[index]; if(!e)return;
+  visualEquipmentIndex=index; visualSelectedPort=null;
+  document.getElementById("visualEquipmentName").textContent=e.nome;
+  document.getElementById("visualEquipmentMeta").textContent=`${e.modelo||"Modelo não informado"} • ${e.local||"Local não informado"}`;
+  document.getElementById("visualEquipmentEdit").onclick=()=>{closeEquipmentVisual();editEquipment(index);};
+  renderEquipmentFront(e);
+  document.getElementById("equipmentVisual").classList.remove("hidden");
+}
+function closeEquipmentVisual(){document.getElementById("equipmentVisual").classList.add("hidden");visualEquipmentIndex=-1;visualSelectedPort=null;}
+function renderEquipmentFront(e){
+  const front=document.getElementById("equipmentFront");
+  const ports=Array.isArray(e.portas)?e.portas:[];
+  const connected=ports.filter(p=>getPortConnection(e.id,p.numero)).length;
+  document.getElementById("visualPortSummary").textContent=`${ports.length} portas • ${connected} conectadas`;
+  const cols=ports.length<=12?Math.max(1,ports.length):ports.length<=24?12:ports.length<=48?12:14;
+  front.innerHTML=`
+    <div class="equipment-rack-shell">
+      <div class="rack-ear left"></div><div class="rack-ear right"></div>
+      <div class="rack-brand"><span>${escapeHtml(e.fabricante||e.modelo?.split(" ")[0]||"NETWORK")}</span><b>${escapeHtml(e.nome)}</b><small>${escapeHtml(e.modelo||"")}</small></div>
+      <div class="rack-display"><span>NETWORK</span><i></i><i></i><i></i></div>
+      <div class="rack-port-grid" style="--port-cols:${cols}"
+        aria-label="Portas do equipamento">${ports.map(p=>{
+          const st=portVisualState(e,p), conn=portConnectionLabel(e,p);
+          return `<button type="button" class="rack-port ${st}" data-port="${escapeAttr(p.numero)}" title="Porta ${escapeAttr(p.numero)} • ${escapeAttr(p.capacidade||"Capacidade não informada")} • ${escapeAttr(p.tipo||"Tipo não informado")} • ${escapeAttr(conn)}"><span>${escapeHtml(p.numero)}</span><i></i></button>`;
+        }).join("")}</div>
+      <div class="rack-vents"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    </div>`;
+  front.querySelectorAll(".rack-port").forEach(btn=>{
+    const show=()=>selectVisualPort(e,+btn.dataset.port);
+    btn.addEventListener("mouseenter",show);
+    btn.addEventListener("focus",show);
+    btn.addEventListener("click",show);
+  });
+  if(ports.length)selectVisualPort(e,ports[0].numero);
+}
+function selectVisualPort(e,portNumber){
+  const p=e.portas.find(x=>+x.numero===+portNumber); if(!p)return;
+  visualSelectedPort=portNumber;
+  document.querySelectorAll("#equipmentFront .rack-port").forEach(b=>b.classList.toggle("selected",+b.dataset.port===+portNumber));
+  const info=getPortConnection(e.id,p.numero),c=info?.c,remote=info?(info.isOrigin?getDevice(c.destino):getDevice(c.origem)):null;
+  const status=portVisualState(e,p);
+  const statusLabel={free:"Livre",connected:"Conectada",reserved:"Reservada",maintenance:"Manutenção"}[status]||p.status||"Livre";
+  const remoteText=info?`${remote?.nome|| (info.isOrigin?c.destino:c.origem)} • porta ${info.isOrigin?c.portaDestino:c.portaOrigem}`:"Nenhuma conexão cadastrada";
+  const inspector=document.getElementById("portInspector");
+  inspector.innerHTML=`<div class="port-inspector-head"><div><span>PORTA</span><h3>${escapeHtml(String(p.numero))}</h3></div><span class="port-status ${status}">${statusLabel}</span></div>
+    <div class="port-info-grid">
+      <div><small>Capacidade</small><b>${escapeHtml(p.capacidade||c?.capacidade||"Não informada")}</b></div>
+      <div><small>Tipo</small><b>${escapeHtml(p.tipo||c?.tipo||"Não informado")}</b></div>
+      <div class="wide"><small>Conectado a</small><b>${escapeHtml(remoteText)}</b></div>
+      <div class="wide"><small>Observação</small><b>${escapeHtml(p.observacao||"—")}</b></div>
+    </div>
+    <div class="port-inspector-actions"><button class="primary-btn" id="visualEditPort">✎ Editar porta</button></div>`;
+  document.getElementById("visualEditPort").onclick=()=>editVisualPort(e,p.numero);
+}
+function editVisualPort(e,portNumber){
+  closeEquipmentVisual();
+  const index=state.equipamentos.findIndex(x=>x.id===e.id);
+  if(index<0)return;
+  openUniversalEditor("equipment",index);
+  setTimeout(()=>{
+    const row=[...document.querySelectorAll("#editorPortRows tr")].find(tr=>+tr.querySelector(".ep-number")?.value===+portNumber);
+    if(row){row.scrollIntoView({block:"center"});row.classList.add("port-edit-highlight");row.querySelector(".ep-cap")?.focus();}
+  },80);
+}
+
 function deleteEquipment(i){
   const e=state.equipamentos[i];if(!e||!confirm(`Excluir ${e.nome}?`))return;
   state.conexoes=state.conexoes.filter(c=>c.origem!==e.id&&c.destino!==e.id);
@@ -513,6 +602,7 @@ document.getElementById("editCurrentPop")?.addEventListener("click",()=>editPop(
 document.getElementById("connectionClose")?.addEventListener("click",closeConnection);
 document.getElementById("manageNetworkBtn")?.addEventListener("click",openNetworkManager);
 document.getElementById("networkManagerClose")?.addEventListener("click",closeNetworkManager);
+document.getElementById("equipmentVisualClose")?.addEventListener("click",closeEquipmentVisual);
 document.getElementById("universalEditorClose")?.addEventListener("click",closeUniversalEditor);
 document.getElementById("universalEditorCancel")?.addEventListener("click",cancelUniversalEditor);
 document.getElementById("universalEditorSave")?.addEventListener("click",()=>{
@@ -527,7 +617,7 @@ document.querySelectorAll(".manager-tab").forEach(b=>b.addEventListener("click",
 document.getElementById("sidebarToggle")?.addEventListener("click",()=>{
   document.getElementById("appShell").classList.toggle("sidebar-collapsed");
 });
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closePop();closeNetworkManager();}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){closeModal();closePop();closeNetworkManager();closeEquipmentVisual();}});
 initTheme();
 initUniversalEditorUX();
 loadData().catch(e=>{console.error(e);document.getElementById("topology").innerHTML=`<div class="empty">Erro ao carregar: ${escapeHtml(e.message)}</div>`;});
