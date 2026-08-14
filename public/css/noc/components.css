@@ -15,16 +15,34 @@
 }
 .brand:hover { text-decoration: none; }
 .brand img { width: 34px; height: 34px; object-fit: contain; display: block; }
-.brand-name {
-  font-size: var(--fs-16);
-  font-weight: 800;
-  letter-spacing: -.03em;
-  white-space: nowrap;
+
+/* Símbolo e logotipo trocam de arte conforme o tema:
+   tema escuro usa a versão clara, tema claro usa a versão escura. */
+.brand-symbol,
+.brand-logo {
+  display: block;
+  flex: none;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
 }
-.brand-name span { color: var(--cyan-400); }
-:root[data-theme="light"] .brand-name span { color: var(--brand-500); }
-.brand-lg img { width: 52px; height: 52px; }
-.brand-lg .brand-name { font-size: var(--fs-20); }
+.brand-symbol {
+  width: 34px;
+  height: 34px;
+  background-image: url("/assets/brand/updown-symbol.png");
+}
+.brand-logo {
+  height: 26px;
+  aspect-ratio: 606 / 186;
+  background-position: left center;
+}
+.brand-logo { background-image: url("/assets/brand/updown-logo.png"); }
+:root[data-theme="light"] .brand-symbol { background-image: url("/assets/brand/updown-symbol-dark.png"); }
+:root[data-theme="light"] .brand-logo { background-image: url("/assets/brand/updown-logo-dark.png"); }
+
+.brand-lg img,
+.brand-lg .brand-symbol { width: 52px; height: 52px; }
+.brand-lg .brand-logo { height: 38px; }
 
 /* ---------------------------------------------------------
    Botões

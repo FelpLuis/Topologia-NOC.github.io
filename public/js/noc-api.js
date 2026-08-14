@@ -156,6 +156,47 @@ window.NOC = (() => {
     }
   }
 
+  /* ---------------- Zabbix ---------------- */
+  /* Espelho do inventário de interfaces. A fonte é o Zabbix; o D1 guarda o
+     resultado da última sincronização, então a leitura aqui é sempre barata. */
+  const zabbix = {
+    health: () => api("/api/zabbix/health"),
+    status: () => api("/api/zabbix/status"),
+    hosts: () => api("/api/zabbix/hosts"),
+    sync: () => api("/api/zabbix/sync", { method: "POST" }),
+
+    /* filtros: { equipamento, hostid, status: "up"|"down", conectadas: 1, q, limit } */
+    interfaces(filtros = {}) {
+      const qs = new URLSearchParams(
+        Object.entries(filtros).filter(([, v]) => v !== undefined && v !== null && v !== "")
+      );
+      return api(`/api/zabbix/interfaces${qs.toString() ? `?${qs}` : ""}`);
+    },
+
+    /* equipamentoId null desfaz o vínculo e devolve o host ao match automático. */
+    vincular: (hostid, equipamentoId) =>
+      api(`/api/zabbix/hosts/${hostid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ equipamento_id: equipamentoId }),
+      }),
+  };
+
+  /* 1 = up e 2 = down são os valores de ifOperStatus (SNMP). */
+  const interfaceStatus = (i) =>
+    i?.oper_status === 1 ? { dot: "dot-ok", label: "Up", badge: "badge-ok" }
+      : i?.oper_status === 2 ? { dot: "dot-danger", label: "Down", badge: "badge-danger" }
+        : { dot: "", label: "Sem dado", badge: "" };
+
+  /* speed_bps e in_bps/out_bps vêm em bits/s. */
+  function formatBps(bps) {
+    const n = Number(bps);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    const unidades = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"];
+    const i = Math.min(Math.floor(Math.log10(n) / 3), unidades.length - 1);
+    const valor = n / 1000 ** i;
+    return `${valor >= 100 ? Math.round(valor) : valor.toFixed(valor >= 10 ? 1 : 2)} ${unidades[i]}`;
+  }
+
   /* ---------------- utilidades de tela ---------------- */
   function skeleton(host, linhas = 4) {
     if (!host) return;
@@ -180,5 +221,6 @@ window.NOC = (() => {
     api, load, save, data, can, pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, grafanaHealth, skeleton, errorState,
+    zabbix, interfaceStatus, formatBps,
   };
 })();

@@ -40,7 +40,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
  background:url("/assets/brand/updown-symbol.png") center/contain no-repeat;
  flex:none;filter:drop-shadow(0 0 12px rgba(36,200,255,.15));
 }
-.brand::after{content:"UPDOWN TELECOM";font-size:17px;font-weight:850;letter-spacing:-.03em;color:#f3faff}
+.brand::after{
+ content:"";display:block;height:26px;aspect-ratio:606/186;
+ background:url("/assets/brand/updown-logo.png") left center/contain no-repeat;
+}
+:root[data-theme="light"] .brand:before{background-image:url("/assets/brand/updown-symbol-dark.png")}
+:root[data-theme="light"] .brand::after{background-image:url("/assets/brand/updown-logo-dark.png")}
 .brand span{display:none!important}
 .subtitle{font-size:11px!important;color:var(--ux-muted)!important;border-left-color:var(--ux-border)!important}
 .actions{gap:7px!important}
@@ -244,7 +249,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--ux-cyan)!important;bo
  .subtitle{display:none!important}.search{width:190px!important}.sidebar{width:245px!important;min-width:245px!important}
 }
 @media(max-width:760px){
- .topbar{padding:0 12px!important}.search{display:none!important}.brand::after{font-size:15px}
+ .topbar{padding:0 12px!important}.search{display:none!important}.brand::after{height:22px}
  .sidebar{width:235px!important;min-width:235px!important}.canvas{padding:22px 24px 60px!important}
  .login-shell{width:calc(100vw - 24px)!important;grid-template-columns:1fr!important;min-height:0!important}
  .login-visual{display:none!important}.login-panel{padding:36px 24px!important}

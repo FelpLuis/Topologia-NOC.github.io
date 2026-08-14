@@ -602,3 +602,96 @@ Detalhes de arquitetura, decisões de UX e o que ainda vive no editor clássico:
 [FRONT-NOC-V2.md](FRONT-NOC-V2.md).
 
 Protótipo navegável (dados fixos, sem API): `public/prototype/index.html`.
+
+---
+
+## Integração Zabbix
+
+Conexão com a API JSON-RPC do Zabbix (`https://zbx7.lv.network/api_jsonrpc.php`,
+versão 7.0.20) para importar o inventário real de interfaces dos equipamentos de
+rede. O Zabbix continua sendo a fonte da verdade; o D1 guarda o resultado da
+última sincronização, para que as telas leiam rápido e sem depender do Zabbix
+estar no ar.
+
+### Credenciais
+
+Nunca ficam no código nem no `wrangler.jsonc`. São **Secrets** do Worker:
+
+```bash
+npx wrangler secret put ZABBIX_URL
+```
+
+```bash
+npx wrangler secret put ZABBIX_TOKEN
+```
+
+Em desenvolvimento local o wrangler lê o arquivo `.dev.vars` (fora do Git).
+A autenticação usa token via header `Authorization: Bearer` — não usa
+`user.login`, então não há senha trafegando nem sessão do Zabbix para expirar.
+
+### O que é importado
+
+`host.get` filtra os hosts que têm interface SNMP (os equipamentos de rede) e
+`item.get` traz os itens `net.if` de cada um. Os itens são agrupados por
+`ifIndex`, virando uma linha por interface física:
+
+| Coluna | Origem | Observação |
+| --- | --- | --- |
+| `if_name` | nome do item | ex.: `100GE1/0/1` |
+| `if_alias` | nome do item | **descrição do enlace**, ex.: `NE8000_F1A-100GE0/1/48` |
+| `oper_status` | `ifOperStatus` | 1 = up, 2 = down |
+| `speed_bps` | `ifHighSpeed` | já vem em **bits/s** (100GE = 1e11), não em Mbps |
+| `in_bps` / `out_bps` | `ifHCInOctets` / `ifHCOutOctets` | tráfego atual |
+| `in_errors` / `out_errors` | `ifInErrors` / `ifOutErrors` | |
+| `in_discards` / `out_discards` | `ifInDiscards` / `ifOutDiscards` | |
+
+O `if_alias` é o dado mais valioso: é ele que documenta a ponta remota de cada
+enlace, e os dois lados batem entre si. Exemplo real:
+
+```
+s6750a  100GE1/0/1  (SWITCH2_HW-S6730-ASCENTY-100GE-0/0/6)
+s6730a  100GE0/0/6  (SWITCH_HW-S6750-ASCENTY-100GE-1/0/1)
+```
+
+### Vínculo com a topologia
+
+`zabbix_hosts.equipamento_id` liga o host do Zabbix ao equipamento da topologia.
+As regras de correspondência automática ficam em `HOST_MATCH_RULES`
+(`src/zabbix.js`) — são explícitas de propósito, porque um match errado poluiria
+a topologia. Um vínculo ajustado à mão (`match_source='manual'`) **não é
+desfeito** pela sincronização automática.
+
+### Sincronizar
+
+Pelo próprio sistema, com auditoria e controle de permissão:
+
+```bash
+curl -X POST https://SEU-WORKER/api/zabbix/sync
+```
+
+Ou pela linha de comando, útil para a carga inicial:
+
+```bash
+node backend/scripts/zabbix-sync.mjs --apply
+```
+
+O script sem `--apply` só gera `backend/data/zabbix-sync.sql` e
+`backend/data/zabbix-inventory.json` para conferência (ambos fora do Git).
+
+### Endpoints
+
+| Método | Rota | Permissão |
+| --- | --- | --- |
+| `GET` | `/api/zabbix/health` | `topology.view` |
+| `GET` | `/api/zabbix/status` | `topology.view` |
+| `GET` | `/api/zabbix/hosts` | `topology.view` |
+| `GET` | `/api/zabbix/interfaces` | `topology.view` |
+| `POST` | `/api/zabbix/sync` | `topology.edit` |
+| `PATCH` | `/api/zabbix/hosts/:hostid` | `topology.edit` |
+
+Filtros de `/api/zabbix/interfaces`: `equipamento`, `hostid`, `status=up|down`,
+`conectadas=1` (só as com enlace documentado), `q` (busca em nome e alias) e
+`limit`.
+
+No front, `NOC.zabbix` (`public/js/noc-api.js`) cobre todos eles, com
+`NOC.formatBps()` e `NOC.interfaceStatus()` para exibição.

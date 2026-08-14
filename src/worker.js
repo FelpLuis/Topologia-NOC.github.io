@@ -1,3 +1,9 @@
+import {
+  zabbixCall,
+  fetchNetworkInventory,
+  persistInventory
+} from "./zabbix.js";
+
 const COOKIE_NAME = "topologia_noc_session";
 const SESSION_DAYS = 7;
 const PBKDF2_ITERATIONS = 100000;
@@ -88,10 +94,60 @@ CREATE TABLE IF NOT EXISTS topology_state (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS zabbix_hosts (
+  hostid TEXT PRIMARY KEY,
+  host TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status INTEGER NOT NULL DEFAULT 0,
+  available INTEGER NOT NULL DEFAULT 0,
+  snmp_ip TEXT,
+  snmp_port TEXT,
+  agent_ip TEXT,
+  equipamento_id TEXT,
+  match_source TEXT,
+  synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS zabbix_interfaces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hostid TEXT NOT NULL REFERENCES zabbix_hosts(hostid) ON DELETE CASCADE,
+  if_index INTEGER NOT NULL,
+  if_name TEXT NOT NULL,
+  if_alias TEXT NOT NULL DEFAULT '',
+  if_type INTEGER,
+  oper_status INTEGER,
+  speed_bps INTEGER,
+  in_bps INTEGER,
+  out_bps INTEGER,
+  in_errors INTEGER,
+  out_errors INTEGER,
+  in_discards INTEGER,
+  out_discards INTEGER,
+  last_clock TEXT,
+  synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (hostid, if_index)
+);
+
+CREATE TABLE IF NOT EXISTS zabbix_sync_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at TEXT,
+  ok INTEGER NOT NULL DEFAULT 0,
+  hosts_count INTEGER NOT NULL DEFAULT 0,
+  interfaces_count INTEGER NOT NULL DEFAULT 0,
+  triggered_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  source TEXT NOT NULL DEFAULT 'api',
+  error TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_role_screens_role ON role_screens(role_id);
+CREATE INDEX IF NOT EXISTS idx_zbx_if_hostid ON zabbix_interfaces(hostid);
+CREATE INDEX IF NOT EXISTS idx_zbx_if_alias ON zabbix_interfaces(if_alias);
+CREATE INDEX IF NOT EXISTS idx_zbx_if_oper ON zabbix_interfaces(oper_status);
+CREATE INDEX IF NOT EXISTS idx_zbx_hosts_equip ON zabbix_hosts(equipamento_id);
 `;
 
 
@@ -725,6 +781,196 @@ async function handleGrafana(request, env, url) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Zabbix
+// ---------------------------------------------------------------------------
+
+// GET /api/zabbix/health — conectividade e versão da API.
+async function handleZabbixHealth(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+
+  try {
+    const version = await zabbixCall(env, "apiinfo.version", {}, { auth: false });
+    // Uma chamada autenticada barata confirma que o token continua válido.
+    const hosts = await zabbixCall(env, "host.get", { countOutput: true, limit: 1 });
+    return json({ ok: true, version, hosts: Number(hosts) || 0 });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: error.message,
+      hint: "Configure ZABBIX_URL e ZABBIX_TOKEN nos Secrets do Worker."
+    }, 502);
+  }
+}
+
+// POST /api/zabbix/sync — importa hosts e interfaces do Zabbix para o D1.
+async function handleZabbixSync(env, request) {
+  const gate = await requirePermission(env, request, "topology.edit");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const run = await db.prepare(`
+    INSERT INTO zabbix_sync_runs (triggered_by, source) VALUES (?, 'api')
+  `).bind(gate.user.id).run();
+  const runId = run.meta.last_row_id;
+
+  try {
+    const inventory = await fetchNetworkInventory(env);
+    const counts = await persistInventory(db, inventory);
+
+    await db.prepare(`
+      UPDATE zabbix_sync_runs
+      SET finished_at=CURRENT_TIMESTAMP, ok=1, hosts_count=?, interfaces_count=?
+      WHERE id=?
+    `).bind(counts.hosts, counts.interfaces, runId).run();
+
+    await audit(env, request, gate.user, "ZABBIX_SYNC", "zabbix", String(runId), null, counts);
+
+    return json({ ok: true, run_id: runId, ...counts });
+  } catch (error) {
+    await db.prepare(`
+      UPDATE zabbix_sync_runs SET finished_at=CURRENT_TIMESTAMP, ok=0, error=? WHERE id=?
+    `).bind(String(error.message), runId).run();
+
+    return json({ ok: false, run_id: runId, error: error.message }, 502);
+  }
+}
+
+// GET /api/zabbix/hosts — hosts sincronizados, com contagem de interfaces.
+async function handleZabbixHosts(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+
+  const rows = (await getDB(env).prepare(`
+    SELECT
+      h.*,
+      (SELECT COUNT(*) FROM zabbix_interfaces i WHERE i.hostid=h.hostid) AS interfaces,
+      (SELECT COUNT(*) FROM zabbix_interfaces i WHERE i.hostid=h.hostid AND i.oper_status=1) AS interfaces_up
+    FROM zabbix_hosts h
+    ORDER BY h.name
+  `).all()).results;
+
+  return json(rows);
+}
+
+// PATCH /api/zabbix/hosts/:hostid — vincula o host a um equipamento da topologia.
+async function handleZabbixHostLink(env, request, hostid) {
+  const gate = await requirePermission(env, request, "topology.edit");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const before = await db.prepare(`SELECT * FROM zabbix_hosts WHERE hostid=?`).bind(hostid).first();
+  if (!before) return json({ error: "HOST_NAO_ENCONTRADO" }, 404);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+
+  // null/"" desfaz o vínculo e devolve o host ao match automático.
+  const equipamentoId = body.equipamento_id ? String(body.equipamento_id).trim() : null;
+
+  await db.prepare(`
+    UPDATE zabbix_hosts SET equipamento_id=?, match_source=?, synced_at=CURRENT_TIMESTAMP
+    WHERE hostid=?
+  `).bind(equipamentoId, equipamentoId ? "manual" : null, hostid).run();
+
+  const after = await db.prepare(`SELECT * FROM zabbix_hosts WHERE hostid=?`).bind(hostid).first();
+  await audit(env, request, gate.user, "ZABBIX_HOST_LINK", "zabbix_host", hostid, before, after);
+
+  return json(after);
+}
+
+// GET /api/zabbix/interfaces — inventário de interfaces, com filtros opcionais.
+async function handleZabbixInterfaces(env, request, url) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+
+  const filters = [];
+  const values = [];
+
+  const equipamento = url.searchParams.get("equipamento");
+  if (equipamento) { filters.push("h.equipamento_id=?"); values.push(equipamento); }
+
+  const hostid = url.searchParams.get("hostid");
+  if (hostid) { filters.push("i.hostid=?"); values.push(hostid); }
+
+  const status = url.searchParams.get("status");
+  if (status === "up") filters.push("i.oper_status=1");
+  if (status === "down") filters.push("i.oper_status=2");
+
+  // `conectadas` mostra apenas interfaces com enlace documentado no alias.
+  if (url.searchParams.get("conectadas") === "1") filters.push("i.if_alias<>''");
+
+  const search = url.searchParams.get("q");
+  if (search) {
+    filters.push("(i.if_name LIKE ? OR i.if_alias LIKE ?)");
+    values.push(`%${search}%`, `%${search}%`);
+  }
+
+  const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const limit = Math.min(Number(url.searchParams.get("limit") || 1000), 5000);
+
+  const rows = (await getDB(env).prepare(`
+    SELECT
+      i.*,
+      h.name AS host_name,
+      h.equipamento_id
+    FROM zabbix_interfaces i
+    JOIN zabbix_hosts h ON h.hostid=i.hostid
+    ${where}
+    ORDER BY h.name, i.if_index
+    LIMIT ?
+  `).bind(...values, limit).all()).results;
+
+  return json(rows);
+}
+
+// GET /api/zabbix/status — resumo da última sincronização.
+async function handleZabbixStatus(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const lastRun = await db.prepare(`
+    SELECT * FROM zabbix_sync_runs ORDER BY id DESC LIMIT 1
+  `).first();
+
+  const totals = await db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM zabbix_hosts) AS hosts,
+      (SELECT COUNT(*) FROM zabbix_hosts WHERE equipamento_id IS NOT NULL) AS hosts_vinculados,
+      (SELECT COUNT(*) FROM zabbix_interfaces) AS interfaces,
+      (SELECT COUNT(*) FROM zabbix_interfaces WHERE oper_status=1) AS interfaces_up,
+      (SELECT COUNT(*) FROM zabbix_interfaces WHERE if_alias<>'') AS interfaces_documentadas
+  `).first();
+
+  return json({ last_run: lastRun || null, totals });
+}
+
+async function handleZabbix(request, env, url) {
+  if (url.pathname === "/api/zabbix/health" && request.method === "GET")
+    return handleZabbixHealth(env, request);
+
+  if (url.pathname === "/api/zabbix/sync" && request.method === "POST")
+    return handleZabbixSync(env, request);
+
+  if (url.pathname === "/api/zabbix/status" && request.method === "GET")
+    return handleZabbixStatus(env, request);
+
+  if (url.pathname === "/api/zabbix/hosts" && request.method === "GET")
+    return handleZabbixHosts(env, request);
+
+  const hostMatch = url.pathname.match(/^\/api\/zabbix\/hosts\/(\d+)$/);
+  if (hostMatch && request.method === "PATCH")
+    return handleZabbixHostLink(env, request, hostMatch[1]);
+
+  if (url.pathname === "/api/zabbix/interfaces" && request.method === "GET")
+    return handleZabbixInterfaces(env, request, url);
+
+  return json({ error: "Endpoint Zabbix não encontrado." }, 404);
+}
+
+
 
 function safeUserRow(u) {
   if (!u) return null;
@@ -1010,6 +1256,10 @@ export default {
 
       if (url.pathname.startsWith("/api/")) {
         await ensureDatabase(env);
+
+        // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
+        if (url.pathname.startsWith("/api/zabbix/"))
+          return await handleZabbix(request, env, url);
 
         if (url.pathname === "/api/auth/login" && request.method === "POST")
           return await handleLogin(env, request);
