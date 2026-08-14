@@ -2368,3 +2368,34 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
     margin-left:5px;
   }
 }
+
+/* Inspeção 3D do equipamento e destaque das portas vagas */
+#modal .equipment-image-stage{perspective:1400px;overflow:hidden}
+#modal .equipment-3d-scene{position:absolute;inset:25px 5% 45px;display:grid;place-items:center;perspective:1400px}
+#modal .equipment-3d-object{--rx:0deg;--ry:0deg;position:relative;width:min(92%,760px);aspect-ratio:5.8/1.45;transform-style:preserve-3d;transform:rotateX(var(--rx)) rotateY(var(--ry));transition:transform .12s ease-out}
+#modal .equipment-face{position:absolute;background:#182833;border:1px solid #426176;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);backface-visibility:hidden}
+#modal .equipment-face-front{inset:0;overflow:visible;transform:translateZ(24px);background:linear-gradient(180deg,#9ca3aa,#242e35 17%,#101a21 76%,#aeb4b8);border-radius:2px}
+#modal .equipment-face-front:after{content:"";position:absolute;inset:0;border:1px solid rgba(255,255,255,.22);pointer-events:none}
+#modal .equipment-face-back{inset:0;transform:rotateY(180deg) translateZ(24px)}
+#modal .equipment-face-top{left:0;right:0;top:-48px;height:48px;transform-origin:bottom;transform:rotateX(90deg);background:linear-gradient(180deg,#5d666d,#30383e)}
+#modal .equipment-face-bottom{left:0;right:0;bottom:-48px;height:48px;transform-origin:top;transform:rotateX(-90deg);background:#111a20}
+#modal .equipment-face-left{left:-48px;top:0;width:48px;height:100%;transform-origin:right;transform:rotateY(-90deg);background:linear-gradient(90deg,#0e171d,#39454d)}
+#modal .equipment-face-right{right:-48px;top:0;width:48px;height:100%;transform-origin:left;transform:rotateY(90deg);background:linear-gradient(90deg,#39454d,#0e171d)}
+#modal .equipment-face-front .equipment-real-image{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 10px 8px rgba(0,0,0,.32));pointer-events:none}
+#modal .equipment-face-front.port-zooming{transform:translateZ(24px) scale(1.045);transition:transform .18s ease-out}
+#modal .equipment-hotspots{position:absolute;inset:0;pointer-events:none}
+#modal .equipment-port-hotspot{position:absolute;pointer-events:auto;border:1px solid transparent;border-radius:3px;background:transparent;padding:0;cursor:crosshair;z-index:10}
+#modal .equipment-port-hotspot span{position:absolute;left:50%;bottom:calc(100% + 3px);transform:translateX(-50%);display:none;padding:2px 4px;border-radius:3px;background:rgba(3,15,25,.94);color:#e9faff;font-size:7px;font-weight:900;line-height:1}
+#modal .equipment-port-hotspot:hover,#modal .equipment-port-hotspot:focus,#modal .equipment-port-hotspot.active{outline:none;border-color:#55dcff;background:rgba(35,216,255,.24);box-shadow:0 0 0 2px rgba(35,216,255,.13),0 0 16px rgba(35,216,255,.72)}
+#modal .equipment-port-hotspot:hover span,#modal .equipment-port-hotspot:focus span,#modal .equipment-port-hotspot.active span{display:block}
+#modal .equipment-port-hotspot.free{border-color:rgba(86,226,255,.16)}
+#modal .equipment-port-hotspot.free:after{content:"";position:absolute;inset:25%;border-radius:2px;background:rgba(80,221,255,.34);box-shadow:0 0 8px rgba(80,221,255,.7);animation:freePortPulse 1.8s ease-in-out infinite}
+#modal .equipment-port-hotspot.connected{border-color:rgba(80,140,190,.1)}
+#modal .equipment-port-hotspot.connected:after{content:"";position:absolute;inset:28%;border-radius:2px;background:rgba(45,112,164,.28)}
+@keyframes freePortPulse{0%,100%{opacity:.45;transform:scale(.82)}50%{opacity:1;transform:scale(1.08)}}
+#modal .equipment-3d-help{position:absolute;top:12px;left:16px;color:#7898aa;font-size:8px;pointer-events:none}
+#modal .equipment-3d-help span{display:inline-flex;padding:2px 5px;margin-right:5px;border:1px solid #2d91b8;border-radius:4px;color:#54dcff;font-weight:900}
+#modal .equipment-image-caption{position:absolute;left:14px;right:14px;bottom:12px;display:flex;align-items:center;gap:8px;pointer-events:none}
+#modal .equipment-image-caption span{color:#39d6ff;font-size:7px;font-weight:900;letter-spacing:.13em}
+#modal .equipment-image-caption strong{color:#eaf8ff;font-size:9px}
+#modal .equipment-image-caption small{margin-left:auto;color:#55dcff;font-size:8px;font-weight:800}
