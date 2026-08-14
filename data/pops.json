@@ -1,0 +1,70 @@
+[
+  {
+    "id": "pop-praia-grande",
+    "nome": "POP PRAIA GRANDE",
+    "rotas": [
+      "Aérea → Santos",
+      "Aérea → São Vicente",
+      "Subterrânea → São Vicente",
+      "Subterrânea → Cubatão"
+    ],
+    "equipamentos": [
+      {
+        "nome": "Equipamentos do POP",
+        "modelo": "A identificar / cadastrar",
+        "observacao": "Cadastre aqui os equipamentos físicos instalados neste POP quando identificados."
+      }
+    ]
+  },
+  {
+    "id": "pop-santos",
+    "nome": "POP SANTOS",
+    "rotas": [
+      "Aérea → Praia Grande",
+      "Aérea → Cubatão",
+      "Subterrânea → São Vicente",
+      "Subterrânea → Cubatão"
+    ],
+    "equipamentos": [
+      {
+        "nome": "6730 • POP Santos",
+        "modelo": "Huawei CloudEngine S6730-H24X6C",
+        "observacao": "Equipamento já cadastrado na topologia principal."
+      }
+    ]
+  },
+  {
+    "id": "pop-sao-vicente",
+    "nome": "POP SÃO VICENTE",
+    "rotas": [
+      "Aérea → Praia Grande",
+      "Aérea → Cubatão",
+      "Subterrânea → Praia Grande",
+      "Subterrânea → Santos"
+    ],
+    "equipamentos": [
+      {
+        "nome": "6730 • POP São Vicente",
+        "modelo": "Huawei CloudEngine S6730-H24X6C",
+        "observacao": "Equipamento já cadastrado na topologia principal."
+      }
+    ]
+  },
+  {
+    "id": "pop-cubatao",
+    "nome": "POP CUBATÃO",
+    "rotas": [
+      "Aérea → Santos",
+      "Aérea → São Vicente",
+      "Subterrânea → Praia Grande",
+      "Subterrânea → Santos"
+    ],
+    "equipamentos": [
+      {
+        "nome": "Equipamentos do POP",
+        "modelo": "A identificar / cadastrar",
+        "observacao": "Cadastre aqui os equipamentos físicos instalados neste POP quando identificados."
+      }
+    ]
+  }
+]

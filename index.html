@@ -36,16 +36,30 @@
 
       <div class="section-title pop-title">ANEL ÓPTICO DOS POPs</div>
       <div class="ring">
-        <div class="ring-grid">
-          <div class="pop"><b>POP PRAIA GRANDE</b><small>Rota aérea + subterrânea</small></div>
-          <div class="pop"><b>POP SANTOS</b><small>Rota aérea + subterrânea</small></div>
-          <div class="pop"><b>POP SÃO VICENTE</b><small>Rota aérea + subterrânea</small></div>
-          <div class="pop"><b>POP CUBATÃO</b><small>Rota aérea + subterrânea</small></div>
-        </div>
+        <div class="ring-grid" id="popGrid"></div>
         <div class="ring-label">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
       </div>
+
+      <div class="section-title pop-title">EQUIPAMENTOS POR POP</div>
+      <div id="popDetails" class="pop-details"></div>
     </div>
   </main>
+</div>
+
+
+<div id="popModal" class="pop-modal hidden">
+  <div class="pop-modal-card">
+    <div class="pop-modal-head">
+      <div><h2 id="popModalName"></h2><p id="popModalRoutes"></p></div>
+      <button id="popModalClose" class="close">×</button>
+    </div>
+    <div id="popModalEquipments" class="pop-modal-body"></div>
+  </div>
+</div>
+
+<div id="connectionPanel" class="connection-panel hidden">
+  <div id="connectionInfo"></div>
+  <button id="connectionClose" class="btn" style="margin-top:10px">Fechar conexão</button>
 </div>
 
 <div id="modal" class="modal hidden">
