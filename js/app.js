@@ -155,49 +155,114 @@ function renderDetailEquipmentImage(d){
     </div>`;
     return;
   }
+
   const cfg=d.hotspots||{top:55,height:28,cols:Math.max(1,d.portas?.length||1)};
   const ports=Array.isArray(d.portas)?d.portas:[];
   host.innerHTML=`<div class="equipment-visual-stage">
-    <img src="${escapeAttr(image)}" alt="${escapeAttr(d.imagemAlt||d.modelo||d.nome)}" class="equipment-photo">
-    <div class="equipment-hotspots" style="top:${Number(cfg.top)||55}%;height:${Number(cfg.height)||28}%;grid-template-columns:repeat(${Number(cfg.cols)||ports.length||1},minmax(0,1fr));">
-      ${ports.map(p=>{
-        const st=portVisualState(d,p);
-        return `<button type="button" class="equipment-hotspot ${st}" data-port="${escapeAttr(p.numero)}" aria-label="Porta ${escapeAttr(p.numero)}">
-          <span>${escapeHtml(String(p.numero))}</span>
-        </button>`;
-      }).join("")}
+    <div class="equipment-image-viewport">
+      <img src="${escapeAttr(image)}" alt="${escapeAttr(d.imagemAlt||d.modelo||d.nome)}" class="equipment-photo">
+      <div class="equipment-hotspots" style="top:${Number(cfg.top)||55}%;height:${Number(cfg.height)||28}%;grid-template-columns:repeat(${Number(cfg.cols)||ports.length||1},minmax(0,1fr));">
+        ${ports.map(p=>{
+          const st=portVisualState(d,p);
+          return `<button type="button" class="equipment-hotspot ${st}" data-port="${escapeAttr(p.numero)}" aria-label="Porta ${escapeAttr(p.numero)}">
+            <span>${escapeHtml(String(p.numero))}</span>
+          </button>`;
+        }).join("")}
+      </div>
     </div>
+
+    <div class="equipment-port-magnifier hidden" id="equipmentPortMagnifier" aria-hidden="true">
+      <div class="magnifier-image" id="equipmentMagnifierImage"></div>
+      <div class="magnifier-port-badge" id="equipmentMagnifierPort"></div>
+    </div>
+
     <div class="equipment-photo-tooltip hidden" id="equipmentPhotoTooltip"></div>
+
     <div class="equipment-photo-caption">
       <span>● Conectada</span><span>○ Livre</span><span>● Reservada</span><span>● Manutenção</span>
+      <em>Passe o mouse sobre uma porta para ampliar</em>
     </div>
   </div>`;
+
+  const stage=host.querySelector(".equipment-visual-stage");
+  const viewport=host.querySelector(".equipment-image-viewport");
+  const photo=host.querySelector(".equipment-photo");
   const tooltip=host.querySelector("#equipmentPhotoTooltip");
+  const magnifier=host.querySelector("#equipmentPortMagnifier");
+  const magnifierImage=host.querySelector("#equipmentMagnifierImage");
+  const magnifierPort=host.querySelector("#equipmentMagnifierPort");
+
+  const hideZoom=()=>{
+    magnifier.classList.add("hidden");
+    tooltip.classList.add("hidden");
+    host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active","zoomed"));
+  };
+
+  const showZoom=(btn,port,event)=>{
+    const details=portConnectionDetails(d,port);
+    host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active","zoomed"));
+    btn.classList.add("active","zoomed");
+
+    tooltip.innerHTML=`<b>Porta ${escapeHtml(String(port.numero))}</b>
+      <span>${escapeHtml(details.status)}</span>
+      <span><strong>Capacidade:</strong> ${escapeHtml(port.capacidade||"Não informada")}</span>
+      <span><strong>Tipo:</strong> ${escapeHtml(port.tipo||"Não informado")}</span>
+      <span><strong>Conexão:</strong> ${escapeHtml(details.remote)}</span>`;
+    tooltip.classList.remove("hidden");
+
+    const stageRect=stage.getBoundingClientRect();
+    const vpRect=viewport.getBoundingClientRect();
+    const btnRect=btn.getBoundingClientRect();
+
+    // Centro da porta em coordenadas relativas à imagem/viewport.
+    const px=(btnRect.left+btnRect.width/2-vpRect.left)/Math.max(1,vpRect.width);
+    const py=(btnRect.top+btnRect.height/2-vpRect.top)/Math.max(1,vpRect.height);
+
+    // Magnificação 3x com o ponto da porta no centro da lente.
+    const zoom=3.2;
+    magnifierImage.style.backgroundImage=`url("${image.replace(/"/g,'\\"')}")`;
+    magnifierImage.style.backgroundSize=`${zoom*100}% ${zoom*100}%`;
+    magnifierImage.style.backgroundPosition=`${Math.max(0,Math.min(100,px*100))}% ${Math.max(0,Math.min(100,py*100))}%`;
+    magnifierPort.textContent=`PORTA ${port.numero} • ${port.capacidade||"capacidade n/i"}`;
+
+    // A lente acompanha o mouse, mas nunca sai do painel.
+    const mx=(event?.clientX??(btnRect.left+btnRect.width/2))-stageRect.left;
+    const my=(event?.clientY??(btnRect.top+btnRect.height/2))-stageRect.top;
+    const lensW=190,lensH=142,gap=14;
+    let lx=mx+gap,ly=my-lensH/2;
+    if(lx+lensW>stage.clientWidth-10) lx=mx-lensW-gap;
+    if(ly<10) ly=10;
+    if(ly+lensH>stage.clientHeight-48) ly=stage.clientHeight-lensH-48;
+    magnifier.style.left=`${Math.max(10,lx)}px`;
+    magnifier.style.top=`${Math.max(10,ly)}px`;
+    magnifier.classList.remove("hidden");
+  };
+
   host.querySelectorAll(".equipment-hotspot").forEach(btn=>{
     const port=ports.find(x=>+x.numero===+btn.dataset.port);
     if(!port)return;
-    const details=portConnectionDetails(d,port);
-    const show=()=>{
-      host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active"));
-      btn.classList.add("active");
-      tooltip.innerHTML=`<b>Porta ${escapeHtml(String(port.numero))}</b>
-        <span>${escapeHtml(details.status)}</span>
-        <span><strong>Capacidade:</strong> ${escapeHtml(port.capacidade||"Não informada")}</span>
-        <span><strong>Tipo:</strong> ${escapeHtml(port.tipo||"Não informado")}</span>
-        <span><strong>Conexão:</strong> ${escapeHtml(details.remote)}</span>`;
-      tooltip.classList.remove("hidden");
-    };
-    btn.addEventListener("mouseenter",show);
-    btn.addEventListener("focus",show);
+
+    btn.addEventListener("mouseenter",(e)=>showZoom(btn,port,e));
+    btn.addEventListener("mousemove",(e)=>showZoom(btn,port,e));
+    btn.addEventListener("mouseleave",hideZoom);
+    btn.addEventListener("focus",(e)=>showZoom(btn,port,e));
+    btn.addEventListener("blur",hideZoom);
+
     btn.addEventListener("click",()=>{
-      show();
+      const details=portConnectionDetails(d,port);
+      tooltip.classList.remove("hidden");
       const row=[...document.querySelectorAll("#detailRows tr")].find(tr=>+tr.dataset.port===+port.numero);
       row?.scrollIntoView({behavior:"smooth",block:"center"});
       row?.classList.add("port-row-highlight");
       setTimeout(()=>row?.classList.remove("port-row-highlight"),1400);
+      // Mantém a porta selecionada no clique para uso com touch.
+      btn.classList.add("active","zoomed");
+      magnifier.classList.remove("hidden");
+      magnifierPort.textContent=`PORTA ${port.numero} • ${details.status}`;
     });
   });
 }
+
 function renderDetailRows(d){
   const tbody=document.getElementById("detailRows");tbody.innerHTML="";
   d.portas.forEach(p=>{
