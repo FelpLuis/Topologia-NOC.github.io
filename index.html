@@ -95,38 +95,6 @@
   </section>
 </div>
 
-<div id="equipmentVisual" class="modal hidden">
-  <section class="equipment-visual-modal">
-    <div class="equipment-visual-head">
-      <div>
-        <span class="editor-kicker">GERENCIAMENTO DE EQUIPAMENTO</span>
-        <h2 id="visualEquipmentName">EQUIPAMENTO</h2>
-        <p id="visualEquipmentMeta">Passe o mouse sobre uma porta para ver seus dados.</p>
-      </div>
-      <div class="equipment-visual-head-actions">
-        <button id="visualEquipmentEdit" class="icon-edit" type="button" title="Editar equipamento">✎</button>
-        <button id="equipmentVisualClose" class="close" type="button" aria-label="Fechar">×</button>
-      </div>
-    </div>
-    <div class="equipment-visual-layout">
-      <div class="equipment-front-wrap">
-        <div class="equipment-front-toolbar">
-          <div><b>Painel frontal</b><span id="visualPortSummary"></span></div>
-          <div class="visual-legend"><span><i class="legend-dot free"></i>Livre</span><span><i class="legend-dot connected"></i>Conectada</span><span><i class="legend-dot reserved"></i>Reservada</span></div>
-        </div>
-        <div id="equipmentFront" class="equipment-front" aria-label="Painel frontal interativo"></div>
-      </div>
-      <aside id="portInspector" class="port-inspector">
-        <div class="port-inspector-empty">
-          <div class="port-inspector-icon">⌁</div>
-          <b>Selecione uma porta</b>
-          <p>Passe o mouse sobre uma porta ou clique nela para consultar capacidade, tipo, status e conexão.</p>
-        </div>
-      </aside>
-    </div>
-  </section>
-</div>
-
 <div id="universalEditor" class="modal hidden">
   <section class="universal-editor">
     <div class="universal-editor-head">
@@ -166,6 +134,14 @@
         <button id="editCurrentDevice" class="icon-edit" type="button" title="Editar aparelho e portas" aria-label="Editar aparelho e portas">✎</button>
       </div>
       <button class="close" id="closeBtn">×</button>
+    </div>
+    <div id="detailEquipmentImage" class="detail-equipment-visual">
+      <div class="equipment-visual-stage">
+        <div class="equipment-visual-empty">
+          <span>Imagem do equipamento</span>
+          <small>Cadastre a imagem no campo <b>imagem</b> do equipamento.</small>
+        </div>
+      </div>
     </div>
     <div class="detail-body">
       <div class="meta">

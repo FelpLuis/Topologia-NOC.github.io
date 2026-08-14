@@ -1388,3 +1388,257 @@ html[data-theme="dark"] .port-info-grid small{color:#91a9bb!important}
   .manager-hint{display:none}.equipment-visual-modal{width:calc(100vw - 20px);height:calc(100vh - 20px)}
   .equipment-visual-layout{grid-template-columns:1fr;overflow:auto}.port-inspector{min-height:220px}.equipment-front{min-height:330px}.equipment-rack-shell{min-width:650px}
 }
+
+/* =========================================================
+   VISUALIZAÇÃO FÍSICA DO EQUIPAMENTO — PAINEL ESQUERDO
+   ========================================================= */
+#modal{
+  padding:18px;
+  align-items:center;
+  justify-content:center;
+}
+#modal .detail{
+  width:min(1400px,calc(100vw - 36px));
+  height:min(860px,calc(100vh - 36px));
+  max-width:none;
+  display:grid;
+  grid-template-columns:minmax(390px,44%) minmax(0,56%);
+  grid-template-rows:auto minmax(0,1fr);
+  overflow:hidden;
+  border-radius:16px;
+}
+#modal .detail-head{
+  grid-column:1 / -1;
+}
+#modal .detail-equipment-visual{
+  min-width:0;
+  min-height:0;
+  padding:18px;
+  border-right:1px solid var(--ud-border,#29465e);
+  background:
+    radial-gradient(circle at 50% 35%,rgba(15,117,255,.08),transparent 46%),
+    var(--ud-surface,#0b1b2b);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+#modal .equipment-visual-stage{
+  position:relative;
+  width:100%;
+  height:100%;
+  min-height:300px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+  border:1px solid rgba(95,157,201,.18);
+  border-radius:13px;
+  background:
+    linear-gradient(rgba(65,136,181,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(65,136,181,.035) 1px,transparent 1px),
+    #071522;
+  background-size:22px 22px;
+}
+#modal .equipment-photo{
+  width:94%;
+  max-height:82%;
+  object-fit:contain;
+  display:block;
+  user-select:none;
+  -webkit-user-drag:none;
+  filter:drop-shadow(0 18px 25px rgba(0,0,0,.28));
+}
+#modal .equipment-hotspots{
+  position:absolute;
+  left:3%;
+  right:3%;
+  display:grid;
+  z-index:3;
+}
+#modal .equipment-hotspot{
+  position:relative;
+  min-width:0;
+  height:100%;
+  padding:0;
+  border:1px solid transparent;
+  border-radius:4px;
+  background:transparent;
+  cursor:pointer;
+  transition:.12s ease;
+}
+#modal .equipment-hotspot::after{
+  content:"";
+  position:absolute;
+  left:12%;
+  right:12%;
+  top:13%;
+  bottom:13%;
+  border-radius:3px;
+  background:rgba(27,168,255,.06);
+  border:1px solid rgba(82,194,255,.06);
+}
+#modal .equipment-hotspot:hover::after,
+#modal .equipment-hotspot.active::after{
+  background:rgba(42,188,255,.28);
+  border-color:#55d7ff;
+  box-shadow:0 0 12px rgba(43,192,255,.45);
+}
+#modal .equipment-hotspot.connected::after{
+  background:rgba(0,145,255,.18);
+}
+#modal .equipment-hotspot.free::after{
+  background:rgba(255,255,255,.035);
+}
+#modal .equipment-hotspot span{
+  position:absolute;
+  top:-18px;
+  left:50%;
+  transform:translateX(-50%);
+  display:none;
+  padding:2px 4px;
+  border-radius:4px;
+  background:#071522;
+  color:#fff;
+  font-size:7px;
+  font-weight:800;
+  white-space:nowrap;
+}
+#modal .equipment-hotspot:hover span,
+#modal .equipment-hotspot.active span,
+#modal .equipment-hotspot:focus span{
+  display:block;
+}
+#modal .equipment-photo-tooltip{
+  position:absolute;
+  z-index:10;
+  left:14px;
+  bottom:48px;
+  width:min(280px,calc(100% - 28px));
+  padding:11px 12px;
+  border:1px solid #35627f;
+  border-radius:10px;
+  background:rgba(5,19,32,.96);
+  box-shadow:0 14px 35px rgba(0,0,0,.35);
+  color:#dff4ff;
+  pointer-events:none;
+}
+#modal .equipment-photo-tooltip b{
+  display:block;
+  margin-bottom:5px;
+  color:#fff;
+  font-size:12px;
+}
+#modal .equipment-photo-tooltip span{
+  display:block;
+  margin-top:3px;
+  color:#a7c0d1;
+  font-size:8px;
+  line-height:1.35;
+}
+#modal .equipment-photo-tooltip span:first-of-type{
+  color:#55d5ff;
+  font-weight:800;
+}
+#modal .equipment-photo-caption{
+  position:absolute;
+  left:12px;
+  bottom:12px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  color:#7896aa;
+  font-size:7px;
+}
+#modal .equipment-visual-empty{
+  max-width:310px;
+  text-align:center;
+  color:#9bb0c0;
+  padding:30px;
+}
+#modal .equipment-visual-empty span{
+  display:block;
+  color:#eaf6ff;
+  font-weight:800;
+  font-size:13px;
+  margin-bottom:7px;
+}
+#modal .equipment-visual-empty small{
+  display:block;
+  color:#819caf;
+  font-size:9px;
+  line-height:1.5;
+}
+#modal .detail-body{
+  min-width:0;
+  min-height:0;
+  overflow:auto;
+}
+#modal .table-wrap{
+  max-height:none;
+  min-height:0;
+}
+#modal .table-wrap table{
+  width:100%;
+}
+#modal tr.port-row-highlight td{
+  background:rgba(0,137,255,.18)!important;
+  box-shadow:inset 0 1px 0 #36c6ff,inset 0 -1px 0 #36c6ff;
+}
+
+/* Tema claro */
+html[data-theme="light"] #modal .detail-equipment-visual{
+  background:
+    radial-gradient(circle at 50% 35%,rgba(7,93,255,.06),transparent 46%),
+    #f4f8fd;
+  border-right-color:#d3e1ee;
+}
+html[data-theme="light"] #modal .equipment-visual-stage{
+  background:
+    linear-gradient(rgba(7,93,255,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(7,93,255,.045) 1px,transparent 1px),
+    #eef5fb;
+  border-color:#d1e0ed;
+}
+html[data-theme="light"] #modal .equipment-photo-tooltip{
+  background:rgba(255,255,255,.98);
+  border-color:#a9c9e2;
+  color:#10213d;
+  box-shadow:0 14px 35px rgba(7,26,61,.18);
+}
+html[data-theme="light"] #modal .equipment-photo-tooltip b{
+  color:#071a3d;
+}
+html[data-theme="light"] #modal .equipment-photo-tooltip span{
+  color:#526d85;
+}
+html[data-theme="light"] #modal .equipment-photo-tooltip span:first-of-type{
+  color:#075dff;
+}
+html[data-theme="light"] #modal .equipment-hotspot span{
+  background:#071a3d;
+}
+
+/* Responsivo */
+@media(max-width:1000px){
+  #modal{
+    padding:10px;
+  }
+  #modal .detail{
+    width:calc(100vw - 20px);
+    height:calc(100vh - 20px);
+    grid-template-columns:1fr;
+    grid-template-rows:auto minmax(280px,40%) minmax(0,1fr);
+  }
+  #modal .detail-equipment-visual{
+    border-right:0;
+    border-bottom:1px solid var(--ud-border,#29465e);
+    padding:10px;
+  }
+  #modal .equipment-visual-stage{
+    min-height:240px;
+  }
+  #modal .equipment-photo{
+    max-height:78%;
+  }
+}

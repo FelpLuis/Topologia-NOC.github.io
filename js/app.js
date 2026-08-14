@@ -123,14 +123,86 @@ function openDetail(id){
   document.getElementById("detailType").textContent=d.categoria||"—";document.getElementById("detailLocal").textContent=d.local||"—";
   document.getElementById("detailCount").textContent=d.portas.length;document.getElementById("detailConnected").textContent=d.portas.filter(p=>getPortConnection(id,p.numero)).length;
   document.getElementById("detailNote").textContent=d.observacao||"";
+  renderDetailEquipmentImage(d);
   detailEditMode=false;document.getElementById("inlineEditActions").classList.add("hidden");renderDetailRows(d);
   document.getElementById("modal").classList.remove("hidden");
+}
+function getEquipmentImage(d){
+  if(d?.imagem) return d.imagem;
+  const model=(d?.modelo||"").toLowerCase();
+  if(model.includes("netengine 8000 f1a")) return "/assets/equipamentos/ne-f1a.png";
+  return "";
+}
+function portConnectionDetails(d,p){
+  const info=getPortConnection(d.id,p.numero),c=info?.c;
+  if(!c) return {status:"Livre",remote:"Nenhuma conexão cadastrada"};
+  const remote=info.isOrigin?getDevice(c.destino):getDevice(c.origem);
+  return {
+    status:"Conectada",
+    remote:`${remote?.nome|| (info.isOrigin?c.destino:c.origem)} • porta ${info.isOrigin?c.portaDestino:c.portaOrigem}`
+  };
+}
+function renderDetailEquipmentImage(d){
+  const host=document.getElementById("detailEquipmentImage");
+  if(!host)return;
+  const image=getEquipmentImage(d);
+  if(!image){
+    host.innerHTML=`<div class="equipment-visual-stage no-image">
+      <div class="equipment-visual-empty">
+        <span>Imagem não cadastrada</span>
+        <small>Adicione o caminho/URL no campo <b>imagem</b> do equipamento para habilitar a visualização física.</small>
+      </div>
+    </div>`;
+    return;
+  }
+  const cfg=d.hotspots||{top:55,height:28,cols:Math.max(1,d.portas?.length||1)};
+  const ports=Array.isArray(d.portas)?d.portas:[];
+  host.innerHTML=`<div class="equipment-visual-stage">
+    <img src="${escapeAttr(image)}" alt="${escapeAttr(d.imagemAlt||d.modelo||d.nome)}" class="equipment-photo">
+    <div class="equipment-hotspots" style="top:${Number(cfg.top)||55}%;height:${Number(cfg.height)||28}%;grid-template-columns:repeat(${Number(cfg.cols)||ports.length||1},minmax(0,1fr));">
+      ${ports.map(p=>{
+        const st=portVisualState(d,p);
+        return `<button type="button" class="equipment-hotspot ${st}" data-port="${escapeAttr(p.numero)}" aria-label="Porta ${escapeAttr(p.numero)}">
+          <span>${escapeHtml(String(p.numero))}</span>
+        </button>`;
+      }).join("")}
+    </div>
+    <div class="equipment-photo-tooltip hidden" id="equipmentPhotoTooltip"></div>
+    <div class="equipment-photo-caption">
+      <span>● Conectada</span><span>○ Livre</span><span>● Reservada</span><span>● Manutenção</span>
+    </div>
+  </div>`;
+  const tooltip=host.querySelector("#equipmentPhotoTooltip");
+  host.querySelectorAll(".equipment-hotspot").forEach(btn=>{
+    const port=ports.find(x=>+x.numero===+btn.dataset.port);
+    if(!port)return;
+    const details=portConnectionDetails(d,port);
+    const show=()=>{
+      host.querySelectorAll(".equipment-hotspot").forEach(x=>x.classList.remove("active"));
+      btn.classList.add("active");
+      tooltip.innerHTML=`<b>Porta ${escapeHtml(String(port.numero))}</b>
+        <span>${escapeHtml(details.status)}</span>
+        <span><strong>Capacidade:</strong> ${escapeHtml(port.capacidade||"Não informada")}</span>
+        <span><strong>Tipo:</strong> ${escapeHtml(port.tipo||"Não informado")}</span>
+        <span><strong>Conexão:</strong> ${escapeHtml(details.remote)}</span>`;
+      tooltip.classList.remove("hidden");
+    };
+    btn.addEventListener("mouseenter",show);
+    btn.addEventListener("focus",show);
+    btn.addEventListener("click",()=>{
+      show();
+      const row=[...document.querySelectorAll("#detailRows tr")].find(tr=>+tr.dataset.port===+port.numero);
+      row?.scrollIntoView({behavior:"smooth",block:"center"});
+      row?.classList.add("port-row-highlight");
+      setTimeout(()=>row?.classList.remove("port-row-highlight"),1400);
+    });
+  });
 }
 function renderDetailRows(d){
   const tbody=document.getElementById("detailRows");tbody.innerHTML="";
   d.portas.forEach(p=>{
     const i=getPortConnection(d.id,p.numero),c=i?.c,remote=c?(i.isOrigin?getDevice(c.destino):getDevice(c.origem)):null;
-    const tr=document.createElement("tr");if(c)tr.className="connected";
+    const tr=document.createElement("tr");tr.dataset.port=p.numero;if(c)tr.className="connected";
     tr.innerHTML=`<td><strong>${p.numero}</strong></td><td>${escapeHtml(p.capacidade||"")}</td><td>${escapeHtml(p.tipo||"")}</td><td>${escapeHtml(p.status||"livre")}</td><td>${c?escapeHtml((remote?.nome|| (i.isOrigin?c.destino:c.origem))+" • porta "+(i.isOrigin?c.portaDestino:c.portaOrigem)):"Livre"}</td>`;
     tbody.appendChild(tr);
   });

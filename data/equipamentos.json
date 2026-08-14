@@ -343,7 +343,14 @@
         "tipo": "QSFP28",
         "status": "livre"
       }
-    ]
+    ],
+    "imagem": "/assets/equipamentos/ne-f1a.png",
+    "imagemAlt": "Huawei NetEngine 8000 F1A — vista frontal",
+    "hotspots": {
+      "top": 55,
+      "height": 28,
+      "cols": 56
+    }
   },
   {
     "id": "s6730a",
