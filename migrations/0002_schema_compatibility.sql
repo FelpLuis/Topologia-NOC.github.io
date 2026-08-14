@@ -1,0 +1,5 @@
+-- Compatibilidade para instalações que já possuem 0001 aplicado.
+-- Para D1 remoto existente, execute apenas se `route` ainda não existir:
+-- ALTER TABLE screens ADD COLUMN route TEXT NOT NULL DEFAULT '/';
+--
+-- O Worker também faz esta compatibilidade automaticamente.

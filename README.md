@@ -580,3 +580,36 @@ texto `U`/`UP` como substituto.
 ## Logo oficial na tela de login
 
 A tela de login deve utilizar `public/assets/updown-symbol.png`, que é exatamente o símbolo gráfico enviado pelo usuário. Não utilizar texto `U`, `UP` ou `up` como substituto.
+
+
+## Correção aplicada sobre o projeto original
+
+### Topologia em branco
+O frontend chama `GET /api/topology`. O Worker agora inicializa/migra o D1 antes desse endpoint e carrega a topologia inicial pelos Assets:
+
+- `/data/equipamentos.json`
+- `/data/conexoes.json`
+- `/data/pops.json`
+
+### Gerenciar Plataforma não aparecia
+Havia uma condição de corrida em `public/js/auth-guard.js`: a segunda IIFE verificava `window.UPDOWN_AUTH` antes da primeira terminar a requisição `/api/auth/me`. O guard agora carrega autenticação e permissões em uma única sequência.
+
+O administrador recebe as telas:
+
+- network
+- dashboard
+- platform
+
+### D1 `screens.route`
+O D1 existente foi criado por uma versão anterior sem `screens.route`. O Worker agora detecta a coluna com `PRAGMA table_info` e adiciona `route` automaticamente se necessário.
+
+### Auditoria
+O Worker padroniza `audit_logs.created_at` e migra bancos antigos que possuam `occurred_at`.
+
+### Login
+O ícone textual `UP` foi removido. A tela de login utiliza o símbolo gráfico em:
+
+`public/assets/brand/updown-symbol.png`
+
+### Diagnóstico
+Use `node login-check.js https://SEU-WORKER.workers.dev` para verificar health, sessão, acesso e topologia.

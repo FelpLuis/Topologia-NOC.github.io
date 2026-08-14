@@ -1,26 +1,17 @@
-
-const form=document.getElementById("loginForm");
-const error=document.getElementById("error");
-const username=document.getElementById("username");
-const password=document.getElementById("password");
-
-form.addEventListener("submit",async e=>{
-  e.preventDefault();
-  error.style.display="none";
-  try{
-    const r=await fetch("/api/auth/login",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:username.value.trim(),password:password.value})
-    });
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.error||"Não foi possível entrar.");
-    location.href=d.user.must_change_password?"/change-password.html":"/";
-  }catch(err){
-    error.textContent=err.message;
-    error.style.display="block";
+// Diagnóstico rápido do ambiente Cloudflare.
+// Execute no terminal com Node instalado: node login-check.js https://SEU-WORKER.workers.dev
+const base = process.argv[2];
+if (!base) {
+  console.error("Uso: node login-check.js https://seu-worker.workers.dev");
+  process.exit(1);
+}
+const urls = ["/api/health", "/api/auth/me", "/api/access", "/api/topology"];
+for (const path of urls) {
+  try {
+    const r = await fetch(new URL(path, base));
+    console.log(`${r.status} ${path}`);
+    console.log(await r.text());
+  } catch (e) {
+    console.error(`ERRO ${path}:`, e.message);
   }
-});
-fetch("/api/auth/me",{cache:"no-store"}).then(r=>r.json()).then(d=>{
-  if(d.authenticated) location.href="/";
-}).catch(()=>{});
+}
