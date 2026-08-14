@@ -2504,3 +2504,17 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
   flex: 0 0 auto;
   border-radius: 12px;
 }
+
+
+/* UPDOWN official compact symbol supplied by the user */
+.brand-symbol-image,
+.updown-login-symbol {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+}

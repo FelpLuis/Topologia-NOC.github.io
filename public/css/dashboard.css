@@ -48,3 +48,17 @@ footer{display:flex;align-items:center;gap:18px;margin-top:14px;color:var(--mute
   flex: 0 0 auto;
   border-radius: 12px;
 }
+
+
+/* UPDOWN official compact symbol supplied by the user */
+.brand-symbol-image,
+.updown-login-symbol {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  object-position: center;
+  display: block;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+}

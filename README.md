@@ -575,3 +575,8 @@ O ícone compacto da tela de login não usa mais apenas `U`. Ele foi substituíd
 O ícone compacto da interface agora utiliza exatamente a imagem fornecida pelo usuário,
 armazenada em `public/assets/up-symbol.png`. O sistema não redesenha o símbolo nem usa
 texto `U`/`UP` como substituto.
+
+
+## Logo oficial na tela de login
+
+A tela de login deve utilizar `public/assets/updown-symbol.png`, que é exatamente o símbolo gráfico enviado pelo usuário. Não utilizar texto `U`, `UP` ou `up` como substituto.
