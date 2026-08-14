@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Dashboard NOC</title>
+<link rel="stylesheet" href="css/dashboard.css">
+  <script src="js/grafana.js"></script>
+</head>
+<body>
+<header class="tv-header">
+  <div class="brand">UPDOWN <span>TELECOM</span></div>
+  <div class="title">DASHBOARD NOC • TOPOLOGIA E INFRAESTRUTURA</div>
+  <div class="clock">
+    <strong id="clock">--:--:--</strong>
+    <small id="date">--/--/----</small>
+  </div>
+</header>
+
+<main class="dashboard">
+  <section class="hero-kpis">
+    <div class="kpi"><span>POPs</span><strong id="kpiPops">0</strong></div>
+    <div class="kpi"><span>EQUIPAMENTOS</span><strong id="kpiEquip">0</strong></div>
+    <div class="kpi"><span>PORTAS</span><strong id="kpiPorts">0</strong></div>
+    <div class="kpi"><span>PORTAS UTILIZADAS</span><strong id="kpiUsed">0</strong></div>
+    <div class="kpi"><span>PORTAS LIVRES</span><strong id="kpiFree">0</strong></div>
+    <div class="kpi"><span>ONLINE</span><strong id="kpiOnline">--</strong></div>
+  </section>
+
+  <section class="pop-grid" id="popGrid"></section>
+
+  <footer>
+    <span><i class="dot online"></i> ONLINE</span>
+    <span><i class="dot offline"></i> OFFLINE</span>
+    <span><i class="dot pending"></i> AGUARDANDO INTEGRAÇÃO</span>
+    <span class="source">STATUS / CONSUMO: campos preparados para integração com Grafana</span>
+  </footer>
+</main>
+<script src="js/dashboard.js"></script>
+</body>
+</html>

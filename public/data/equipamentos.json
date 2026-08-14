@@ -1,0 +1,1960 @@
+[
+  {
+    "id": "f1a",
+    "nome": "NE F1A",
+    "modelo": "Huawei NetEngine 8000 F1A",
+    "categoria": "Núcleo",
+    "local": "Ascenty",
+    "observacao": "Capacidade de interface depende da configuração e licenciamento do equipamento.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 2,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 7,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "1 / 10 Gbps",
+        "tipo": "GE / 10GE",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 31,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 32,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 33,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 34,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 35,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 36,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 37,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 38,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 39,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 40,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 41,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 42,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 43,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 44,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 45,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 46,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 47,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 48,
+        "capacidade": "10 / 25 Gbps",
+        "tipo": "SFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 49,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "conectada"
+      },
+      {
+        "numero": 50,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 51,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 52,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 53,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 54,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 55,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 56,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ],
+    "imagem": "assets/equipamentos/ne-f1a.png",
+    "imagemAlt": "Huawei NetEngine 8000 F1A — vista frontal",
+    "hotspots": {
+      "top": 55,
+      "height": 28,
+      "cols": 56
+    },
+    "layoutPortas": "f1a"
+  },
+  {
+    "id": "s6730a",
+    "nome": "6730",
+    "modelo": "Huawei CloudEngine S6730-H24X6C",
+    "categoria": "Agregação",
+    "local": "Ascenty",
+    "observacao": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 7,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "s6750a",
+    "nome": "6750",
+    "modelo": "Huawei CloudEngine S6750-H36C",
+    "categoria": "Agregação",
+    "local": "Ascenty",
+    "observacao": "Capacidade operacional depende do modelo/sufixo e configuração instalada.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "conectada"
+      },
+      {
+        "numero": 3,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 7,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 31,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 32,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 33,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 34,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 35,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 36,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "nokia1",
+    "nome": "NOKIA",
+    "modelo": "Modelo não identificado",
+    "categoria": "Transporte",
+    "local": "Ascenty",
+    "observacao": "O modelo e as placas não estão legíveis na imagem original. A capacidade deve ser confirmada antes de usar como documentação as-built.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      }
+    ]
+  },
+  {
+    "id": "datacom1",
+    "nome": "DATACOM",
+    "modelo": "Modelo não identificado",
+    "categoria": "Transporte",
+    "local": "Ascenty",
+    "observacao": "O modelo e as placas não estão legíveis na imagem original.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      }
+    ]
+  },
+  {
+    "id": "nokia2",
+    "nome": "NOKIA",
+    "modelo": "Modelo não identificado",
+    "categoria": "Transporte",
+    "local": "Ascenty",
+    "observacao": "O modelo e as placas não estão legíveis na imagem original.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      }
+    ]
+  },
+  {
+    "id": "datacom2",
+    "nome": "DATACOM",
+    "modelo": "Modelo não identificado",
+    "categoria": "Transporte",
+    "local": "Ascenty",
+    "observacao": "O modelo e as placas não estão legíveis na imagem original.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "A confirmar",
+        "tipo": "A confirmar",
+        "status": "conectada"
+      }
+    ]
+  },
+  {
+    "id": "s6750b",
+    "nome": "6750",
+    "modelo": "Huawei CloudEngine S6750-H36C",
+    "categoria": "Agregação",
+    "local": "Ascenty",
+    "observacao": "Capacidade operacional depende do modelo/sufixo e configuração instalada.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "conectada"
+      },
+      {
+        "numero": 3,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 7,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 31,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 32,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 33,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 34,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 35,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 36,
+        "capacidade": "40 / 100 Gbps",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "s6730b",
+    "nome": "6730",
+    "modelo": "Huawei CloudEngine S6730-H24X6C",
+    "categoria": "Distribuição",
+    "local": "Ascenty",
+    "observacao": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 7,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "santos",
+    "nome": "6730 • POP Santos",
+    "modelo": "Huawei CloudEngine S6730-H24X6C",
+    "categoria": "POP",
+    "local": "POP Santos",
+    "observacao": "Equipamento de distribuição do POP Santos.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 7,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "sv",
+    "nome": "6730 • POP São Vicente",
+    "modelo": "Huawei CloudEngine S6730-H24X6C",
+    "categoria": "POP",
+    "local": "POP São Vicente",
+    "observacao": "Equipamento de distribuição do POP São Vicente.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 2,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "conectada"
+      },
+      {
+        "numero": 7,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "10 Gbps",
+        "tipo": "SFP+",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "40 / 100 Gbps*",
+        "tipo": "QSFP28",
+        "status": "livre"
+      }
+    ]
+  },
+  {
+    "id": "m8",
+    "nome": "NE8000-M8",
+    "modelo": "Huawei NetEngine 8000 M8",
+    "categoria": "BGP/MPLS",
+    "local": "Concentrador",
+    "observacao": "Chassi modular. A capacidade das portas depende da placa instalada.",
+    "portas": [
+      {
+        "numero": 1,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 2,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 3,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 4,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 5,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 6,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 7,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 8,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 9,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 10,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 11,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 12,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 13,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 14,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 15,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 16,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 17,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 18,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 19,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 20,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 21,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 22,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 23,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 24,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 25,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 26,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 27,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 28,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 29,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 30,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 31,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 32,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 33,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 34,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 35,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 36,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 37,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 38,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 39,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 40,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 41,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 42,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 43,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 44,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 45,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 46,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 47,
+        "capacidade": "Depende da placa",
+        "tipo": "—",
+        "status": "livre"
+      },
+      {
+        "numero": 48,
+        "capacidade": "A confirmar",
+        "tipo": "—",
+        "status": "conectada"
+      },
+      {
+        "numero": 49,
+        "capacidade": "A confirmar",
+        "tipo": "—",
+        "status": "conectada"
+      }
+    ]
+  }
+]

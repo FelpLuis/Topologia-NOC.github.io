@@ -1,0 +1,40 @@
+*{box-sizing:border-box}
+:root{
+  --navy:#061a3d;--navy2:#08254f;--blue:#0867e8;--cyan:#17c9f4;
+  --bg:#eef5fb;--card:#fff;--text:#10213d;--muted:#61748b;--line:#d7e5f1;
+  --purple:#6547d9;--green:#16a36b;--red:#e24c63;--amber:#e6a72c;
+}
+@media(prefers-color-scheme:dark){
+ :root{--bg:#071421;--card:#0c2030;--text:#eaf7ff;--muted:#8fa8b8;--line:#1c3c52;--navy:#031127;--navy2:#061b3b}
+}
+html,body{margin:0;width:100%;min-height:100%;font-family:Inter,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}
+body{overflow-x:hidden}
+.tv-header{height:74px;background:linear-gradient(105deg,var(--navy),var(--navy2));color:#fff;display:flex;align-items:center;padding:0 34px;gap:28px;border-bottom:3px solid var(--cyan)}
+.brand{font-weight:900;font-size:22px;letter-spacing:-.04em;white-space:nowrap}
+.brand span{color:#1ed1f3}
+.title{font-size:13px;font-weight:800;letter-spacing:.08em;opacity:.85;flex:1}
+.clock{text-align:right;line-height:1.05}.clock strong{display:block;font-size:20px}.clock small{font-size:10px;opacity:.7}
+.dashboard{padding:22px 28px 28px}
+.hero-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:13px 16px;box-shadow:0 5px 18px rgba(0,25,65,.06)}
+.kpi span{display:block;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.08em}.kpi strong{display:block;margin-top:4px;font-size:26px}
+.pop-grid{display:grid;grid-template-columns:repeat(5,minmax(260px,1fr));gap:14px;align-items:start}
+.pop-column{background:rgba(255,255,255,.36);border:1px solid var(--line);border-radius:15px;overflow:hidden;min-width:0}
+@media(prefers-color-scheme:dark){.pop-column{background:rgba(7,24,38,.72)}}
+.pop-header{display:flex;align-items:center;gap:10px;padding:15px;border-bottom:1px solid var(--line);background:linear-gradient(135deg,rgba(8,103,232,.07),transparent)}
+.pop-marker{width:8px;height:44px;border-radius:7px;background:var(--purple)}.pop-marker.blue{background:var(--blue)}
+.pop-header span{font-size:8px;font-weight:900;color:var(--muted);letter-spacing:.12em}.pop-header h2{font-size:13px;margin:2px 0}.pop-header p{font-size:9px;color:var(--muted);margin:0}
+.pop-summary{margin-left:auto;text-align:right}.pop-summary strong{display:block;font-size:22px}.pop-summary small{font-size:7px;color:var(--muted);font-weight:900}
+.pop-overview{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+.pop-overview div{background:var(--card);padding:8px;text-align:center}.pop-overview span{display:block;font-size:7px;color:var(--muted);font-weight:900}.pop-overview strong{font-size:14px}
+.device-list{padding:10px;display:grid;gap:9px}
+.device-card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:11px;min-width:0}
+.device-top{display:flex;justify-content:space-between;gap:8px}.device-role{font-size:7px;color:var(--blue);font-weight:900;text-transform:uppercase}.device-card h3{font-size:12px;margin:2px 0}.device-card p{margin:0;color:var(--muted);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{height:max-content;padding:4px 6px;border-radius:6px;font-size:7px;font-weight:900;display:flex;align-items:center;gap:4px;white-space:nowrap}.status i,.dot{display:inline-block;width:6px;height:6px;border-radius:50%}.status.online{color:var(--green);background:rgba(22,163,107,.11)}.status.online i,.dot.online{background:var(--green)}.status.offline{color:var(--red);background:rgba(226,76,99,.11)}.status.offline i,.dot.offline{background:var(--red)}.status.aguardando{color:var(--amber);background:rgba(230,167,44,.12)}.status.aguardando i,.dot.pending{background:var(--amber)}
+.device-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:10px}.device-metrics div{background:rgba(8,103,232,.045);border-radius:6px;padding:6px;text-align:center}.device-metrics small{display:block;font-size:6px;color:var(--muted);font-weight:900}.device-metrics strong{display:block;font-size:12px;margin-top:2px}
+.capacity-bar{height:5px;background:rgba(100,120,140,.14);border-radius:10px;margin-top:10px;overflow:hidden}.capacity-bar span{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));border-radius:10px}
+.device-foot{display:flex;justify-content:space-between;margin-top:6px;color:var(--muted);font-size:7px}.empty{padding:25px 10px;text-align:center;color:var(--muted);font-size:9px}
+footer{display:flex;align-items:center;gap:18px;margin-top:14px;color:var(--muted);font-size:8px;font-weight:800}.dot{margin-right:4px}.source{margin-left:auto}
+.load-error{grid-column:1/-1;padding:30px;text-align:center;border:1px solid var(--line);border-radius:12px;color:var(--red)}
+@media(max-width:1200px){.pop-grid{grid-template-columns:repeat(3,minmax(260px,1fr))}.hero-kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:800px){.tv-header{padding:0 16px}.title{display:none}.pop-grid{grid-template-columns:1fr}.hero-kpis{grid-template-columns:repeat(2,1fr)}}
