@@ -12,11 +12,12 @@
   <div class="subtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
   <div class="actions">
     <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
-    <button class="btn" id="exportBtn">Exportar dados</button>
+    <button id="editPortsBtn" class="primary-btn">Editar portas</button>
   </div>
 </header>
 
-<div class="app">
+<div class="app" id="appShell">
+  <button id="sidebarToggle" class="sidebar-toggle" type="button" title="Recolher equipamentos" aria-label="Recolher painel de equipamentos">‹</button>
   <aside class="sidebar">
     <div class="side-title">Equipamentos</div>
     <div id="deviceList" class="device-list"></div>
@@ -54,6 +55,37 @@
       <button id="popModalClose" class="close">×</button>
     </div>
     <div id="popModalEquipments" class="pop-modal-body"></div>
+  </div>
+</div>
+
+
+<div id="editPortsModal" class="edit-ports-modal hidden">
+  <div class="edit-ports-card">
+    <div class="edit-ports-head">
+      <div>
+        <h2>EDITAR PORTAS</h2>
+        <p>Selecione o aparelho e altere o que está conectado em cada porta.</p>
+      </div>
+      <button id="editPortsClose" class="close" type="button">×</button>
+    </div>
+
+    <div class="edit-ports-toolbar">
+      <label>
+        <span>Aparelho</span>
+        <select id="editDeviceSelect"></select>
+      </label>
+      <label>
+        <span>Buscar porta</span>
+        <input id="editPortSearch" type="search" placeholder="Número, conexão ou capacidade">
+      </label>
+    </div>
+
+    <div id="editPortsTableWrap" class="edit-ports-table-wrap"></div>
+
+    <div class="edit-ports-actions">
+      <span id="editPortsStatus"></span>
+      <button id="editPortsSave" class="primary-btn" type="button">Salvar alterações</button>
+    </div>
   </div>
 </div>
 

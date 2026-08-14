@@ -203,6 +203,206 @@ function closePop() {
   document.getElementById("popModal").classList.add("hidden");
 }
 
+
+function openEditPorts() {
+  const modal = document.getElementById("editPortsModal");
+  const select = document.getElementById("editDeviceSelect");
+  const search = document.getElementById("editPortSearch");
+  select.innerHTML = state.equipamentos.map((eq, i) =>
+    `<option value="${i}">${escapeHtml(eq.nome || eq.id)} — ${escapeHtml(eq.modelo || "")}</option>`
+  ).join("");
+  search.value = "";
+  modal.classList.remove("hidden");
+  renderEditPorts();
+}
+
+function closeEditPorts() {
+  document.getElementById("editPortsModal").classList.add("hidden");
+}
+
+function getConnectionsForDevice(eqId) {
+  return state.conexoes.filter(c => c.origem === eqId || c.destino === eqId);
+}
+
+function getPortConnection(eqId, port) {
+  const c = state.conexoes.find(c =>
+    (c.origem === eqId && Number(c.portaOrigem) === Number(port)) ||
+    (c.destino === eqId && Number(c.portaDestino) === Number(port))
+  );
+  if (!c) return null;
+  const isOrigin = c.origem === eqId && Number(c.portaOrigem) === Number(port);
+  return { c, isOrigin };
+}
+
+function getPortRows(eq) {
+  const ports = Array.isArray(eq.portas) ? eq.portas : [];
+  return ports.map(p => {
+    const info = getPortConnection(eq.id, p.numero);
+    if (info) {
+      const c = info.c;
+      return {
+        porta: p.numero,
+        capacidade: c.capacidade || p.capacidade || "",
+        conectado: info.isOrigin ? c.destino : c.origem,
+        portaRemota: info.isOrigin ? c.portaDestino : c.portaOrigem,
+        tipo: c.tipo || p.tipo || "",
+        conexaoIndex: state.conexoes.indexOf(c)
+      };
+    }
+    return {
+      porta: p.numero,
+      capacidade: p.capacidade || "",
+      conectado: "",
+      portaRemota: "",
+      tipo: p.tipo || "",
+      conexaoIndex: -1
+    };
+  });
+}
+
+function renderEditPorts() {
+  const select = document.getElementById("editDeviceSelect");
+  const wrap = document.getElementById("editPortsTableWrap");
+  const search = document.getElementById("editPortSearch");
+  const eq = state.equipamentos[Number(select.value)];
+  if (!eq) return;
+
+  const term = (search.value || "").toLowerCase().trim();
+  const rows = getPortRows(eq).filter(r => {
+    const text = `${r.porta} ${r.capacidade} ${r.conectado} ${r.portaRemota} ${r.tipo}`.toLowerCase();
+    return !term || text.includes(term);
+  });
+
+  wrap.innerHTML = `
+    <table class="edit-ports-table">
+      <thead>
+        <tr>
+          <th>Porta</th>
+          <th>Capacidade</th>
+          <th>Conectado a</th>
+          <th>Porta remota</th>
+          <th>Tipo / circuito</th>
+          <th>Ação</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr data-port="${r.porta}">
+            <td><strong>${r.porta}</strong></td>
+            <td><input class="port-capacity" value="${escapeAttr(r.capacidade)}"></td>
+            <td>
+              <select class="port-remote">
+                <option value="">— Livre —</option>
+                ${state.equipamentos.filter(e => e.id !== eq.id).map(e => `
+                  <option value="${escapeAttr(e.id)}" ${e.id === r.conectado ? "selected" : ""}>
+                    ${escapeHtml(e.nome)}
+                  </option>
+                `).join("")}
+              </select>
+            </td>
+            <td>
+              <input class="port-remote-port" type="number" min="1"
+                value="${r.portaRemota || ""}" placeholder="Porta">
+            </td>
+            <td><input class="port-type" value="${escapeAttr(r.tipo)}" placeholder="Ex.: BGP/MPLS"></td>
+            <td>
+              <button type="button" class="disconnect-port" data-port="${r.porta}">
+                ${r.conectado ? "Desconectar" : "Livre"}
+              </button>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  wrap.querySelectorAll(".disconnect-port").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const port = Number(btn.dataset.port);
+      disconnectPort(eq.id, port);
+      renderEditPorts();
+      renderTopology();
+    });
+  });
+}
+
+function disconnectPort(eqId, port) {
+  state.conexoes = state.conexoes.filter(c =>
+    !((c.origem === eqId && Number(c.portaOrigem) === port) ||
+      (c.destino === eqId && Number(c.portaDestino) === port))
+  );
+  document.getElementById("editPortsStatus").textContent =
+    `Porta ${port} de ${eqId} marcada como livre.`;
+}
+
+function applyPortEdits() {
+  const select = document.getElementById("editDeviceSelect");
+  const eq = state.equipamentos[Number(select.value)];
+  const rows = [...document.querySelectorAll("#editPortsTableWrap tbody tr")];
+
+  rows.forEach(tr => {
+    const port = Number(tr.dataset.port);
+    const capacity = tr.querySelector(".port-capacity").value.trim();
+    const remote = tr.querySelector(".port-remote").value.trim();
+    const remotePort = Number(tr.querySelector(".port-remote-port").value);
+    const type = tr.querySelector(".port-type").value.trim();
+
+    // Update local port metadata if the equipment JSON has a ports array.
+    if (Array.isArray(eq.portasDetalhes)) {
+      let pd = eq.portasDetalhes.find(x => Number(x.porta) === port);
+      if (!pd) {
+        pd = { porta: port };
+        eq.portasDetalhes.push(pd);
+      }
+      pd.capacidade = capacity;
+    }
+
+    // Remove any existing connection on this local port.
+    state.conexoes = state.conexoes.filter(c =>
+      !((c.origem === eq.id && Number(c.portaOrigem) === port) ||
+        (c.destino === eq.id && Number(c.portaDestino) === port))
+    );
+
+    if (remote && remotePort) {
+      const remoteEq = state.equipamentos.find(e =>
+        e.id === remote || e.nome === remote
+      );
+
+      // Prefer exact equipment ID. If no exact match exists, use the entered value
+      // as a reference so the user can still document an external/unknown endpoint.
+      const remoteId = remoteEq ? remoteEq.id : remote;
+
+      state.conexoes.push({
+        origem: eq.id,
+        portaOrigem: port,
+        destino: remoteId,
+        portaDestino: remotePort,
+        capacidade: capacity,
+        tipo: type
+      });
+    }
+  });
+
+  document.getElementById("editPortsStatus").textContent =
+    "Alterações aplicadas nesta sessão. Use os botões de download para gerar os JSON atualizados.";
+  renderTopology();
+  renderSidebar();
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportEditedData() {
+  downloadJson("equipamentos.json", state.equipamentos);
+  setTimeout(() => downloadJson("conexoes.json", state.conexoes), 150);
+}
+
 function showConnection(c) {
   const a = getDevice(c.origem);
   const b = getDevice(c.destino);
@@ -305,3 +505,40 @@ loadData().catch(error => {
   document.getElementById("topology").innerHTML =
     `<div class="empty">Erro ao carregar a topologia: ${escapeHtml(error.message)}</div>`;
 });
+
+document.getElementById("editPortsBtn")?.addEventListener("click", openEditPorts);
+document.getElementById("editPortsClose")?.addEventListener("click", closeEditPorts);
+document.getElementById("editDeviceSelect")?.addEventListener("change", renderEditPorts);
+document.getElementById("editPortSearch")?.addEventListener("input", renderEditPorts);
+document.getElementById("editPortsSave")?.addEventListener("click", () => {
+  applyPortEdits();
+  exportEditedData();
+});
+
+const sidebarToggle = document.getElementById("sidebarToggle");
+const appShell = document.getElementById("appShell");
+
+function setSidebarCollapsed(collapsed) {
+  if (!appShell || !sidebarToggle) return;
+  appShell.classList.toggle("sidebar-collapsed", collapsed);
+  sidebarToggle.title = collapsed ? "Expandir equipamentos" : "Recolher equipamentos";
+  sidebarToggle.setAttribute(
+    "aria-label",
+    collapsed ? "Expandir painel de equipamentos" : "Recolher painel de equipamentos"
+  );
+  try {
+    localStorage.setItem("updown-sidebar-collapsed", collapsed ? "1" : "0");
+  } catch (_) {}
+}
+
+if (sidebarToggle && appShell) {
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem("updown-sidebar-collapsed") === "1";
+  } catch (_) {}
+  setSidebarCollapsed(collapsed);
+
+  sidebarToggle.addEventListener("click", () => {
+    setSidebarCollapsed(!appShell.classList.contains("sidebar-collapsed"));
+  });
+}

@@ -81,3 +81,107 @@ td:first-child{width:65px;font-weight:800}td:nth-child(2){width:180px}td:nth-chi
 .pop-modal-eq b { font-size:12px; }
 .pop-modal-eq small { display:block; color:#8fa9bb; font-size:10px; margin-top:3px; }
 .pop-modal-eq p { margin:5px 0 0; color:#6f8798; font-size:10px; }
+
+.edit-ports-modal { position:fixed; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.72); }
+.edit-ports-modal.hidden { display:none !important; }
+.edit-ports-card { width:min(1200px,96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; background:#071522; border:1px solid #40517a; border-radius:14px; box-shadow:0 30px 100px rgba(0,0,0,.65); }
+.edit-ports-head { display:flex; justify-content:space-between; align-items:flex-start; padding:18px 20px; border-bottom:1px solid #233653; }
+.edit-ports-head h2 { margin:0; color:#dfeaff; font-size:17px; letter-spacing:.08em; }
+.edit-ports-head p { margin:6px 0 0; color:#8498ad; font-size:10px; }
+.edit-ports-toolbar { display:grid; grid-template-columns:minmax(260px,1fr) minmax(220px,.7fr); gap:12px; padding:14px 20px; background:#091a2a; border-bottom:1px solid #1c3047; }
+.edit-ports-toolbar label span { display:block; margin-bottom:5px; color:#7d94aa; font-size:9px; text-transform:uppercase; letter-spacing:.08em; }
+.edit-ports-toolbar select,.edit-ports-toolbar input { width:100%; box-sizing:border-box; border:1px solid #2b405b; background:#07121f; color:#dbe7f3; border-radius:7px; padding:9px 10px; outline:none; }
+.edit-ports-table-wrap { overflow:auto; padding:0 20px; }
+.edit-ports-table { width:100%; min-width:850px; border-collapse:collapse; font-size:10px; }
+.edit-ports-table th { position:sticky; top:0; z-index:2; background:#0c2135; color:#89a5bd; text-align:left; padding:10px 8px; border-bottom:1px solid #29415c; }
+.edit-ports-table td { padding:7px 8px; border-bottom:1px solid #172b40; }
+.edit-ports-table tbody tr:hover { background:#0a1d30; }
+.edit-ports-table input { width:100%; box-sizing:border-box; border:1px solid #273c56; background:#07131f; color:#dbe7f3; border-radius:5px; padding:7px; }
+.edit-ports-table input:focus { border-color:#5b75a3; outline:none; }
+.disconnect-port { border:1px solid #354b66; background:#0a1827; color:#91a8bd; border-radius:5px; padding:6px 8px; cursor:pointer; font-size:9px; }
+.disconnect-port:hover { border-color:#8b6ee8; color:#d8ccff; }
+.edit-ports-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 20px; border-top:1px solid #233653; background:#091a2a; }
+#editPortsStatus { color:#82a0b8; font-size:9px; }
+.primary-btn { border:1px solid #536ba0; background:#172b4b; color:#e5edff; border-radius:7px; padding:9px 14px; cursor:pointer; }
+.primary-btn:hover { background:#21385e; }
+@media(max-width:800px) {
+  .edit-ports-toolbar { grid-template-columns:1fr; }
+  .edit-ports-card { width:98vw; }
+}
+
+.edit-ports-table select { width:100%; box-sizing:border-box; border:1px solid #273c56; background:#07131f; color:#dbe7f3; border-radius:5px; padding:7px; }
+.edit-ports-table select:focus { border-color:#5b75a3; outline:none; }
+
+/* Painel lateral recolhível */
+.sidebar {
+  position: relative;
+  transition: width .22s ease, min-width .22s ease, padding .22s ease, border-color .22s ease;
+  flex-shrink: 0;
+}
+.app.sidebar-collapsed .sidebar {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+  border-right-color: transparent;
+}
+.app.sidebar-collapsed .sidebar > *:not(.sidebar-toggle) {
+  opacity: 0;
+  pointer-events: none;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 92px;
+  left: 267px;
+  z-index: 35;
+  width: 30px;
+  height: 44px;
+  border: 1px solid #31536d;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
+  background: #0a1b2b;
+  color: #9edfff;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 5px 0 18px rgba(0,0,0,.22);
+  transition: left .22s ease, background .15s ease, color .15s ease;
+}
+.sidebar-toggle:hover {
+  background: #10304a;
+  color: #28c7ff;
+}
+.app.sidebar-collapsed .sidebar-toggle {
+  position: fixed;
+  left: 0;
+  top: 92px;
+  border-left: 1px solid #31536d;
+  border-radius: 0 8px 8px 0;
+  z-index: 100;
+}
+.app.sidebar-collapsed .sidebar-toggle::after {
+  content: "Equipamentos";
+  position: absolute;
+  left: 38px;
+  top: 13px;
+  white-space: nowrap;
+  font-size: 9px;
+  color: #7695a9;
+  opacity: 0;
+  transition: opacity .15s;
+  pointer-events: none;
+}
+.app.sidebar-collapsed .sidebar-toggle:hover::after {
+  opacity: 1;
+}
+.app.sidebar-collapsed .sidebar-toggle {
+  font-size: 0;
+}
+.app.sidebar-collapsed .sidebar-toggle::before {
+  content: "›";
+  font-size: 24px;
+}
+.app:not(.sidebar-collapsed) .sidebar-toggle {
+  font-size: 24px;
+}

@@ -14,6 +14,7 @@ updown-topologia/
 └── data/
     ├── equipamentos.json
     └── conexoes.json
+    └── pops.json    
 ```
 
 ## Como editar a topologia
