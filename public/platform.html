@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Gerenciar Plataforma</title>
+<link rel="stylesheet" href="/css/style.css">
+<script src="/js/auth-guard.js"></script>
+<style>
+body{margin:0;background:var(--bg,#06121c);color:var(--text,#eaf7ff);font-family:Arial,sans-serif}
+.platform-wrap{max-width:1320px;margin:0 auto;padding:28px}
+.platform-head{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:22px}
+.platform-head h1{margin:0}.platform-head p{margin:6px 0;color:var(--muted,#8fa8b8)}
+.back{padding:10px 14px;border:1px solid var(--line,#294c62);border-radius:8px;color:inherit;text-decoration:none}
+.platform-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.ptab{padding:11px 15px;border-radius:9px;border:1px solid #294c62;background:#0a1d2c;color:#bcd0dc;cursor:pointer}
+.ptab.active{background:#0878ff;border-color:#0878ff;color:white}
+.panel{background:#091b2a;border:1px solid #294c62;border-radius:14px;padding:20px;overflow:auto}
+.grid{display:grid;grid-template-columns:300px 1fr;gap:18px}
+.role-list{display:flex;flex-direction:column;gap:7px}
+.role-item{padding:12px;border:1px solid #23475d;border-radius:9px;background:#071725;cursor:pointer}
+.role-item.active{border-color:#0878ff;background:#0b2940}
+.role-item strong{display:block}.role-item small{color:#7895a7}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+input,select,textarea{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #31566c;background:#061520;color:#fff}
+textarea{min-height:70px;resize:vertical}
+.btn{padding:10px 14px;border:0;border-radius:8px;background:#0878ff;color:#fff;font-weight:800;cursor:pointer}
+.btn.secondary{background:#173448}.btn.danger{background:#702632}
+.access-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:15px}
+.access-box{border:1px solid #23475d;border-radius:10px;padding:14px;background:#071725}
+.check{display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:12px}.check input{width:auto;margin-top:2px}
+.table{width:100%;border-collapse:collapse}.table th,.table td{padding:10px;border-bottom:1px solid #1d3a4d;text-align:left;font-size:12px}
+.badge{display:inline-block;padding:4px 7px;border-radius:999px;background:#10344a;color:#8ddfff;font-size:10px}
+.note{color:#7895a7;font-size:12px;line-height:1.5}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+@media(max-width:850px){.grid{grid-template-columns:1fr}.access-grid{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="platform-wrap">
+<header class="platform-head">
+  <div><div class="brand">UPDOWN <span>TELECOM</span></div><h1>Gerenciar Plataforma</h1><p>Perfis, permissões, telas e usuários</p></div>
+  <a class="back" href="/">← Voltar para a rede</a>
+</header>
+<nav class="platform-tabs">
+  <button class="ptab active" data-tab="profiles">Perfis e permissões</button>
+  <button class="ptab" data-tab="users">Gerenciar usuários</button>
+  <button class="ptab" data-tab="screens">Telas do sistema</button>
+  <button class="ptab" data-tab="audit">Auditoria</button>
+</nav>
+
+<section id="profiles" class="panel">
+  <div class="grid">
+    <div>
+      <h2>Perfis</h2><p class="note">Crie perfis próprios e defina exatamente quais permissões e telas cada perfil poderá utilizar.</p>
+      <div class="form-row"><input id="newRoleName" placeholder="Nome do perfil"><input id="newRoleDesc" placeholder="Descrição"></div>
+      <div class="actions"><button class="btn" id="createRole">Criar perfil</button></div>
+      <div id="roleList" class="role-list" style="margin-top:15px"></div>
+    </div>
+    <div>
+      <div id="roleEditor"><p class="note">Selecione um perfil.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="users" class="panel" hidden>
+  <h2>Gerenciar usuários</h2><p class="note">Crie usuários, defina o perfil, ative/desative e altere permissões por perfil. Todas as alterações são auditadas.</p>
+  <form id="userForm"><div class="form-row"><input id="uName" placeholder="Usuário" required><input id="uDisplay" placeholder="Nome" required></div><br>
+  <div class="form-row"><input id="uPass" type="password" placeholder="Senha inicial (8+)" required><select id="uRole"></select></div><div class="actions"><button class="btn">Criar usuário</button></div></form>
+  <div id="userMsg" class="note"></div>
+  <table class="table"><thead><tr><th>Usuário</th><th>Nome</th><th>Perfil</th><th>Ativo</th><th>Último acesso</th><th>Ações</th></tr></thead><tbody id="usersBody"></tbody></table>
+</section>
+
+<section id="screens" class="panel" hidden>
+  <h2>Telas do sistema</h2><p class="note">Aqui o administrador pode ativar/desativar telas. A visibilidade por perfil é definida na aba de perfis.</p>
+  <table class="table"><thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Status</th><th>Ação</th></tr></thead><tbody id="screensBody"></tbody></table>
+</section>
+
+<section id="audit" class="panel" hidden>
+  <h2>Auditoria da plataforma</h2><p class="note">Histórico das alterações administrativas.</p>
+  <table class="table"><thead><tr><th>Data</th><th>Usuário</th><th>Ação</th><th>Recurso</th><th>IP</th><th>Detalhes</th></tr></thead><tbody id="auditBody"></tbody></table>
+</section>
+</div>
+
+<script>
+async function api(url,opt={}){const r=await fetch(url,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||"Erro");return d}
+(async()=>{try{const m=await api("/api/auth/me");if(!m.authenticated||m.user.role!=="administrador")location.replace("/");}catch(e){location.replace("/login.html")}})();
+let model={roles:[],permissions:[],screens:[],rolePermissions:[],roleScreens:[]};
+let selectedRole=null;
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+async function loadModel(){model=await api("/api/platform/roles");renderRoles();renderRoleEditor();renderUsers();renderScreens();document.getElementById("uRole").innerHTML=model.roles.map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}
+function renderRoles(){roleList.innerHTML=model.roles.map(r=>`<div class="role-item ${selectedRole?.id===r.id?"active":""}" data-id="${r.id}"><strong>${esc(r.name)}</strong><small>${esc(r.description)}</small></div>`).join("");roleList.querySelectorAll(".role-item").forEach(x=>x.onclick=()=>{selectedRole=model.roles.find(r=>r.id==x.dataset.id);renderRoles();renderRoleEditor()})}
+function renderRoleEditor(){
+ if(!selectedRole){roleEditor.innerHTML="<p class=note>Selecione um perfil.</p>";return}
+ const pids=new Set(model.rolePermissions.filter(x=>x.role_id===selectedRole.id).map(x=>x.permission_id));
+ const sids=new Set(model.roleScreens.filter(x=>x.role_id===selectedRole.id).map(x=>x.screen_id));
+ roleEditor.innerHTML=`<h2>Perfil: ${esc(selectedRole.name)}</h2><textarea id=roleDesc>${esc(selectedRole.description)}</textarea>
+ <div class=access-grid><div class=access-box><h3>Permissões</h3>${model.permissions.map(p=>`<label class=check><input type=checkbox data-perm="${p.id}" ${pids.has(p.id)?"checked":""}><span><b>${esc(p.code)}</b><br><small>${esc(p.description)}</small></span></label>`).join("")}</div>
+ <div class=access-box><h3>Telas permitidas</h3>${model.screens.map(s=>`<label class=check><input type=checkbox data-screen="${s.id}" ${sids.has(s.id)&&s.active?"checked":""} ${!s.active?"disabled":""}><span><b>${esc(s.name)}</b><br><small>${esc(s.route)} — ${esc(s.description)}</small></span></label>`).join("")}</div></div>
+ <div class=actions><button class="btn" id=saveAccess>Salvar permissões e telas</button>${selectedRole.name!=="administrador"?`<button class="btn danger" id=deleteRole>Excluir perfil</button>`:""}</div><div id=roleMsg class=note></div>`;
+ document.getElementById("saveAccess").onclick=async()=>{
+  const permissionIds=[...roleEditor.querySelectorAll("[data-perm]:checked")].map(x=>Number(x.dataset.perm));
+  const screenIds=[...roleEditor.querySelectorAll("[data-screen]:checked")].map(x=>Number(x.dataset.screen));
+  try{await api("/api/platform/roles/"+selectedRole.id+"/access",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({permissionIds,screenIds,description:roleDesc.value})});
+    await api("/api/platform/roles/"+selectedRole.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({description:roleDesc.value})});
+    roleMsg.textContent="Permissões e telas salvas e auditadas.";await loadModel();
+  }catch(e){roleMsg.textContent=e.message}
+ };
+ document.getElementById("deleteRole")?.addEventListener("click",async()=>{if(!confirm("Excluir este perfil?"))return;try{await api("/api/platform/roles/"+selectedRole.id,{method:"DELETE"});selectedRole=null;await loadModel()}catch(e){alert(e.message)}});
+}
+createRole.onclick=async()=>{try{const r=await api("/api/platform/roles",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:newRoleName.value,description:newRoleDesc.value})});newRoleName.value="";newRoleDesc.value="";selectedRole=r;await loadModel()}catch(e){alert(e.message)}}
+async function renderUsers(){
+ const a=await api("/api/users");usersBody.innerHTML=a.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td><td><select data-user-role="${u.id}">${model.roles.map(r=>`<option value="${esc(r.name)}" ${r.name===u.role?"selected":""}>${esc(r.name)}</option>`).join("")}</select></td><td>${u.active?"SIM":"NÃO"}</td><td>${u.last_login_at||"—"}</td><td><button onclick="toggleUser(${u.id},${u.active})">${u.active?"Desativar":"Ativar"}</button> <button class=btn onclick="resetUser(${u.id})">Redefinir senha</button></td></tr>`).join("");
+ usersBody.querySelectorAll("[data-user-role]").forEach(x=>x.onchange=async()=>{try{await api("/api/users/"+x.dataset.userRole,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:x.value})})}catch(e){alert(e.message);await renderUsers()}});
+}
+async function toggleUser(id,active){try{await api("/api/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:!active})});renderUsers()}catch(e){alert(e.message)}}
+async function resetUser(id){const p=prompt("Nova senha (mínimo 8 caracteres):");if(!p)return;try{await api("/api/users/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:p})});alert("Senha redefinida e ação auditada.")}catch(e){alert(e.message)}}
+userForm.onsubmit=async e=>{e.preventDefault();try{await api("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:uName.value,display_name:uDisplay.value,password:uPass.value,role:uRole.value})});e.target.reset();await renderUsers()}catch(e){userMsg.textContent=e.message}}
+function renderScreens(){screensBody.innerHTML=model.screens.map(s=>`<tr><td><b>${esc(s.name)}</b><br><small>${esc(s.code)}</small></td><td>${esc(s.route)}</td><td>${esc(s.description)}</td><td>${s.active?"ATIVA":"INATIVA"}</td><td><button onclick="toggleScreen(${s.id},${s.active})">${s.active?"Desativar":"Ativar"}</button></td></tr>`).join("")}
+async function toggleScreen(id,active){try{await api("/api/platform/screens/"+id,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:!active})});await loadModel()}catch(e){alert(e.message)}}
+async function loadAudit(){const a=await api("/api/audit?limit=300");auditBody.innerHTML=a.map(x=>`<tr><td>${esc(x.occurred_at)}</td><td>${esc(x.username||"sistema")}</td><td>${esc(x.action)}</td><td>${esc(x.resource_type)} ${esc(x.resource_id||"")}</td><td>${esc(x.ip||"")}</td><td><details><summary>ver</summary><pre>${esc(JSON.stringify({before:x.before_json,after:x.after_json,details:x.details_json},null,2))}</pre></details></td></tr>`).join("")}
+document.querySelectorAll(".ptab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".ptab").forEach(x=>x.classList.remove("active"));b.classList.add("active");["profiles","users","screens","audit"].forEach(id=>document.getElementById(id).hidden=id!==b.dataset.tab);if(b.dataset.tab==="audit")loadAudit()});
+loadModel();
+</script>
+</body></html>

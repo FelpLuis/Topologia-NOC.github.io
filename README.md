@@ -302,9 +302,21 @@ Senha:   admin
 
 ### Perfis RBAC
 
-- `admin`: acesso total, incluindo usuários, auditoria e configurações.
-- `editor`: pode visualizar e alterar a topologia.
-- `viewer`: somente visualização.
+Os perfis oficiais do sistema são:
+
+| Perfil | Permissões padrão |
+|---|---|
+| `administrador` | Acesso total: topologia, usuários, RBAC, auditoria e configurações |
+| `analista` | Visualizar/alterar/excluir topologia e consultar auditoria |
+| `atendimento` | Somente consulta da topologia |
+| `tecnico` | Visualizar e alterar equipamentos, portas e conexões |
+| `logistica` | Visualizar e alterar informações operacionais da topologia |
+
+Os nomes exibidos na interface são **Administrador, Analista, Atendimento, Técnico e Logística**.
+
+O usuário inicial `admin` recebe automaticamente o perfil `administrador`.
+
+Perfis antigos da primeira versão (`admin`, `editor`, `viewer`) são migrados automaticamente para `administrador`, `analista` e `atendimento`, respectivamente, quando o script de inicialização é executado.
 
 Permissões disponíveis:
 
@@ -451,3 +463,36 @@ O perfil `admin` possui ambas. O perfil `editor` não pode realizar exclusões. 
 A tela de login foi redesenhada com referência estética ao conceito de glassmorphism do modelo indicado pelo usuário, sem copiar os elementos proprietários do template. Mantém a identidade UPDOWN TELECOM e usa uma composição visual própria de análise de redes: topologia, CORE, POP, BGP, MPLS, tráfego e monitoramento de portas.
 
 O fundo é vetorial/CSS e não depende de imagens externas, com animação respeitando `prefers-reduced-motion`.
+
+
+## Perfis RBAC oficiais
+
+O sistema utiliza seis perfis:
+
+| Perfil | Permissões |
+|---|---|
+| Administrador | Acesso total |
+| Gerente | Acesso gerencial à operação, topologia, usuários e auditoria |
+| Analista | Topologia completa + auditoria |
+| Atendimento | Somente visualização |
+| Técnico | Visualização + edição de equipamentos, portas e conexões |
+| Logística | Visualização + edição de informações operacionais |
+
+O perfil **Gerente** possui as mesmas permissões administrativas operacionais do Administrador, porém o desenho permite futuramente restringir funções administrativas sensíveis sem alterar a estrutura do RBAC.
+
+A troca de perfil pela tela administrativa também passa pela API e é auditada.
+
+
+## Gerenciar Plataforma
+
+Administradores agora possuem o botão **Gerenciar plataforma** ao lado de **Gerenciar rede** e **Dashboard**.
+
+A tela `/platform.html` concentra:
+
+- **Perfis e permissões:** criar, editar e excluir perfis e definir permissões;
+- **Telas do sistema:** definir quais telas existem e ativar/desativar;
+- **Visibilidade por perfil:** escolher quais telas cada perfil pode abrir;
+- **Gerenciar usuários:** criar usuários, trocar perfil, ativar/desativar e redefinir senha;
+- **Auditoria:** consultar as alterações administrativas.
+
+O perfil `administrador` é o único autorizado a administrar perfis, permissões e telas. As alterações são auditadas.

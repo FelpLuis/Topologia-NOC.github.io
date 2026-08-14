@@ -161,6 +161,125 @@ app.post("/api/auth/change-password", requireAuth, (req,res) => {
   res.json({ok:true});
 });
 
+
+function isAdministrator(user) {
+  return user?.role === "administrador";
+}
+function requireAdministrator(req,res,next) {
+  if (!req.user) return res.status(401).json({error:"AUTH_REQUIRED"});
+  if (!isAdministrator(req.user)) return res.status(403).json({error:"ADMIN_ONLY"});
+  next();
+}
+function canSeeScreen(user, code) {
+  if (!user) return false;
+  return !!db.prepare(`
+    SELECT 1
+    FROM role_screens rs
+    JOIN roles r ON r.id=rs.role_id
+    JOIN screens s ON s.id=rs.screen_id
+    WHERE r.name=? AND s.code=? AND s.active=1
+  `).get(user.role, code);
+}
+
+app.get("/api/access", requireAuth, (req,res) => {
+  const permissions=[...(rolePermCache[req.user.role]||[])];
+  const screens=db.prepare(`
+    SELECT s.code,s.name,s.description,s.route
+    FROM role_screens rs
+    JOIN roles r ON r.id=rs.role_id
+    JOIN screens s ON s.id=rs.screen_id
+    WHERE r.name=? AND s.active=1
+    ORDER BY s.id
+  `).all(req.user.role);
+  res.json({role:req.user.role, permissions, screens});
+});
+
+app.get("/api/platform/roles", requireAuth, requireAdministrator, (req,res) => {
+  const roles=db.prepare("SELECT id,name,description FROM roles ORDER BY id").all();
+  const perms=db.prepare("SELECT id,code,description FROM permissions ORDER BY code").all();
+  const screens=db.prepare("SELECT id,code,name,description,route,active FROM screens ORDER BY id").all();
+  const rolePermissions=db.prepare(`
+    SELECT role_id,permission_id FROM role_permissions
+  `).all();
+  const roleScreens=db.prepare(`
+    SELECT role_id,screen_id FROM role_screens
+  `).all();
+  res.json({roles,permissions:perms,screens,rolePermissions,roleScreens});
+});
+
+app.post("/api/platform/roles", requireAuth, requireAdministrator, (req,res) => {
+  const name=String(req.body.name||"").trim().toLowerCase().replace(/\s+/g,"_");
+  const description=String(req.body.description||"").trim();
+  if(!/^[a-z][a-z0-9_-]{2,40}$/.test(name)) return res.status(400).json({error:"NOME_PERFIL_INVALIDO"});
+  try {
+    const r=db.prepare("INSERT INTO roles(name,description) VALUES(?,?)").run(name,description);
+    audit(req,req.user,"ROLE_CREATE","role",r.lastInsertRowid,null,{name,description});
+    res.status(201).json({id:r.lastInsertRowid,name,description});
+  } catch(e){ res.status(409).json({error:"PERFIL_JA_EXISTE"}); }
+});
+
+app.patch("/api/platform/roles/:id", requireAuth, requireAdministrator, (req,res) => {
+  const id=Number(req.params.id);
+  const before=db.prepare("SELECT id,name,description FROM roles WHERE id=?").get(id);
+  if(!before) return res.status(404).json({error:"PERFIL_NAO_ENCONTRADO"});
+  const description=req.body.description===undefined?before.description:String(req.body.description).trim();
+  db.prepare("UPDATE roles SET description=? WHERE id=?").run(description,id);
+  const after=db.prepare("SELECT id,name,description FROM roles WHERE id=?").get(id);
+  audit(req,req.user,"ROLE_UPDATE","role",id,before,after);
+  res.json(after);
+});
+
+app.delete("/api/platform/roles/:id", requireAuth, requireAdministrator, (req,res) => {
+  const id=Number(req.params.id);
+  const before=db.prepare("SELECT id,name,description FROM roles WHERE id=?").get(id);
+  if(!before) return res.status(404).json({error:"PERFIL_NAO_ENCONTRADO"});
+  if(before.name==="administrador") return res.status(400).json({error:"NAO_EXCLUA_ADMINISTRADOR"});
+  const users=db.prepare("SELECT COUNT(*) c FROM users WHERE role_id=?").get(id).c;
+  if(users) return res.status(400).json({error:"PERFIL_EM_USO"});
+  db.prepare("DELETE FROM roles WHERE id=?").run(id);
+  audit(req,req.user,"ROLE_DELETE","role",id,before,null);
+  res.json({ok:true});
+});
+
+app.put("/api/platform/roles/:id/access", requireAuth, requireAdministrator, (req,res) => {
+  const id=Number(req.params.id);
+  const role=db.prepare("SELECT id,name,description FROM roles WHERE id=?").get(id);
+  if(!role) return res.status(404).json({error:"PERFIL_NAO_ENCONTRADO"});
+  const permissionIds=Array.isArray(req.body.permissionIds)?req.body.permissionIds.map(Number).filter(Number.isInteger):[];
+  const screenIds=Array.isArray(req.body.screenIds)?req.body.screenIds.map(Number).filter(Number.isInteger):[];
+  const before={
+    permissions:db.prepare("SELECT permission_id FROM role_permissions WHERE role_id=? ORDER BY permission_id").all(id),
+    screens:db.prepare("SELECT screen_id FROM role_screens WHERE role_id=? ORDER BY screen_id").all(id)
+  };
+  const tx=db.transaction(()=>{
+    db.prepare("DELETE FROM role_permissions WHERE role_id=?").run(id);
+    db.prepare("DELETE FROM role_screens WHERE role_id=?").run(id);
+    const p=db.prepare("INSERT OR IGNORE INTO role_permissions(role_id,permission_id) VALUES(?,?)");
+    const s=db.prepare("INSERT OR IGNORE INTO role_screens(role_id,screen_id) VALUES(?,?)");
+    for(const pid of permissionIds) p.run(id,pid);
+    for(const sid of screenIds) s.run(id,sid);
+  });
+  tx();
+  const after={permissions:permissionIds.map(permission_id=>({permission_id})),screens:screenIds.map(screen_id=>({screen_id}))};
+  audit(req,req.user,"ROLE_ACCESS_UPDATE","role",id,before,after);
+  res.json({ok:true,role,after});
+});
+
+app.get("/api/platform/screens", requireAuth, requireAdministrator, (req,res) => {
+  res.json(db.prepare("SELECT id,code,name,description,route,active FROM screens ORDER BY id").all());
+});
+
+app.put("/api/platform/screens/:id", requireAuth, requireAdministrator, (req,res) => {
+  const id=Number(req.params.id);
+  const before=db.prepare("SELECT id,code,name,description,route,active FROM screens WHERE id=?").get(id);
+  if(!before) return res.status(404).json({error:"TELA_NAO_ENCONTRADA"});
+  const active=req.body.active===undefined?before.active:(req.body.active?1:0);
+  const after={...before,active};
+  db.prepare("UPDATE screens SET active=? WHERE id=?").run(active,id);
+  audit(req,req.user,"SCREEN_UPDATE","screen",id,before,after);
+  res.json(after);
+});
+
 // User management
 app.get("/api/users", requireAuth, requirePermission("users.view"), (req,res) => {
   const users = db.prepare(`
@@ -178,7 +297,7 @@ app.post("/api/users", requireAuth, requirePermission("users.manage"), (req,res)
   const username = String(req.body.username||"").trim().toLowerCase();
   const displayName = String(req.body.display_name||username).trim();
   const password = String(req.body.password||"");
-  const role = String(req.body.role||"viewer");
+  const role = String(req.body.role||"atendimento");
   if (!/^[a-z0-9._-]{3,50}$/.test(username)) return res.status(400).json({error:"USUARIO_INVALIDO"});
   if (!validatePassword(password)) return res.status(400).json({error:"SENHA_DEVE_TER_8_CARACTERES"});
   const roleRow = db.prepare("SELECT id,name FROM roles WHERE name=?").get(role);

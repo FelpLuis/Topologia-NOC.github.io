@@ -67,3 +67,20 @@ CREATE TABLE IF NOT EXISTS topology_state (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_topology_updated_at ON topology_state(updated_at);
+
+CREATE TABLE IF NOT EXISTS screens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  route TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS role_screens (
+  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+  PRIMARY KEY (role_id, screen_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_role_screens_role ON role_screens(role_id);
