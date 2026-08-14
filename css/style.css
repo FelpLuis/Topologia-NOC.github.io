@@ -813,3 +813,294 @@ header .title,
 small{
   color:#526d85;
 }
+
+/* =========================================================
+   TEMA DINÂMICO — BLOCO FINAL / MAIOR PRIORIDADE
+   ========================================================= */
+html,body{transition:background-color .18s ease,color .18s ease}
+html[data-theme="dark"]{
+  color-scheme:dark!important;
+  --ud-bg:#06111f!important;
+  --ud-surface:#0b1b2b!important;
+  --ud-surface-2:#0f2437!important;
+  --ud-text:#dcebf5!important;
+  --ud-heading:#f4f9fd!important;
+  --ud-muted:#91a9bb!important;
+  --ud-border:#29465e!important;
+  --ud-border-strong:#3d6885!important;
+}
+
+/* Dark page / workspace */
+html[data-theme="dark"] body,
+html[data-theme="dark"] #appShell,
+html[data-theme="dark"] .main,
+html[data-theme="dark"] #topology{
+  background:#06111f!important;
+  color:#dcebf5!important;
+}
+html[data-theme="dark"] .main{
+  background:
+    radial-gradient(circle at 90% 5%,rgba(32,200,255,.08),transparent 25%),
+    radial-gradient(circle at 10% 90%,rgba(7,93,255,.09),transparent 30%),
+    #06111f!important;
+}
+
+/* Dark sidebar */
+html[data-theme="dark"] .sidebar{
+  background:#071522!important;
+  border-right:2px solid #24435b!important;
+}
+html[data-theme="dark"] .sidebar-title,
+html[data-theme="dark"] .sidebar h2,
+html[data-theme="dark"] .sidebar .section-label{
+  color:#dcecff!important;
+}
+html[data-theme="dark"] .device-link{
+  background:#071522!important;
+  border-color:transparent!important;
+}
+html[data-theme="dark"] .device-link:hover{
+  background:#0e263b!important;
+  border-color:#2d536e!important;
+}
+html[data-theme="dark"] .device-link b{
+  color:#eef8ff!important;
+}
+html[data-theme="dark"] .device-link small{
+  color:#91a9bb!important;
+}
+
+/* Dark headings */
+html[data-theme="dark"] .section-title,
+html[data-theme="dark"] .section-title span,
+html[data-theme="dark"] .pop-title,
+html[data-theme="dark"] .ring-label{
+  color:#eaf6ff!important;
+  text-shadow:none!important;
+}
+html[data-theme="dark"] .section-title{
+  border-bottom-color:#29465e!important;
+}
+
+/* Dark nodes */
+html[data-theme="dark"] .node{
+  background:#0b1b2b!important;
+  border:1px solid #2b4b65!important;
+  border-top:4px solid #1684ff!important;
+  outline:1px solid rgba(64,195,255,.08)!important;
+  box-shadow:0 12px 35px rgba(0,0,0,.34)!important;
+  color:#dcecff!important;
+}
+html[data-theme="dark"] .node h3{
+  color:#f3f8fc!important;
+}
+html[data-theme="dark"] .node p,
+html[data-theme="dark"] .node .type{
+  color:#9bb0c0!important;
+}
+html[data-theme="dark"] .node .count{
+  background:#0d2b45!important;
+  border:1px solid #2b6387!important;
+  color:#5bd5ff!important;
+}
+
+/* Dark topology lines and labels */
+html[data-theme="dark"] .topo-edge{
+  stroke:#35bfff!important;
+  opacity:.95!important;
+}
+html[data-theme="dark"] .edge-label rect{
+  fill:#0b1b2b!important;
+  stroke:#3b6885!important;
+}
+html[data-theme="dark"] .edge-label text{
+  fill:#e9f7ff!important;
+}
+
+/* Dark POPs */
+html[data-theme="dark"] .pop{
+  background:#0b1b2b!important;
+  border:1px solid #2b4b65!important;
+  box-shadow:0 12px 30px rgba(0,0,0,.3)!important;
+}
+html[data-theme="dark"] .pop b{
+  color:#f3f8fc!important;
+}
+html[data-theme="dark"] .pop small,
+html[data-theme="dark"] .pop-click{
+  color:#9bb0c0!important;
+}
+
+/* Dark search */
+html[data-theme="dark"] .search{
+  background:#0b1b2b!important;
+  border:1px solid #3a5a72!important;
+  color:#f1f8fd!important;
+}
+html[data-theme="dark"] .search::placeholder{
+  color:#8da5b7!important;
+}
+
+/* Dark buttons */
+html[data-theme="dark"] .btn{
+  background:#0d2235!important;
+  border-color:#36566e!important;
+  color:#e3f0f8!important;
+}
+html[data-theme="dark"] .btn:hover{
+  border-color:#36c2ff!important;
+  color:#5bd5ff!important;
+}
+html[data-theme="dark"] .icon-edit,
+html[data-theme="dark"] .section-pencil{
+  background:#0d263c!important;
+  border-color:#326582!important;
+  color:#5bd5ff!important;
+}
+
+/* Dark modals */
+html[data-theme="dark"] .modal,
+html[data-theme="dark"] .pop-modal,
+html[data-theme="dark"] .theme-menu{
+  background:rgba(0,5,15,.76)!important;
+}
+html[data-theme="dark"] .modal-card,
+html[data-theme="dark"] .pop-modal-card,
+html[data-theme="dark"] .network-manager,
+html[data-theme="dark"] .universal-editor,
+html[data-theme="dark"] .theme-menu-card{
+  background:#081827!important;
+  border:1px solid #2d4f69!important;
+  color:#dcecff!important;
+  box-shadow:0 25px 80px rgba(0,0,0,.6)!important;
+}
+html[data-theme="dark"] .detail-head,
+html[data-theme="dark"] .pop-modal-head,
+html[data-theme="dark"] .network-manager-head,
+html[data-theme="dark"] .universal-editor-head,
+html[data-theme="dark"] .theme-menu-head{
+  border-bottom-color:#29465e!important;
+}
+html[data-theme="dark"] .detail-head h2,
+html[data-theme="dark"] .pop-modal-head h2,
+html[data-theme="dark"] .network-manager-head h2,
+html[data-theme="dark"] .universal-editor-head h2,
+html[data-theme="dark"] .theme-menu-head strong{
+  color:#f2f8fc!important;
+}
+html[data-theme="dark"] .detail-head p,
+html[data-theme="dark"] .pop-modal-head p,
+html[data-theme="dark"] .network-manager-head p,
+html[data-theme="dark"] .universal-editor-head p,
+html[data-theme="dark"] .theme-menu-head small{
+  color:#91a9bb!important;
+}
+
+/* Dark tables */
+html[data-theme="dark"] .table-wrap,
+html[data-theme="dark"] .editor-port-table-wrap{
+  background:#081827!important;
+  border-color:#2b4b65!important;
+}
+html[data-theme="dark"] table thead th,
+html[data-theme="dark"] .editor-port-table th{
+  background:#0d2539!important;
+  color:#d7eaf6!important;
+  border-color:#2b4b65!important;
+}
+html[data-theme="dark"] table td,
+html[data-theme="dark"] .editor-port-table td{
+  color:#dcebf5!important;
+  border-color:#203c53!important;
+}
+html[data-theme="dark"] tr.connected td{
+  background:#0b2a3e!important;
+}
+
+/* Dark forms */
+html[data-theme="dark"] .editor-field span{
+  color:#9bb0c0!important;
+}
+html[data-theme="dark"] .editor-field input,
+html[data-theme="dark"] .editor-field select,
+html[data-theme="dark"] .editor-field textarea,
+html[data-theme="dark"] .editor-port-table input,
+html[data-theme="dark"] .editor-port-table select,
+html[data-theme="dark"] .inline-edit-row input,
+html[data-theme="dark"] .inline-edit-row select{
+  background:#071522!important;
+  border:1px solid #365870!important;
+  color:#eff8fd!important;
+}
+html[data-theme="dark"] .editor-section-title{
+  color:#dcecff!important;
+  border-color:#29465e!important;
+}
+
+/* Dark manager */
+html[data-theme="dark"] .manager-tabs{
+  background:#071522!important;
+  border-color:#29465e!important;
+}
+html[data-theme="dark"] .manager-tab{
+  color:#91a9bb!important;
+}
+html[data-theme="dark"] .manager-tab.active{
+  background:#0d2b45!important;
+  border-color:#2e6689!important;
+  color:#5bd5ff!important;
+}
+html[data-theme="dark"] .manager-item,
+html[data-theme="dark"] .pop-editor-item{
+  background:#0b1b2b!important;
+  border-color:#29465e!important;
+}
+html[data-theme="dark"] .manager-item b,
+html[data-theme="dark"] .pop-editor-item b{
+  color:#edf7fc!important;
+}
+html[data-theme="dark"] .manager-item small{
+  color:#91a9bb!important;
+}
+
+/* Dark theme picker */
+html[data-theme="dark"] .theme-option{
+  color:#e5f1f8!important;
+}
+html[data-theme="dark"] .theme-option:hover{
+  background:#0d263c!important;
+}
+html[data-theme="dark"] .theme-option.active{
+  background:#0d2b45!important;
+  border-color:#2d6689!important;
+}
+html[data-theme="dark"] .theme-option-icon{
+  background:#0d2c47!important;
+  color:#5bd5ff!important;
+}
+html[data-theme="dark"] .theme-option small{
+  color:#91a9bb!important;
+}
+
+/* Dark scrollbars */
+html[data-theme="dark"] *{
+  scrollbar-color:#41647d #071522!important;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-track{
+  background:#071522!important;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb{
+  background:#41647d!important;
+  border-color:#071522!important;
+}
+
+/* Header theme button */
+.theme-toggle{
+  background:rgba(255,255,255,.11)!important;
+  color:#fff!important;
+}
+
+/* Explicit light state, so the three modes are deterministic */
+html[data-theme="light"]{
+  color-scheme:light!important;
+}

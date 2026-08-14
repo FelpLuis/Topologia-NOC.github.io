@@ -5,6 +5,23 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>UPDOWN • Topologia de Rede</title>
   <link rel="stylesheet" href="css/style.css">
+<script>
+(function(){
+  try {
+    var key="updown-theme-v2";
+    var choice=localStorage.getItem(key);
+    if(choice!=="light" && choice!=="dark" && choice!=="system") choice="system";
+    var dark=window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var resolved=choice==="system" ? (dark ? "dark" : "light") : choice;
+    document.documentElement.dataset.theme=resolved;
+    document.documentElement.dataset.themePreference=choice;
+  } catch(e) {
+    document.documentElement.dataset.theme =
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+    document.documentElement.dataset.themePreference="system";
+  }
+})();
+</script>
 </head>
 <body>
 <header class="topbar">
