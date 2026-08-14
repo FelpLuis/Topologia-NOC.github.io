@@ -596,3 +596,220 @@ tr.connected td{
 .brand-mark{
   color:#fff!important;
 }
+
+/* =========================================================
+   AJUSTE DE CONTRASTE E LEGIBILIDADE
+   Nenhum texto ou borda deve desaparecer sobre o fundo.
+   ========================================================= */
+
+/* Marca no cabeçalho */
+.brand-name,
+#brandName{
+  color:#ffffff!important;
+  font-weight:800!important;
+  letter-spacing:-.03em;
+  text-shadow:0 1px 2px rgba(0,0,0,.18);
+}
+.brand-name::after,
+#brandName::after{
+  content:"";
+  display:inline-block;
+  width:42px;
+  height:3px;
+  margin-left:8px;
+  vertical-align:middle;
+  border-radius:3px;
+  background:var(--ud-cyan);
+}
+
+/* Texto do cabeçalho */
+header .subtitle,
+.topbar .subtitle,
+.header .subtitle,
+header .title,
+.topbar .title,
+.header .title{
+  color:#ffffff!important;
+}
+
+/* Área de conteúdo com contraste mais alto */
+.main{
+  background:#f4f8fd!important;
+}
+
+/* Títulos das seções */
+.section-title,
+.section-title span{
+  color:#071a3d!important;
+  font-weight:800!important;
+  text-shadow:none!important;
+}
+
+/* Containers de topologia */
+.topology,
+.topology-container,
+#topology{
+  background:#f8fbff!important;
+}
+
+/* Equipamento: borda externa bem definida */
+.node{
+  background:#ffffff!important;
+  border:1px solid #b9cce0!important;
+  border-top:4px solid #075dff!important;
+  outline:1px solid rgba(7,93,255,.05);
+}
+.node h3{
+  color:#071a3d!important;
+  font-weight:800!important;
+}
+.node .type{
+  color:#24506f!important;
+  font-weight:600!important;
+}
+.node p{
+  color:#526d85!important;
+}
+.node .count{
+  background:#e5f2ff!important;
+  border:1px solid #b8dcff!important;
+  color:#075dff!important;
+  font-weight:700!important;
+}
+
+/* Linhas e etiquetas da topologia */
+.topo-edge{
+  stroke:#075dff!important;
+  stroke-width:2.6!important;
+  opacity:.9!important;
+}
+.edge-label rect{
+  fill:#ffffff!important;
+  stroke:#8dbbe5!important;
+  stroke-width:1.2!important;
+}
+.edge-label text{
+  fill:#071a3d!important;
+  font-weight:700!important;
+}
+
+/* Moldura do anel óptico */
+.ring,
+.optical-ring,
+.pop-ring,
+#popGrid{
+  border-color:#7e91d8!important;
+}
+
+/* POPs: borda e contraste reforçados */
+.pop{
+  background:#ffffff!important;
+  border:1px solid #b9cce0!important;
+  box-shadow:0 8px 25px rgba(7,26,61,.09)!important;
+}
+.pop b{
+  color:#071a3d!important;
+  font-weight:800!important;
+}
+.pop small,
+.pop-click{
+  color:#526d85!important;
+}
+
+/* Sidebar */
+.sidebar{
+  border-right:2px solid #d3e0ed!important;
+}
+.sidebar-title,
+.sidebar h2{
+  color:#071a3d!important;
+  font-weight:800!important;
+}
+.device-link{
+  border:1px solid #edf2f7!important;
+}
+.device-link b{
+  color:#071a3d!important;
+  font-weight:800!important;
+}
+.device-link small{
+  color:#526d85!important;
+}
+
+/* Botão de recolher sidebar */
+#sidebarToggle{
+  border:1px solid #9fc1df!important;
+  background:#ffffff!important;
+  color:#075dff!important;
+  font-weight:800!important;
+}
+
+/* Botões de edição */
+.section-pencil,
+.icon-edit{
+  border:1px solid #9fc1df!important;
+  background:#ffffff!important;
+  color:#075dff!important;
+  font-weight:800!important;
+}
+.section-pencil:hover,
+.icon-edit:hover{
+  background:#eaf5ff!important;
+  border-color:#075dff!important;
+}
+
+/* Busca */
+.search{
+  border:1px solid #a8c1d8!important;
+  color:#10213d!important;
+}
+.search::placeholder{
+  color:#64788d!important;
+  opacity:1!important;
+}
+
+/* POP title / labels */
+.pop-title,
+.ring-label{
+  color:#071a3d!important;
+  font-weight:800!important;
+}
+
+/* Divisórias */
+.section-title{
+  border-bottom-color:#c9d9e8!important;
+}
+
+/* Scrollbars mais visíveis */
+*{
+  scrollbar-color:#9bb8d2 #edf3f8;
+  scrollbar-width:auto;
+}
+::-webkit-scrollbar{
+  width:10px;
+  height:10px;
+}
+::-webkit-scrollbar-track{
+  background:#edf3f8;
+}
+::-webkit-scrollbar-thumb{
+  background:#9bb8d2;
+  border-radius:10px;
+  border:2px solid #edf3f8;
+}
+::-webkit-scrollbar-thumb:hover{
+  background:#6f9fc4;
+}
+
+/* Textos pequenos e metadados */
+.empty,
+.footnote,
+.legend,
+.legend-text{
+  color:#526d85!important;
+}
+
+/* Garantia de contraste para elementos comuns */
+small{
+  color:#526d85;
+}

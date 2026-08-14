@@ -12,6 +12,12 @@
   <div class="subtitle" id="topSubtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
   <div class="actions">
     <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
+    <div class="theme-controls" aria-label="Tema da aplicação">
+      <button id="themeToggle" class="theme-toggle" type="button" title="Alternar tema" aria-label="Alternar tema">
+        <span class="theme-icon" aria-hidden="true">◐</span>
+        <span id="themeLabel">Sistema</span>
+      </button>
+    </div>
     <button id="manageNetworkBtn" class="primary-btn top-manage" type="button">Gerenciar rede</button>
   </div>
 </header>
@@ -143,5 +149,31 @@
 </div>
 
 <script src="js/app.js"></script>
+
+<div id="themeMenu" class="theme-menu hidden" role="dialog" aria-label="Escolha do tema">
+  <div class="theme-menu-card">
+    <div class="theme-menu-head">
+      <div>
+        <strong>Tema da interface</strong>
+        <small>Escolha como a topologia deve aparecer.</small>
+      </div>
+      <button id="themeMenuClose" class="close" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="theme-options">
+      <button class="theme-option" data-theme-choice="system" type="button">
+        <span class="theme-option-icon">◌</span>
+        <span><b>Seguir navegador</b><small>Usa a preferência de tema do Windows/macOS/navegador.</small></span>
+      </button>
+      <button class="theme-option" data-theme-choice="light" type="button">
+        <span class="theme-option-icon">☀</span>
+        <span><b>Tema claro</b><small>Interface clara da UPDOWN.</small></span>
+      </button>
+      <button class="theme-option" data-theme-choice="dark" type="button">
+        <span class="theme-option-icon">☾</span>
+        <span><b>Tema escuro</b><small>Interface escura para operação/NOC.</small></span>
+      </button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
