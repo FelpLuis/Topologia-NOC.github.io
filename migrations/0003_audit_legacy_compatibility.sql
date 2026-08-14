@@ -1,0 +1,3 @@
+-- Compatibilidade documental para audit_logs.
+-- O Worker detecta dinamicamente as colunas `resource` / `resource_type`
+-- para bancos D1 antigos e novos. Não é necessário apagar a tabela existente.

@@ -238,24 +238,55 @@ function getClientIP(request) {
 async function audit(env, request, user, action, resourceType, resourceId = null, before = null, after = null, details = null) {
   const db = getDB(env);
   if (!db) return;
+
+  // Compatibilidade com schemas antigos do D1:
+  // versões anteriores deste projeto usavam `resource` enquanto
+  // a versão atual usa `resource_type`. O banco existente não é apagado.
+  const columns = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
+  const names = new Set(columns.map(c => c.name));
+
+  const fields = [];
+  const values = [];
+
+  const add = (name, value) => {
+    if (names.has(name)) {
+      fields.push(name);
+      values.push(value);
+    }
+  };
+
+  add("user_id", user?.id ?? null);
+  add("username", user?.username ?? null);
+  add("action", action);
+
+  // `resource` é NOT NULL em alguns bancos antigos.
+  // Sempre o preenche quando a coluna existir.
+  if (names.has("resource")) {
+    add("resource", resourceType || "system");
+  }
+  if (names.has("resource_type")) {
+    add("resource_type", resourceType || "system");
+  }
+
+  add("resource_id", resourceId == null ? null : String(resourceId));
+  add("method", request.method);
+  add("path", new URL(request.url).pathname);
+  add("ip", getClientIP(request));
+  add("user_agent", request.headers.get("User-Agent") || "");
+  add("before_json", before == null ? null : JSON.stringify(before));
+  add("after_json", after == null ? null : JSON.stringify(after));
+  add("details_json", details == null ? null : JSON.stringify(details));
+
+  // Compatibilidade com bancos que ainda usam occurred_at.
+  if (names.has("occurred_at") && !names.has("created_at")) {
+    add("occurred_at", new Date().toISOString());
+  }
+
+  const placeholders = fields.map(() => "?").join(", ");
   await db.prepare(`
-    INSERT INTO audit_logs
-      (user_id, username, action, resource_type, resource_id, method, path, ip, user_agent, before_json, after_json, details_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    user?.id ?? null,
-    user?.username ?? null,
-    action,
-    resourceType,
-    resourceId == null ? null : String(resourceId),
-    request.method,
-    new URL(request.url).pathname,
-    getClientIP(request),
-    request.headers.get("User-Agent") || "",
-    before == null ? null : JSON.stringify(before),
-    after == null ? null : JSON.stringify(after),
-    details == null ? null : JSON.stringify(details)
-  ).run();
+    INSERT INTO audit_logs (${fields.join(", ")})
+    VALUES (${placeholders})
+  `).bind(...values).run();
 }
 
 async function requireUser(env, request) {
