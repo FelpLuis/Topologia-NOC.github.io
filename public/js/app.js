@@ -187,7 +187,6 @@ function openDetail(id){
   document.getElementById("detailType").textContent=d.categoria||"—";document.getElementById("detailLocal").textContent=d.local||"—";
   document.getElementById("detailCount").textContent=d.portas.length;document.getElementById("detailConnected").textContent=d.portas.filter(p=>getPortConnection(id,p.numero)).length;
   document.getElementById("detailNote").textContent=d.observacao||"";
-  renderDetailEquipmentImage(d);
   detailEditMode=false;document.getElementById("inlineEditActions").classList.add("hidden");renderDetailRows(d);
   document.getElementById("modal").classList.remove("hidden");
 }

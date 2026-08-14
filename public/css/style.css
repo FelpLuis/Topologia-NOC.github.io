@@ -1437,7 +1437,7 @@ html[data-theme="dark"] .port-info-grid small{color:#91a9bb!important}
   height:min(860px,calc(100vh - 36px));
   max-width:none;
   display:grid;
-  grid-template-columns:minmax(390px,44%) minmax(0,56%);
+  grid-template-columns:minmax(0,1fr);
   grid-template-rows:auto minmax(0,1fr);
   overflow:hidden;
   border-radius:16px;
@@ -1604,7 +1604,7 @@ html[data-theme="dark"] .port-info-grid small{color:#91a9bb!important}
   font-size:9px;
   line-height:1.5;
 }
-#modal .detail-body{
+#modal .detail-body{grid-column:1 / -1;min-width:0;
   min-width:0;
   min-height:0;
   overflow:auto;
@@ -2570,3 +2570,8 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
   }
   .header-logout-btn svg{width:18px;height:18px}
 }
+
+/* Equipment preview removed from the detail modal by request. */
+#modal .detail-equipment-visual,
+#modal .equipment-static-panel,
+#modal .equipment-visual-stage { display:none !important; }
