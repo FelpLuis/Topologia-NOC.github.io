@@ -375,15 +375,22 @@ function applyPortEdits() {
   const eq = getDevice(currentDeviceId);
   if (!eq) return;
 
-  eq.nome = document.getElementById("editDeviceName").value.trim() || eq.nome;
-  eq.modelo = document.getElementById("editDeviceModel").value.trim() || eq.modelo;
-  eq.local = document.getElementById("editDeviceLocal").value.trim();
+  const nameEl = document.getElementById("editDeviceName");
+  const modelEl = document.getElementById("editDeviceModel");
+  const localEl = document.getElementById("editDeviceLocal");
+
+  if (nameEl) eq.nome = nameEl.value.trim() || eq.nome;
+  if (modelEl) eq.modelo = modelEl.value.trim() || eq.modelo;
+  if (localEl) eq.local = localEl.value.trim();
 
   const rows = [...document.querySelectorAll("#editPortsTableWrap tbody tr")];
 
   rows.forEach(tr => {
     const port = Number(tr.dataset.port);
-    const portObj = Array.isArray(eq.portas) ? eq.portas.find(p => Number(p.numero) === port) : null;
+    const portObj = Array.isArray(eq.portas)
+      ? eq.portas.find(p => Number(p.numero) === port)
+      : null;
+
     const capacity = tr.querySelector(".port-capacity").value.trim();
     const remote = tr.querySelector(".port-remote").value;
     const remotePort = Number(tr.querySelector(".port-remote-port").value);
@@ -392,8 +399,10 @@ function applyPortEdits() {
     if (portObj) {
       portObj.capacidade = capacity;
       if (type) portObj.tipo = type;
+      portObj.status = remote && remotePort ? "conectada" : "livre";
     }
 
+    // A porta só pode ter uma conexão.
     state.conexoes = state.conexoes.filter(c =>
       !((c.origem === eq.id && Number(c.portaOrigem) === port) ||
         (c.destino === eq.id && Number(c.portaDestino) === port))
@@ -411,18 +420,34 @@ function applyPortEdits() {
     }
   });
 
-  document.getElementById("editPortsStatus").textContent =
-    "Alterações aplicadas. Gere os JSON atualizados para publicar no GitHub.";
+  const status = document.getElementById("editPortsStatus");
+  if (status) {
+    status.textContent =
+      "Alterações aplicadas nesta sessão. Use Salvar alterações para gerar os JSON.";
+  }
+
   renderTopology();
   renderSidebar();
   openDetail(eq.id);
-}(filename, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type: "application/json"});
+}
+
+function saveCurrentDevice() {
+  applyPortEdits();
+  exportEditedData();
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function exportEditedData() {
@@ -529,12 +554,6 @@ document.addEventListener("keydown", e => {
     closePop();
   }
 });
-
-
-  applyPortEdits();
-  exportEditedData();
-});
-
 const sidebarToggle = document.getElementById("sidebarToggle");
 const appShell = document.getElementById("appShell");
 
