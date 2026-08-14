@@ -1,126 +1,160 @@
-const state={equipamentos:[],conexoes:[],pops:[]};
+(() => {
+  const state = {
+    data: null,
+    refreshMs: 30000
+  };
 
-const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
-const device=id=>state.equipamentos.find(e=>e.id===id);
-function connection(id,port){return state.conexoes.find(c=>(c.origem===id&&+c.portaOrigem===+port)||(c.destino===id&&+c.portaDestino===+port));}
-function connectedPorts(e){return (e.portas||[]).filter(p=>connection(e.id,p.numero)).length}
-function statusPorts(e){
-  const total=(e.portas||[]).length, connected=connectedPorts(e), free=Math.max(0,total-connected);
-  return {total,connected,free,pct:total?Math.round(connected/total*100):0}
-}
-function typeClass(e){const c=(e.categoria||"").toLowerCase();return c.includes("núcleo")||c.includes("nucleo")?"core":c.includes("agrega")?"agg":"transport"}
+  const $ = (s, el=document) => el.querySelector(s);
+  const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
 
-function renderKPIs(){
-  let total=0,connected=0;
-  state.equipamentos.forEach(e=>{total+=(e.portas||[]).length;connected+=connectedPorts(e)});
-  document.getElementById("kpiDevices").textContent=state.equipamentos.length;
-  document.getElementById("kpiPorts").textContent=total;
-  document.getElementById("kpiConnected").textContent=connected;
-  document.getElementById("kpiFree").textContent=Math.max(0,total-connected);
-  document.getElementById("kpiFreePct").textContent=(total?Math.round((total-connected)/total*100):0)+"% da capacidade";
-  document.getElementById("kpiLinks").textContent=state.conexoes.length;
-  document.getElementById("kpiPops").textContent=state.pops.length;
-}
-
-function renderTopology(){
-  const host=document.getElementById("topologyCanvas");
-  const ordered=[...state.equipamentos].sort((a,b)=>{
-    const rank={Núcleo:0,Agregação:1,Transporte:2};return (rank[a.categoria]??3)-(rank[b.categoria]??3)
-  });
-  const main=ordered.slice(0,7);
-  const w=host.clientWidth,h=host.clientHeight;
-  const positions=main.map((e,i)=>({e,x:w*(.10+i*(.80/Math.max(1,main.length-1))),y:h*(i%2?.57:.40)}));
-  const svg=`<svg class="topology-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    ${state.conexoes.map(c=>{
-      const a=positions.find(p=>p.e.id===c.origem),b=positions.find(p=>p.e.id===c.destino);
-      return a&&b?`<line class="topo-line active" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`:"";
-    }).join("")}
-  </svg>`;
-  host.innerHTML=svg+positions.map(p=>{
-    const s=statusPorts(p.e);
-    return `<div class="topo-node ${typeClass(p.e)}" style="left:${p.x}px;top:${p.y}px">
-      <b>${esc(p.e.nome)}</b>
-      <small>${esc(p.e.modelo||"Modelo não informado")}</small>
-      <div class="node-meta"><span>${s.total} portas</span><span class="node-state">${s.connected} conectadas</span></div>
-    </div>`
-  }).join("");
-}
-
-function renderCapacity(){
-  const list=document.getElementById("capacityList");
-  list.innerHTML=state.equipamentos.map(e=>{
-    const s=statusPorts(e);
-    return `<div class="capacity-row">
-      <div class="capacity-name">${esc(e.nome)}</div>
-      <div class="capacity-bar"><div class="capacity-fill" style="width:${s.pct}%"></div></div>
-      <div class="capacity-pct">${s.connected}/${s.total}</div>
-    </div>`
-  }).join("");
-}
-
-function renderStatus(){
-  const connected=state.equipamentos.reduce((n,e)=>n+connectedPorts(e),0);
-  const free=state.equipamentos.reduce((n,e)=>n+Math.max(0,(e.portas||[]).length-connectedPorts(e)),0);
-  const pending=state.conexoes.filter(c=>String(c.capacidade||"").toLowerCase().includes("confirm")).length;
-  document.getElementById("statusSummary").innerHTML=`
-    <div class="status-box ok"><span>PORTAS CONECTADAS</span><strong>${connected}</strong></div>
-    <div class="status-box"><span>PORTAS LIVRES</span><strong>${free}</strong></div>
-    <div class="status-box ok"><span>ENLACES DOCUMENTADOS</span><strong>${state.conexoes.length}</strong></div>
-    <div class="status-box warn"><span>A CONFIRMAR</span><strong>${pending}</strong></div>`;
-}
-
-function renderDevices(){
-  document.getElementById("deviceGrid").innerHTML=state.equipamentos.map(e=>{
-    const s=statusPorts(e);
-    return `<div class="device-card">
-      <b>${esc(e.nome)}</b>
-      <small>${esc(e.modelo||"Modelo não informado")}</small>
-      <div class="device-stats"><span>Portas <strong>${s.total}</strong></span><span>Uso <strong>${s.pct}%</strong></span></div>
-    </div>`
-  }).join("");
-}
-
-function renderPops(){
-  document.getElementById("popGrid").innerHTML=state.pops.map(p=>{
-    const ids=Array.isArray(p.equipamentos)?p.equipamentos:[];
-    const names=ids.map(x=>device(typeof x==="string"?x:x.id)?.nome||x.nome||x).filter(Boolean);
-    return `<div class="pop-card"><b>${esc(p.nome||"POP")}</b><small>${esc(p.local||p.descricao||"Ponto da rede")}</small>
-      <div class="pop-eq">${names.slice(0,6).map(n=>`<span>${esc(n)}</span>`).join("")||"<span>Sem equipamentos cadastrados</span>"}</div>
-    </div>`
-  }).join("");
-}
-
-function updateClock(){
-  const now=new Date();
-  document.getElementById("clock").textContent=now.toLocaleTimeString("pt-BR",{hour12:false});
-  document.getElementById("date").textContent=now.toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"}).toUpperCase();
-}
-
-async function load(){
-  try{
-    const cached=localStorage.getItem("updown-topologia-data");
-    if(cached){
-      Object.assign(state,JSON.parse(cached));
-    }else{
-      const [a,b,c]=await Promise.all([
-        fetch("data/equipamentos.json"),fetch("data/conexoes.json"),fetch("data/pops.json")
-      ]);
-      state.equipamentos=await a.json();state.conexoes=await b.json();state.pops=await c.json();
-    }
-    state.equipamentos=Array.isArray(state.equipamentos)?state.equipamentos:[];
-    state.conexoes=Array.isArray(state.conexoes)?state.conexoes:[];
-    state.pops=Array.isArray(state.pops)?state.pops:[];
-    renderKPIs();renderTopology();renderCapacity();renderStatus();renderDevices();renderPops();
-    document.getElementById("lastUpdate").textContent="Atualizado "+new Date().toLocaleTimeString("pt-BR",{hour12:false});
-    document.getElementById("footerStatus").textContent=cached?"Dados do navegador • sincronização local":"Dados da topologia";
-  }catch(e){
-    document.getElementById("footerStatus").textContent="Falha ao carregar dados";
-    console.error(e);
+  function devicePop(e) {
+    const s = [e.pop,e.local,e.localizacao,e.site,e.nome,e.id].join(" ").toLowerCase();
+    if (s.includes("ascenty") || s.includes("f1a")) return "ascenty";
+    if (s.includes("praia grande") || s.includes("praia")) return "praia-grande";
+    if (s.includes("santos")) return "santos";
+    if (s.includes("são vicente") || s.includes("sao vicente")) return "sao-vicente";
+    if (s.includes("cubatão") || s.includes("cubatao")) return "cubatao";
+    return null;
   }
-}
 
-updateClock();setInterval(updateClock,1000);
-load();
-setInterval(load,30000);
-window.addEventListener("resize",renderTopology);
-window.addEventListener("storage",load);
+  function connectionFor(deviceId, port) {
+    const c = (state.data.conexoes || []).find(x =>
+      (x.origem === deviceId && Number(x.portaOrigem) === Number(port)) ||
+      (x.destino === deviceId && Number(x.portaDestino) === Number(port))
+    );
+    return c || null;
+  }
+
+  // Integration-ready fields:
+  // Replace these functions later with the Grafana/API values.
+  function getStatus(device) {
+    // Example future field: device.monitoramento.status = "online"/"offline"
+    return device.monitoramento?.status || "aguardando";
+  }
+
+  function getConsumption(device) {
+    // Example future field: device.monitoramento.consumo = {value: 73, unit: "%"}
+    return device.monitoramento?.consumo || { value: null, unit: "%" };
+  }
+
+  function getUsedPorts(device) {
+    const ports = Array.isArray(device.portas) ? device.portas : [];
+    return ports.filter(p => connectionFor(device.id, p.numero)).length;
+  }
+
+  function render() {
+    const data = state.data;
+    const devices = Array.isArray(data.equipamentos) ? data.equipamentos : [];
+    const pops = Array.isArray(data.pops) ? data.pops : [];
+
+    let totalPorts=0,totalUsed=0,online=0;
+    const grid = $("#popGrid");
+
+    grid.innerHTML = pops.map(pop => {
+      const list = devices.filter(d => devicePop(d) === pop.id);
+      let popPorts=0,popUsed=0;
+
+      const cards = list.map(device => {
+        const ports = Array.isArray(device.portas) ? device.portas : [];
+        const used = getUsedPorts(device);
+        const free = Math.max(0, ports.length-used);
+        const status = getStatus(device);
+        const consumption = getConsumption(device);
+
+        totalPorts += ports.length;
+        totalUsed += used;
+        popPorts += ports.length;
+        popUsed += used;
+        if (status === "online") online++;
+
+        const statusLabel = status === "online" ? "ONLINE" :
+          status === "offline" ? "OFFLINE" : "AGUARDANDO";
+
+        return `
+          <article class="device-card">
+            <div class="device-top">
+              <div>
+                <span class="device-role">${esc(device.categoria || device.tipo || "EQUIPAMENTO")}</span>
+                <h3>${esc(device.nome || device.modelo || "Equipamento")}</h3>
+                <p>${esc(device.modelo || "Modelo não informado")}</p>
+              </div>
+              <span class="status ${status}"><i></i>${statusLabel}</span>
+            </div>
+
+            <div class="device-metrics">
+              <div><small>PORTAS</small><strong>${ports.length}</strong></div>
+              <div><small>UTILIZADAS</small><strong>${used}</strong></div>
+              <div><small>LIVRES</small><strong>${free}</strong></div>
+              <div><small>CONSUMO</small><strong>${consumption.value == null ? "--" : esc(consumption.value)+esc(consumption.unit||"%")}</strong></div>
+            </div>
+
+            <div class="capacity-bar">
+              <span style="width:${ports.length ? Math.min(100,(used/ports.length)*100) : 0}%"></span>
+            </div>
+            <div class="device-foot">
+              <span>${ports.length ? Math.round((used/ports.length)*100) : 0}% das portas utilizadas</span>
+              <span>Grafana: ${consumption.value == null ? "pendente" : "integrado"}</span>
+            </div>
+          </article>`;
+      }).join("");
+
+      const popUsedPct = popPorts ? Math.round(popUsed/popPorts*100) : 0;
+      return `
+        <section class="pop-column">
+          <header class="pop-header">
+            <div class="pop-marker ${esc(pop.cor)}"></div>
+            <div>
+              <span>POP</span>
+              <h2>${esc(pop.nome)}</h2>
+              <p>${esc(pop.local)}</p>
+            </div>
+            <div class="pop-summary">
+              <strong>${list.length}</strong><small>EQUIP.</small>
+            </div>
+          </header>
+
+          <div class="pop-overview">
+            <div><span>PORTAS</span><strong>${popPorts}</strong></div>
+            <div><span>UTILIZADAS</span><strong>${popUsed}</strong></div>
+            <div><span>LIVRES</span><strong>${Math.max(0,popPorts-popUsed)}</strong></div>
+            <div><span>OCUPAÇÃO</span><strong>${popUsedPct}%</strong></div>
+          </div>
+
+          <div class="device-list">
+            ${cards || `<div class="empty">Nenhum equipamento cadastrado neste POP.</div>`}
+          </div>
+        </section>`;
+    }).join("");
+
+    $("#kpiPops").textContent = pops.length;
+    $("#kpiEquip").textContent = devices.length;
+    $("#kpiPorts").textContent = totalPorts;
+    $("#kpiUsed").textContent = totalUsed;
+    $("#kpiFree").textContent = Math.max(0,totalPorts-totalUsed);
+    $("#kpiOnline").textContent = online ? online : "--";
+  }
+
+  async function load() {
+    try {
+      const res = await fetch(`data/dashboard.json?v=${Date.now()}`, {cache:"no-store"});
+      state.data = await res.json();
+      render();
+    } catch (err) {
+      console.error("Dashboard:", err);
+      $("#popGrid").innerHTML = `<div class="load-error">Não foi possível carregar os dados da topologia.</div>`;
+    }
+  }
+
+  function clock() {
+    const d = new Date();
+    $("#clock").textContent = d.toLocaleTimeString("pt-BR");
+    $("#date").textContent = d.toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"});
+  }
+
+  clock();
+  setInterval(clock,1000);
+  load();
+  setInterval(load,state.refreshMs);
+})();
