@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Topologia de Rede</title>
+<style>
+:root {
+  --bg:#07111f; --panel:#0c1b2d; --panel2:#10243a; --line:#21425f;
+  --cyan:#28c7ff; --blue:#087bb2; --purple:#7c3aed; --text:#e8f2f8;
+  --muted:#8fa9bb; --ok:#31d49a; --warn:#f5b84b; --danger:#ff6b6b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 50% 0,#102b43 0,#07111f 45%,#050c15 100%);
+font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text);overflow:hidden}
+header{height:72px;border-bottom:1px solid var(--line);background:rgba(5,14,25,.94);display:flex;align-items:center;padding:0 24px;gap:22px;position:relative;z-index:20}
+.brand{font-weight:800;font-size:20px;letter-spacing:.3px} .brand span{color:var(--cyan)}
+.subtitle{color:var(--muted);font-size:12px;border-left:1px solid var(--line);padding-left:18px}
+.actions{margin-left:auto;display:flex;gap:8px}
+button,input{font:inherit}
+.btn{border:1px solid #2b526f;background:#0d2033;color:#dcecf6;border-radius:8px;padding:9px 12px;cursor:pointer}
+.btn:hover{border-color:var(--cyan);color:white}
+.search{width:230px;background:#091727;border:1px solid #29465e;color:white;border-radius:8px;padding:9px 12px;outline:none}
+.app{height:calc(100vh - 72px);display:flex}
+.sidebar{width:285px;min-width:285px;background:rgba(7,17,31,.95);border-right:1px solid var(--line);padding:16px;overflow:auto}
+.side-title{font-size:11px;text-transform:uppercase;color:#6f8da2;letter-spacing:1px;margin:8px 0 10px}
+.device-list{display:grid;gap:7px}
+.device-link{border:1px solid transparent;background:#0b1c2d;border-radius:8px;padding:10px;cursor:pointer}
+.device-link:hover,.device-link.active{border-color:#1685b8;background:#0e2940}
+.device-link b{display:block;font-size:12px} .device-link small{color:var(--muted);font-size:10px}
+.badge{display:inline-block;margin-top:6px;font-size:9px;padding:3px 6px;border-radius:99px;background:#15354b;color:#8edfff}
+.main{position:relative;flex:1;overflow:auto;background-image:linear-gradient(rgba(55,86,108,.11) 1px,transparent 1px),linear-gradient(90deg,rgba(55,86,108,.11) 1px,transparent 1px);background-size:24px 24px}
+.canvas{min-width:1200px;padding:34px 50px 80px}
+.section-title{font-size:12px;font-weight:800;letter-spacing:1px;color:#82a9be;margin:5px 0 16px}
+.flow{display:grid;grid-template-columns:repeat(5,minmax(170px,1fr));gap:38px 54px;align-items:center}
+.node{position:relative;min-height:92px;background:linear-gradient(145deg,#0f2940,#091a2a);border:1px solid #23516d;border-radius:12px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.22);cursor:pointer}
+.node:hover{border-color:var(--cyan);transform:translateY(-1px)}
+.node .type{font-size:9px;color:var(--cyan);font-weight:800;letter-spacing:.8px}
+.node h3{margin:5px 0 3px;font-size:14px} .node p{margin:0;color:var(--muted);font-size:10px;line-height:1.4}
+.node .count{position:absolute;right:10px;top:10px;background:#123b53;border-radius:6px;padding:4px 6px;font-size:9px;color:#b8ecff}
+.connector{height:2px;background:linear-gradient(90deg,transparent,#2d86b0,transparent);position:relative}
+.connector:after{content:"";position:absolute;right:8px;top:-4px;border-left:8px solid #2d86b0;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;align-items:center}
+.ring{margin-top:42px;padding:24px;border:1px dashed #6842ba;border-radius:18px;background:rgba(50,25,105,.09)}
+.ring-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.pop{border:1px solid #6245a3;background:#181143;border-radius:12px;padding:18px;text-align:center}
+.pop b{display:block;color:#d9cfff;font-size:13px} .pop small{display:block;color:#a9a0cc;margin-top:5px}
+.detail-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:50}
+.detail{position:absolute;right:0;top:0;height:100%;width:min(780px,92vw);background:#071522;border-left:1px solid #2b5873;box-shadow:-20px 0 60px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.detail-head{padding:20px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:14px}
+.detail-head h2{margin:0;font-size:20px} .detail-head p{margin:4px 0 0;color:var(--muted);font-size:11px}
+.close{margin-left:auto;font-size:20px;background:none;border:0;color:#9db6c6;cursor:pointer}
+.detail-body{padding:18px;overflow:auto}
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.meta div{background:#0c2032;border:1px solid #1b3a51;border-radius:8px;padding:10px}
+.meta label{display:block;font-size:9px;color:#7393a8;text-transform:uppercase;margin-bottom:4px}
+.meta strong{font-size:12px}
+.table-wrap{border:1px solid #24465d;border-radius:9px;overflow:auto;max-height:calc(100vh - 300px)}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{position:sticky;top:0;background:#0b5f8a;color:white;text-align:left;padding:9px;z-index:2}
+td{padding:8px;border-top:1px solid #18364b;color:#d8e8f1}
+tr.connected td{background:rgba(40,199,255,.08);color:#c8f3ff}
+td:first-child{width:70px;font-weight:800} td:nth-child(2){width:190px}
+.footnote{color:#708b9c;font-size:10px;line-height:1.5;margin-top:12px}
+.empty{color:#6f8798;text-align:center;padding:40px}
+@media(max-width:900px){.sidebar{display:none}.flow{grid-template-columns:1fr 1fr}.canvas{min-width:760px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">UPDOWN <span>TELECOM</span></div>
+  <div class="subtitle">Documentação visual de topologia • Ascenty / BGP / MPLS</div>
+  <div class="actions">
+    <input id="search" class="search" placeholder="Buscar equipamento ou porta..." />
+    <button class="btn" onclick="expandAll()">Expandir detalhes</button>
+    <button class="btn" onclick="closeDetail()">Fechar</button>
+  </div>
+</header>
+
+<div class="app">
+<aside class="sidebar">
+  <div class="side-title">Equipamentos</div>
+  <div id="deviceList" class="device-list"></div>
+  <div class="side-title" style="margin-top:22px">Legenda</div>
+  <div style="font-size:10px;color:#8fa9bb;line-height:1.7">
+    <b style="color:#28c7ff">Azul</b> = equipamento / porta documentada<br>
+    <b style="color:#7c3aed">Roxo</b> = anel óptico<br>
+    Clique em qualquer equipamento para abrir a tabela completa de portas.
+  </div>
+</aside>
+
+<main class="main">
+<div class="canvas">
+  <div class="section-title">NÚCLEO / ASCENTY — FLUXO PRINCIPAL</div>
+  <div class="flow" id="flow"></div>
+
+  <div class="section-title" style="margin-top:44px">ANEL ÓPTICO DOS POPs</div>
+  <div class="ring">
+    <div class="ring-grid">
+      <div class="pop"><b>POP PRAIA GRANDE</b><small>Rota aérea + subterrânea</small></div>
+      <div class="pop"><b>POP SANTOS</b><small>Rota aérea + subterrânea</small></div>
+      <div class="pop"><b>POP SÃO VICENTE</b><small>Rota aérea + subterrânea</small></div>
+      <div class="pop"><b>POP CUBATÃO</b><small>Rota aérea + subterrânea</small></div>
+    </div>
+    <div style="margin-top:18px;text-align:center;color:#8d77c9;font-size:10px">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
+  </div>
+</div>
+</main>
+</div>
+
+<div id="backdrop" class="detail-backdrop" onclick="if(event.target===this)closeDetail()">
+  <section class="detail">
+    <div class="detail-head">
+      <div>
+        <h2 id="detailName"></h2>
+        <p id="detailModel"></p>
+      </div>
+      <button class="close" onclick="closeDetail()">×</button>
+    </div>
+    <div class="detail-body">
+      <div class="meta">
+        <div><label>Categoria</label><strong id="detailType"></strong></div>
+        <div><label>Total de portas listadas</label><strong id="detailCount"></strong></div>
+      </div>
+      <div id="detailNote" class="footnote" style="margin:0 0 12px"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Porta</th><th>Capacidade</th><th>Conexão / Status</th></tr></thead>
+          <tbody id="detailRows"></tbody>
+        </table>
+      </div>
+      <div class="footnote">* A capacidade indicada é a capacidade técnica/modelo considerada para documentação. Onde o modelo ou a placa não pôde ser identificado, a capacidade foi marcada como “A confirmar”, evitando inventar informação de infraestrutura.</div>
+    </div>
+  </section>
+</div>
+
+<script>
+const devices = [{"id": "f1a", "name": "NE F1A", "model": "Huawei NetEngine 8000 F1A", "type": "NÚCLEO", "note": "Capacidade de interface depende da configuração/licenciamento do equipamento.", "ports": [[0, "1 / 10 Gbps", "GE / 10GE", "Livre"], [1, "1 / 10 Gbps", "GE / 10GE", "Livre"], [2, "1 / 10 Gbps", "GE / 10GE", "Livre"], [3, "1 / 10 Gbps", "GE / 10GE", "Livre"], [4, "1 / 10 Gbps", "GE / 10GE", "Livre"], [5, "1 / 10 Gbps", "GE / 10GE", "Livre"], [6, "1 / 10 Gbps", "GE / 10GE", "Livre"], [7, "1 / 10 Gbps", "GE / 10GE", "Livre"], [8, "1 / 10 Gbps", "GE / 10GE", "Livre"], [9, "1 / 10 Gbps", "GE / 10GE", "Livre"], [10, "1 / 10 Gbps", "GE / 10GE", "Livre"], [11, "1 / 10 Gbps", "GE / 10GE", "Livre"], [12, "1 / 10 Gbps", "GE / 10GE", "Livre"], [13, "1 / 10 Gbps", "GE / 10GE", "Livre"], [14, "1 / 10 Gbps", "GE / 10GE", "Livre"], [15, "1 / 10 Gbps", "GE / 10GE", "Livre"], [16, "1 / 10 Gbps", "GE / 10GE", "Livre"], [17, "1 / 10 Gbps", "GE / 10GE", "Livre"], [18, "1 / 10 Gbps", "GE / 10GE", "Livre"], [19, "1 / 10 Gbps", "GE / 10GE", "Livre"], [20, "1 / 10 Gbps", "GE / 10GE", "Livre"], [21, "1 / 10 Gbps", "GE / 10GE", "Livre"], [22, "1 / 10 Gbps", "GE / 10GE", "Livre"], [23, "1 / 10 Gbps", "GE / 10GE", "Livre"], [24, "1 / 10 Gbps", "GE / 10GE", "Livre"], [25, "1 / 10 Gbps", "GE / 10GE", "Livre"], [26, "1 / 10 Gbps", "GE / 10GE", "Livre"], [27, "1 / 10 Gbps", "GE / 10GE", "Livre"], [28, "10 / 25 Gbps", "SFP28", "Livre"], [29, "10 / 25 Gbps", "SFP28", "Livre"], [30, "10 / 25 Gbps", "SFP28", "Livre"], [31, "10 / 25 Gbps", "SFP28", "Livre"], [32, "10 / 25 Gbps", "SFP28", "Livre"], [33, "10 / 25 Gbps", "SFP28", "Livre"], [34, "10 / 25 Gbps", "SFP28", "Livre"], [35, "10 / 25 Gbps", "SFP28", "Livre"], [36, "10 / 25 Gbps", "SFP28", "Livre"], [37, "10 / 25 Gbps", "SFP28", "Livre"], [38, "10 / 25 Gbps", "SFP28", "Livre"], [39, "10 / 25 Gbps", "SFP28", "Livre"], [40, "10 / 25 Gbps", "SFP28", "Livre"], [41, "10 / 25 Gbps", "SFP28", "Livre"], [42, "10 / 25 Gbps", "SFP28", "Livre"], [43, "10 / 25 Gbps", "SFP28", "Livre"], [44, "10 / 25 Gbps", "SFP28", "Livre"], [45, "10 / 25 Gbps", "SFP28", "Livre"], [46, "10 / 25 Gbps", "SFP28", "Livre"], [47, "10 / 25 Gbps", "SFP28", "Livre"], [48, "40 / 100 Gbps", "QSFP28", "Uplink → 6730/6750"], [49, "40 / 100 Gbps", "QSFP28", "Livre"], [50, "40 / 100 Gbps", "QSFP28", "Livre"], [51, "40 / 100 Gbps", "QSFP28", "Livre"], [52, "40 / 100 Gbps", "QSFP28", "Livre"], [53, "40 / 100 Gbps", "QSFP28", "Livre"], [54, "40 / 100 Gbps", "QSFP28", "Livre"], [55, "40 / 100 Gbps", "QSFP28", "Livre"]]}, {"id": "s6730a", "name": "6730", "model": "Huawei CloudEngine S6730-H24X6C", "type": "AGREGAÇÃO", "note": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.", "ports": [[1, "10 Gbps", "SFP+", "Conforme topologia"], [2, "10 Gbps", "SFP+", "Livre"], [3, "10 Gbps", "SFP+", "Livre"], [4, "10 Gbps", "SFP+", "Livre"], [5, "10 Gbps", "SFP+", "Livre"], [6, "10 Gbps", "SFP+", "Conforme topologia"], [7, "10 Gbps", "SFP+", "Livre"], [8, "10 Gbps", "SFP+", "Livre"], [9, "10 Gbps", "SFP+", "Livre"], [10, "10 Gbps", "SFP+", "Livre"], [11, "10 Gbps", "SFP+", "Livre"], [12, "10 Gbps", "SFP+", "Livre"], [13, "10 Gbps", "SFP+", "Livre"], [14, "10 Gbps", "SFP+", "Livre"], [15, "10 Gbps", "SFP+", "Livre"], [16, "10 Gbps", "SFP+", "Livre"], [17, "10 Gbps", "SFP+", "Livre"], [18, "10 Gbps", "SFP+", "Livre"], [19, "10 Gbps", "SFP+", "Livre"], [20, "10 Gbps", "SFP+", "Livre"], [21, "10 Gbps", "SFP+", "Livre"], [22, "10 Gbps", "SFP+", "Livre"], [23, "10 Gbps", "SFP+", "Livre"], [24, "10 Gbps", "SFP+", "Livre"], [25, "40 / 100 Gbps*", "QSFP28", "Conforme topologia"], [26, "40 / 100 Gbps*", "QSFP28", "Livre"], [27, "40 / 100 Gbps*", "QSFP28", "Livre"], [28, "40 / 100 Gbps*", "QSFP28", "Livre"], [29, "40 / 100 Gbps*", "QSFP28", "Livre"], [30, "40 / 100 Gbps*", "QSFP28", "Livre"]]}, {"id": "s6750a", "name": "6750", "model": "Huawei CloudEngine S6750-H36C", "type": "AGREGAÇÃO", "note": "Portas QSFP28/QSFP+ de alta velocidade; capacidade operacional depende do modelo/sufixo e configuração.", "ports": [[1, "40 / 100 Gbps", "QSFP28", "Conforme topologia"], [2, "40 / 100 Gbps", "QSFP28", "Conforme topologia"], [3, "40 / 100 Gbps", "QSFP28", "Livre"], [4, "40 / 100 Gbps", "QSFP28", "Livre"], [5, "40 / 100 Gbps", "QSFP28", "Livre"], [6, "40 / 100 Gbps", "QSFP28", "Livre"], [7, "40 / 100 Gbps", "QSFP28", "Livre"], [8, "40 / 100 Gbps", "QSFP28", "Livre"], [9, "40 / 100 Gbps", "QSFP28", "Livre"], [10, "40 / 100 Gbps", "QSFP28", "Livre"], [11, "40 / 100 Gbps", "QSFP28", "Livre"], [12, "40 / 100 Gbps", "QSFP28", "Livre"], [13, "40 / 100 Gbps", "QSFP28", "Livre"], [14, "40 / 100 Gbps", "QSFP28", "Livre"], [15, "40 / 100 Gbps", "QSFP28", "Livre"], [16, "40 / 100 Gbps", "QSFP28", "Livre"], [17, "40 / 100 Gbps", "QSFP28", "Livre"], [18, "40 / 100 Gbps", "QSFP28", "Livre"], [19, "40 / 100 Gbps", "QSFP28", "Livre"], [20, "40 / 100 Gbps", "QSFP28", "Livre"], [21, "40 / 100 Gbps", "QSFP28", "Livre"], [22, "40 / 100 Gbps", "QSFP28", "Livre"], [23, "40 / 100 Gbps", "QSFP28", "Livre"], [24, "40 / 100 Gbps", "QSFP28", "Livre"], [25, "40 / 100 Gbps", "QSFP28", "Livre"], [26, "40 / 100 Gbps", "QSFP28", "Livre"], [27, "40 / 100 Gbps", "QSFP28", "Livre"], [28, "40 / 100 Gbps", "QSFP28", "Livre"], [29, "40 / 100 Gbps", "QSFP28", "Livre"], [30, "40 / 100 Gbps", "QSFP28", "Livre"], [31, "40 / 100 Gbps", "QSFP28", "Livre"], [32, "40 / 100 Gbps", "QSFP28", "Livre"], [33, "40 / 100 Gbps", "QSFP28", "Livre"], [34, "40 / 100 Gbps", "QSFP28", "Livre"], [35, "40 / 100 Gbps", "QSFP28", "Livre"], [36, "40 / 100 Gbps", "QSFP28", "Livre"]]}, {"id": "nokia1", "name": "NOKIA", "model": "Modelo não identificado na imagem", "type": "TRANSPORTE", "note": "Não atribuído número/capacidade sem identificação do modelo e das placas.", "ports": [[1, "A confirmar", "—", "Enlace superior → 6750"], [2, "A confirmar", "—", "Enlace inferior → Nokia"]]}, {"id": "datacom1", "name": "DATACOM", "model": "Modelo não identificado na imagem", "type": "TRANSPORTE", "note": "Não atribuído número/capacidade sem identificação do modelo e das placas.", "ports": [[1, "A confirmar", "—", "Enlace superior → 6750"], [2, "A confirmar", "—", "Enlace inferior → Datacom"]]}, {"id": "nokia2", "name": "NOKIA", "model": "Modelo não identificado na imagem", "type": "TRANSPORTE", "note": "Não atribuído número/capacidade sem identificação do modelo e das placas.", "ports": [[1, "A confirmar", "—", "Enlace → Nokia superior"], [2, "A confirmar", "—", "Enlace → 6750"]]}, {"id": "datacom2", "name": "DATACOM", "model": "Modelo não identificado na imagem", "type": "TRANSPORTE", "note": "Não atribuído número/capacidade sem identificação do modelo e das placas.", "ports": [[1, "A confirmar", "—", "Enlace → Datacom superior"], [2, "A confirmar", "—", "Enlace → 6750"]]}, {"id": "s6750b", "name": "6750", "model": "Huawei CloudEngine S6750-H36C", "type": "AGREGAÇÃO", "note": "Portas QSFP28/QSFP+ de alta velocidade; capacidade operacional depende do modelo/sufixo e configuração.", "ports": [[1, "40 / 100 Gbps", "QSFP28", "Conforme topologia"], [2, "40 / 100 Gbps", "QSFP28", "Conforme topologia"], [3, "40 / 100 Gbps", "QSFP28", "Livre"], [4, "40 / 100 Gbps", "QSFP28", "Livre"], [5, "40 / 100 Gbps", "QSFP28", "Livre"], [6, "40 / 100 Gbps", "QSFP28", "Livre"], [7, "40 / 100 Gbps", "QSFP28", "Livre"], [8, "40 / 100 Gbps", "QSFP28", "Livre"], [9, "40 / 100 Gbps", "QSFP28", "Livre"], [10, "40 / 100 Gbps", "QSFP28", "Livre"], [11, "40 / 100 Gbps", "QSFP28", "Livre"], [12, "40 / 100 Gbps", "QSFP28", "Livre"], [13, "40 / 100 Gbps", "QSFP28", "Livre"], [14, "40 / 100 Gbps", "QSFP28", "Livre"], [15, "40 / 100 Gbps", "QSFP28", "Livre"], [16, "40 / 100 Gbps", "QSFP28", "Livre"], [17, "40 / 100 Gbps", "QSFP28", "Livre"], [18, "40 / 100 Gbps", "QSFP28", "Livre"], [19, "40 / 100 Gbps", "QSFP28", "Livre"], [20, "40 / 100 Gbps", "QSFP28", "Livre"], [21, "40 / 100 Gbps", "QSFP28", "Livre"], [22, "40 / 100 Gbps", "QSFP28", "Livre"], [23, "40 / 100 Gbps", "QSFP28", "Livre"], [24, "40 / 100 Gbps", "QSFP28", "Livre"], [25, "40 / 100 Gbps", "QSFP28", "Livre"], [26, "40 / 100 Gbps", "QSFP28", "Livre"], [27, "40 / 100 Gbps", "QSFP28", "Livre"], [28, "40 / 100 Gbps", "QSFP28", "Livre"], [29, "40 / 100 Gbps", "QSFP28", "Livre"], [30, "40 / 100 Gbps", "QSFP28", "Livre"], [31, "40 / 100 Gbps", "QSFP28", "Livre"], [32, "40 / 100 Gbps", "QSFP28", "Livre"], [33, "40 / 100 Gbps", "QSFP28", "Livre"], [34, "40 / 100 Gbps", "QSFP28", "Livre"], [35, "40 / 100 Gbps", "QSFP28", "Livre"], [36, "40 / 100 Gbps", "QSFP28", "Livre"]]}, {"id": "s6730b", "name": "6730", "model": "Huawei CloudEngine S6730-H24X6C", "type": "DISTRIBUIÇÃO", "note": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.", "ports": [[1, "10 Gbps", "SFP+", "Uplink / distribuição"], [2, "10 Gbps", "SFP+", "Livre"], [3, "10 Gbps", "SFP+", "Livre"], [4, "10 Gbps", "SFP+", "Livre"], [5, "10 Gbps", "SFP+", "Livre"], [6, "10 Gbps", "SFP+", "Uplink / distribuição"], [7, "10 Gbps", "SFP+", "Livre"], [8, "10 Gbps", "SFP+", "Livre"], [9, "10 Gbps", "SFP+", "Livre"], [10, "10 Gbps", "SFP+", "Livre"], [11, "10 Gbps", "SFP+", "Livre"], [12, "10 Gbps", "SFP+", "Livre"], [13, "10 Gbps", "SFP+", "Livre"], [14, "10 Gbps", "SFP+", "Livre"], [15, "10 Gbps", "SFP+", "Livre"], [16, "10 Gbps", "SFP+", "Livre"], [17, "10 Gbps", "SFP+", "Livre"], [18, "10 Gbps", "SFP+", "Livre"], [19, "10 Gbps", "SFP+", "Livre"], [20, "10 Gbps", "SFP+", "Livre"], [21, "10 Gbps", "SFP+", "Livre"], [22, "10 Gbps", "SFP+", "Livre"], [23, "10 Gbps", "SFP+", "Livre"], [24, "10 Gbps", "SFP+", "Livre"], [25, "40 / 100 Gbps*", "QSFP28", "Livre"], [26, "40 / 100 Gbps*", "QSFP28", "Livre"], [27, "40 / 100 Gbps*", "QSFP28", "Livre"], [28, "40 / 100 Gbps*", "QSFP28", "Livre"], [29, "40 / 100 Gbps*", "QSFP28", "Livre"], [30, "40 / 100 Gbps*", "QSFP28", "Livre"]]}, {"id": "santos", "name": "6730 • POP SANTOS", "model": "Huawei CloudEngine S6730-H24X6C", "type": "POP", "note": "Equipamento de distribuição do POP Santos.", "ports": [[1, "10 Gbps", "SFP+", "Porta 1 → NE8000"], [2, "10 Gbps", "SFP+", "Livre"], [3, "10 Gbps", "SFP+", "Livre"], [4, "10 Gbps", "SFP+", "Livre"], [5, "10 Gbps", "SFP+", "Livre"], [6, "10 Gbps", "SFP+", "Porta 6 → distribuição"], [7, "10 Gbps", "SFP+", "Livre"], [8, "10 Gbps", "SFP+", "Livre"], [9, "10 Gbps", "SFP+", "Livre"], [10, "10 Gbps", "SFP+", "Livre"], [11, "10 Gbps", "SFP+", "Livre"], [12, "10 Gbps", "SFP+", "Livre"], [13, "10 Gbps", "SFP+", "Livre"], [14, "10 Gbps", "SFP+", "Livre"], [15, "10 Gbps", "SFP+", "Livre"], [16, "10 Gbps", "SFP+", "Livre"], [17, "10 Gbps", "SFP+", "Livre"], [18, "10 Gbps", "SFP+", "Livre"], [19, "10 Gbps", "SFP+", "Livre"], [20, "10 Gbps", "SFP+", "Livre"], [21, "10 Gbps", "SFP+", "Livre"], [22, "10 Gbps", "SFP+", "Livre"], [23, "10 Gbps", "SFP+", "Livre"], [24, "10 Gbps", "SFP+", "Livre"], [25, "40 / 100 Gbps*", "QSFP28", "Livre"], [26, "40 / 100 Gbps*", "QSFP28", "Livre"], [27, "40 / 100 Gbps*", "QSFP28", "Livre"], [28, "40 / 100 Gbps*", "QSFP28", "Livre"], [29, "40 / 100 Gbps*", "QSFP28", "Livre"], [30, "40 / 100 Gbps*", "QSFP28", "Livre"]]}, {"id": "sv", "name": "6730 • POP SÃO VICENTE", "model": "Huawei CloudEngine S6730-H24X6C", "type": "POP", "note": "Equipamento de distribuição do POP São Vicente.", "ports": [[1, "10 Gbps", "SFP+", "Porta 1 → distribuição"], [2, "10 Gbps", "SFP+", "Livre"], [3, "10 Gbps", "SFP+", "Livre"], [4, "10 Gbps", "SFP+", "Livre"], [5, "10 Gbps", "SFP+", "Livre"], [6, "10 Gbps", "SFP+", "Porta 6 → NE8000"], [7, "10 Gbps", "SFP+", "Livre"], [8, "10 Gbps", "SFP+", "Livre"], [9, "10 Gbps", "SFP+", "Livre"], [10, "10 Gbps", "SFP+", "Livre"], [11, "10 Gbps", "SFP+", "Livre"], [12, "10 Gbps", "SFP+", "Livre"], [13, "10 Gbps", "SFP+", "Livre"], [14, "10 Gbps", "SFP+", "Livre"], [15, "10 Gbps", "SFP+", "Livre"], [16, "10 Gbps", "SFP+", "Livre"], [17, "10 Gbps", "SFP+", "Livre"], [18, "10 Gbps", "SFP+", "Livre"], [19, "10 Gbps", "SFP+", "Livre"], [20, "10 Gbps", "SFP+", "Livre"], [21, "10 Gbps", "SFP+", "Livre"], [22, "10 Gbps", "SFP+", "Livre"], [23, "10 Gbps", "SFP+", "Livre"], [24, "10 Gbps", "SFP+", "Livre"], [25, "40 / 100 Gbps*", "QSFP28", "Livre"], [26, "40 / 100 Gbps*", "QSFP28", "Livre"], [27, "40 / 100 Gbps*", "QSFP28", "Livre"], [28, "40 / 100 Gbps*", "QSFP28", "Livre"], [29, "40 / 100 Gbps*", "QSFP28", "Livre"], [30, "40 / 100 Gbps*", "QSFP28", "Livre"]]}, {"id": "m8", "name": "NE8000-M8", "model": "Huawei NetEngine 8000 M8", "type": "BGP/MPLS", "note": "Chassi modular. A capacidade das portas depende da placa instalada; as portas 48 e 49 são as interfaces documentadas na topologia.", "ports": [[1, "Depende da placa", "—", "Livre / verificar placa"], [2, "Depende da placa", "—", "Livre / verificar placa"], [3, "Depende da placa", "—", "Livre / verificar placa"], [4, "Depende da placa", "—", "Livre / verificar placa"], [5, "Depende da placa", "—", "Livre / verificar placa"], [6, "Depende da placa", "—", "Livre / verificar placa"], [7, "Depende da placa", "—", "Livre / verificar placa"], [8, "Depende da placa", "—", "Livre / verificar placa"], [9, "Depende da placa", "—", "Livre / verificar placa"], [10, "Depende da placa", "—", "Livre / verificar placa"], [11, "Depende da placa", "—", "Livre / verificar placa"], [12, "Depende da placa", "—", "Livre / verificar placa"], [13, "Depende da placa", "—", "Livre / verificar placa"], [14, "Depende da placa", "—", "Livre / verificar placa"], [15, "Depende da placa", "—", "Livre / verificar placa"], [16, "Depende da placa", "—", "Livre / verificar placa"], [17, "Depende da placa", "—", "Livre / verificar placa"], [18, "Depende da placa", "—", "Livre / verificar placa"], [19, "Depende da placa", "—", "Livre / verificar placa"], [20, "Depende da placa", "—", "Livre / verificar placa"], [21, "Depende da placa", "—", "Livre / verificar placa"], [22, "Depende da placa", "—", "Livre / verificar placa"], [23, "Depende da placa", "—", "Livre / verificar placa"], [24, "Depende da placa", "—", "Livre / verificar placa"], [25, "Depende da placa", "—", "Livre / verificar placa"], [26, "Depende da placa", "—", "Livre / verificar placa"], [27, "Depende da placa", "—", "Livre / verificar placa"], [28, "Depende da placa", "—", "Livre / verificar placa"], [29, "Depende da placa", "—", "Livre / verificar placa"], [30, "Depende da placa", "—", "Livre / verificar placa"], [31, "Depende da placa", "—", "Livre / verificar placa"], [32, "Depende da placa", "—", "Livre / verificar placa"], [33, "Depende da placa", "—", "Livre / verificar placa"], [34, "Depende da placa", "—", "Livre / verificar placa"], [35, "Depende da placa", "—", "Livre / verificar placa"], [36, "Depende da placa", "—", "Livre / verificar placa"], [37, "Depende da placa", "—", "Livre / verificar placa"], [38, "Depende da placa", "—", "Livre / verificar placa"], [39, "Depende da placa", "—", "Livre / verificar placa"], [40, "Depende da placa", "—", "Livre / verificar placa"], [41, "Depende da placa", "—", "Livre / verificar placa"], [42, "Depende da placa", "—", "Livre / verificar placa"], [43, "Depende da placa", "—", "Livre / verificar placa"], [44, "Depende da placa", "—", "Livre / verificar placa"], [45, "Depende da placa", "—", "Livre / verificar placa"], [46, "Depende da placa", "—", "Livre / verificar placa"], [47, "Depende da placa", "—", "Livre / verificar placa"], [48, "A confirmar", "—", "→ 6730 POP Santos"], [49, "A confirmar", "—", "→ 6730 POP São Vicente"]]}];
+
+const positions = [
+  ["f1a","s6730a","s6750a","nokia1","datacom1"],
+  ["nokia2","datacom2","s6750b","s6730b","m8"],
+  ["santos","sv"]
+];
+
+function getDevice(id){return devices.find(d=>d.id===id)}
+
+function renderList(filter=""){
+  const list=document.getElementById("deviceList");
+  const q=filter.toLowerCase();
+  list.innerHTML="";
+  devices.filter(d=>JSON.stringify(d).toLowerCase().includes(q)).forEach(d=>{
+    const el=document.createElement("div");
+    el.className="device-link";
+    el.onclick=()=>openDetail(d.id);
+    el.innerHTML=`<b>${d.name}</b><small>${d.model}</small><span class="badge">${d.ports.length} portas</span>`;
+    list.appendChild(el);
+  });
+}
+
+function renderFlow(){
+  const flow=document.getElementById("flow");
+  flow.innerHTML="";
+  positions.forEach((row,ri)=>{
+    row.forEach((id,ci)=>{
+      const d=getDevice(id);
+      if(!d)return;
+      const n=document.createElement("div");
+      n.className="node";
+      n.onclick=()=>openDetail(id);
+      n.innerHTML=`<span class="count">${d.ports.length} portas</span><div class="type">${d.type}</div><h3>${d.name}</h3><p>${d.model}</p>`;
+      flow.appendChild(n);
+      if(ci<row.length-1){
+        const c=document.createElement("div"); c.className="connector"; flow.appendChild(c);
+      }
+    });
+  });
+}
+
+function openDetail(id){
+  const d=getDevice(id);
+  if(!d)return;
+  document.getElementById("detailName").textContent=d.name;
+  document.getElementById("detailModel").textContent=d.model;
+  document.getElementById("detailType").textContent=d.type;
+  document.getElementById("detailCount").textContent=d.ports.length;
+  document.getElementById("detailNote").textContent=d.note;
+  const tbody=document.getElementById("detailRows");
+  tbody.innerHTML="";
+  d.ports.forEach(p=>{
+    const tr=document.createElement("tr");
+    if(p[3] && p[3] !== "Livre")tr.className="connected";
+    tr.innerHTML=`<td>${p[0]}</td><td>${p[1]}</td><td>${p[3]}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById("backdrop").style.display="block";
+}
+function closeDetail(){document.getElementById("backdrop").style.display="none"}
+function expandAll(){
+  const d=devices[0];
+  openDetail(d.id);
+}
+document.getElementById("search").addEventListener("input",e=>renderList(e.target.value));
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDetail()});
+renderList(); renderFlow();
+</script>
+</body>
+</html>
