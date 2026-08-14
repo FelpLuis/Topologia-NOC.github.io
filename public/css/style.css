@@ -2447,3 +2447,15 @@ html[data-theme="light"] #modal .equipment-port-hotspot.active{
 .hidden{display:none!important}
 .platform-btn{border:1px solid rgba(29,201,255,.25);cursor:pointer;font:inherit}
 .platform-btn:hover{border-color:rgba(29,201,255,.55)}
+
+/* UPDOWN — símbolo UP para ícones compactos */
+.up-symbol{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:8px;
+  font-family:"Arial Black",Inter,system-ui,sans-serif;
+  font-size:15px;font-weight:950;letter-spacing:-.13em;
+  line-height:1;text-transform:lowercase;
+  color:#fff;
+  background:linear-gradient(145deg,#0b78ff 0%,#11bfe9 100%);
+  box-shadow:0 6px 18px rgba(11,120,255,.22);
+}

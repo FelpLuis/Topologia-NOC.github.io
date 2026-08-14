@@ -549,3 +549,12 @@ O Worker cria cada tabela individualmente e de forma idempotente.
 ## Correção de compatibilidade da auditoria D1
 
 O erro `no such column: occurred_at` foi corrigido. O projeto agora usa `audit_logs.created_at`, compatível com a tabela criada nas versões anteriores. O Worker também verifica a estrutura existente do D1 e cria `created_at` quando necessário, sem apagar os dados existentes.
+
+
+## Correção V4 — coluna `screens.route`
+
+O D1 existente já tinha a tabela `screens`, mas sem a coluna `route`. O Worker agora verifica `PRAGMA table_info(screens)` e adiciona `route` somente se necessário. Nenhum dado existente é apagado.
+
+
+## Correção V5 — símbolo da marca
+O ícone compacto da tela de login não usa mais apenas `U`. Ele foi substituído pelo símbolo textual `up`, mantendo azul/ciano e o restante da identidade visual UPDOWN.

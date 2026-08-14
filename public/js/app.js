@@ -194,7 +194,7 @@ function renderDetailEquipmentImage(d){
   if(!host)return;
   host.innerHTML=`
     <div class="equipment-static-panel">
-      <div class="equipment-static-icon">▦</div>
+      <div class="equipment-static-icon up-symbol" aria-hidden="true">up</div>
       <div>
         <span class="equipment-static-kicker">GERENCIAMENTO DO EQUIPAMENTO</span>
         <strong>${escapeHtml(d.nome||d.modelo||"EQUIPAMENTO")}</strong>
