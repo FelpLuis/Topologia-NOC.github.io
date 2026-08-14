@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UPDOWN • Topologia de Rede</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">UPDOWN <span>TELECOM</span></div>
+  <div class="subtitle">Topologia de Rede • Ascenty / BGP / MPLS</div>
+  <div class="actions">
+    <input id="search" class="search" placeholder="Buscar equipamento, porta ou capacidade...">
+    <button class="btn" id="exportBtn">Exportar dados</button>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="side-title">Equipamentos</div>
+    <div id="deviceList" class="device-list"></div>
+    <div class="side-title extra">Legenda</div>
+    <div class="legend">
+      <p><b class="cyan">Azul</b> = equipamento / porta documentada</p>
+      <p><b class="purple">Roxo</b> = anel óptico</p>
+      <p>Clique em um equipamento para consultar todas as portas.</p>
+      <p>Os dados editáveis ficam em <code>data/equipamentos.json</code> e <code>data/conexoes.json</code>.</p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="canvas">
+      <div class="section-title">NÚCLEO / ASCENTY — FLUXO PRINCIPAL</div>
+      <div id="topology" class="topology"></div>
+
+      <div class="section-title pop-title">ANEL ÓPTICO DOS POPs</div>
+      <div class="ring">
+        <div class="ring-grid">
+          <div class="pop"><b>POP PRAIA GRANDE</b><small>Rota aérea + subterrânea</small></div>
+          <div class="pop"><b>POP SANTOS</b><small>Rota aérea + subterrânea</small></div>
+          <div class="pop"><b>POP SÃO VICENTE</b><small>Rota aérea + subterrânea</small></div>
+          <div class="pop"><b>POP CUBATÃO</b><small>Rota aérea + subterrânea</small></div>
+        </div>
+        <div class="ring-label">ANEL — ROTAS AÉREAS E SUBTERRÂNEAS</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden">
+  <section class="detail">
+    <div class="detail-head">
+      <div>
+        <h2 id="detailName"></h2>
+        <p id="detailModel"></p>
+      </div>
+      <button class="close" id="closeBtn">×</button>
+    </div>
+    <div class="detail-body">
+      <div class="meta">
+        <div><label>Categoria</label><strong id="detailType"></strong></div>
+        <div><label>Local</label><strong id="detailLocal"></strong></div>
+        <div><label>Portas listadas</label><strong id="detailCount"></strong></div>
+        <div><label>Portas conectadas</label><strong id="detailConnected"></strong></div>
+      </div>
+      <div id="detailNote" class="detail-note"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conexão</th></tr>
+          </thead>
+          <tbody id="detailRows"></tbody>
+        </table>
+      </div>
+      <div class="footnote">
+        A unidade de capacidade é Gbps. Onde o modelo/placa não pôde ser identificado, a capacidade permanece como “A confirmar” para evitar inventar informação.
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

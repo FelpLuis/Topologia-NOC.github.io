@@ -1,0 +1,106 @@
+[
+  {
+    "origem": "f1a",
+    "portaOrigem": 48,
+    "destino": "s6730a",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Uplink"
+  },
+  {
+    "origem": "s6730a",
+    "portaOrigem": 1,
+    "destino": "s6750a",
+    "portaDestino": 1,
+    "capacidade": "10 Gbps",
+    "tipo": "Enlace"
+  },
+  {
+    "origem": "s6750a",
+    "portaOrigem": 2,
+    "destino": "nokia1",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "s6750a",
+    "portaOrigem": 2,
+    "destino": "datacom1",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "nokia1",
+    "portaOrigem": 2,
+    "destino": "nokia2",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "datacom1",
+    "portaOrigem": 2,
+    "destino": "datacom2",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "nokia2",
+    "portaOrigem": 2,
+    "destino": "s6750b",
+    "portaDestino": 1,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "datacom2",
+    "portaOrigem": 2,
+    "destino": "s6750b",
+    "portaDestino": 2,
+    "capacidade": "A confirmar",
+    "tipo": "Transporte"
+  },
+  {
+    "origem": "s6750b",
+    "portaOrigem": 1,
+    "destino": "s6730b",
+    "portaDestino": 1,
+    "capacidade": "40 / 100 Gbps",
+    "tipo": "Uplink"
+  },
+  {
+    "origem": "s6730b",
+    "portaOrigem": 6,
+    "destino": "santos",
+    "portaDestino": 6,
+    "capacidade": "10 Gbps",
+    "tipo": "Distribuição"
+  },
+  {
+    "origem": "s6730b",
+    "portaOrigem": 1,
+    "destino": "sv",
+    "portaDestino": 1,
+    "capacidade": "10 Gbps",
+    "tipo": "Distribuição"
+  },
+  {
+    "origem": "santos",
+    "portaOrigem": 1,
+    "destino": "m8",
+    "portaDestino": 48,
+    "capacidade": "A confirmar",
+    "tipo": "BGP/MPLS"
+  },
+  {
+    "origem": "sv",
+    "portaOrigem": 6,
+    "destino": "m8",
+    "portaDestino": 49,
+    "capacidade": "A confirmar",
+    "tipo": "BGP/MPLS"
+  }
+]
