@@ -186,6 +186,7 @@ window.NOC = (() => {
     const c = passe();
     if (!c.pops) {
       c.pops = (state.topology?.pops || []).map((p) => ({
+        ...p,
         id: p.id,
         nome: p.nome || p.id,
         rotas: Array.isArray(p.rotas) ? p.rotas : [],

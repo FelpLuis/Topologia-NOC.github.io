@@ -1,3 +1,4 @@
+-- Vários destinos de acesso e permissões por perfil.
 CREATE TABLE IF NOT EXISTS device_connection_targets (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,

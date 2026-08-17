@@ -113,6 +113,14 @@ test("sugestão de POP por nome continua valendo", async () => {
   assert.equal(NOC.isSuggested(t.equipamentos[1]), false);
 });
 
+test("projeção dos POPs preserva campos adicionais", async () => {
+  const t = topologia();
+  t.pops[0].endereco = "Rua do NOC, 100";
+  const NOC = carregar({ onPut: async () => t });
+  await NOC.load();
+  assert.equal(NOC.popById("pop-centro").endereco, "Rua do NOC, 100");
+});
+
 test("gravações em rajada viram menos requisições e todas resolvem", async () => {
   const t = topologia();
   let puts = 0;

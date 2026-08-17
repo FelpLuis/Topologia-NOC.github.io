@@ -170,7 +170,9 @@
      Como as rotas apontam para o nome em texto, uma renomeação também ajusta
      as referências dos demais POPs para manter o anel íntegro. */
   function openEditPop(popId) {
-    const pop = NOC.popById(popId);
+    // NOC.pops()/popById() entrega uma projeção otimizada para leitura. A
+    // edição precisa atuar no registro real, que é o objeto enviado à API.
+    const pop = (NOC.data()?.pops || []).find((item) => item.id === popId);
     if (!pop) return;
     const canEditRoutes = NOC.canAll(["topology.edit", "pops.routes"]);
     const canRename = NOC.canAll(["topology.edit", "pops.edit", "pops.routes"]);
