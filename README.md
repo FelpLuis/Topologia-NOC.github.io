@@ -1,6 +1,6 @@
 # UPDOWN Topologia NOC — Cloudflare Worker + Static Assets
 
-A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite manter o site estático e, ao mesmo tempo, criar uma API segura para consultar o Grafana sem expor o token no navegador.
+A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite manter o site estático e, ao mesmo tempo, criar uma API segura para consultar o Zabbix sem expor o token no navegador.
 
 ## Estrutura
 
@@ -26,40 +26,27 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/index.html`: aplicação principal da topologia.
 - `public/dashboard.html`: dashboard para TV.
 - `public/js/app.js`: topologia, equipamentos, portas e edição.
-- `public/js/dashboard.js`: dashboard por POP.
-- `public/js/grafana.js`: cliente da API interna `/api/grafana/*`.
+- `public/js/noc-dashboard.js`: dashboard por POP.
+- `public/js/noc-trafego.js`: tela de tráfego das interfaces.
 - `public/data/equipamentos.json`: cadastro dos equipamentos e portas.
 - `public/data/conexoes.json`: ligações entre equipamentos.
 - `public/data/pops.json`: cadastro dos POPs.
-- `public/data/dashboard.json`: dados usados pela Dashboard.
-- `src/worker.js`: API intermediária entre a página e o Grafana.
+- `src/worker.js`: API do sistema e intermediária entre a página e o Zabbix.
+- `src/zabbix.js`, `src/zabbix-links.js`, `src/zabbix-topology.js`: integração Zabbix.
 - `wrangler.jsonc`: configuração do Worker.
 
-## 1. Variável do Grafana
+## 1. Credenciais do Zabbix
 
-No Cloudflare:
+A integração de monitoramento é o Zabbix (ver **Integração Zabbix**, mais
+abaixo). As credenciais são Secrets do Worker, nunca vars nem código:
 
-**Workers & Pages → topologia-noc → Settings → Variables and Secrets**
-
-Adicione:
-
-### Variable
-
-```text
-Nome: GRAFANA_URL
-Valor: https://dashboard.lv.network
+```bash
+npx wrangler secret put ZABBIX_URL
 ```
 
-### Secret
-
-Crie um Secret:
-
-```text
-Nome: GRAFANA_TOKEN
-Valor: SEU_TOKEN_DO_GRAFANA
+```bash
+npx wrangler secret put ZABBIX_TOKEN
 ```
-
-O token deve ser Secret. Nunca coloque o token em `public/js`, `data`, GitHub ou HTML.
 
 ## 2. Deploy
 
@@ -102,120 +89,45 @@ O `wrangler.jsonc` já informa:
 Depois do deploy:
 
 ```text
-https://topologia-noc.luis-felipe-f25.workers.dev/api/grafana/health
+https://topologia-noc.luis-felipe-f25.workers.dev/api/zabbix/health
 ```
 
-Se o Grafana estiver configurado corretamente, a resposta terá:
+Com os Secrets configurados, a resposta traz a versão da API e a contagem de hosts:
 
 ```json
 {
   "ok": true,
-  "grafanaStatus": 200
+  "version": "7.0.20",
+  "hosts": 278
 }
 ```
 
 Se não estiver configurado, será retornado um erro explicando o problema.
 
-## 4. Endpoint de consulta
+## 4. Integração das portas
 
-A aplicação possui:
-
-```text
-POST /api/grafana/query
-```
-
-Esse endpoint encaminha a consulta para:
-
-```text
-POST https://dashboard.lv.network/api/ds/query
-```
-
-O token é inserido pelo Worker e nunca é enviado ao JavaScript do navegador.
-
-Exemplo de payload que futuramente poderá ser enviado:
+Já está feita, pelo Zabbix. Cada porta de equipamento monitorado carrega a
+identidade real da interface, e o vínculo é o inventário sincronizado:
 
 ```json
 {
-  "queries": [
-    {
-      "refId": "A",
-      "datasourceId": 1,
-      "rawSql": "SUA_QUERY",
-      "format": "table"
-    }
-  ]
+  "numero": 5,
+  "nome": "100GE1/0/27",
+  "capacidade": "100 Gbps",
+  "tipo": "100G",
+  "status": "conectada",
+  "descricao": "NE8000_F1A-100GE0/1/48",
+  "zabbix": { "hostid": "34520", "ifIndex": 28, "operStatus": 1, "speedBps": 100000000000 }
 }
 ```
 
-O `datasourceId` e a query real dependem do datasource utilizado pelo seu Grafana.
+`descricao` é o `ifAlias` do equipamento — é dele que os enlaces são
+derivados. `operStatus` alimenta o status nas telas (1 = up, 2 = down).
+RX/TX e utilização ficam em `/api/zabbix/interfaces` e na tela de Tráfego,
+em vez de duplicados na topologia: assim o número na tela é sempre o da
+última sincronização, e não uma cópia envelhecida.
 
-## 5. Dashboard do Grafana
-
-Também existe:
-
-```text
-GET /api/grafana/dashboard/:uid
-```
-
-Exemplo:
-
-```text
-/api/grafana/dashboard/faouCq_nk
-```
-
-Isso permite recuperar o JSON do dashboard pelo UID, desde que o token tenha permissão.
-
-## 6. Integração das portas
-
-A aplicação já possui a estrutura necessária para associar:
-
-```text
-Equipamento
-    ↓
-Porta física
-    ↓
-Interface Grafana
-    ↓
-Status
-    ↓
-RX
-    ↓
-TX
-    ↓
-Consumo
-```
-
-Exemplo futuro:
-
-```json
-{
-  "porta": 48,
-  "interface": "100GE0/1/48",
-  "status": "online",
-  "rx": 42.7,
-  "tx": 38.2,
-  "capacidade": "100 Gbps"
-}
-```
-
-### Importante
-
-A URL do dashboard do Grafana, sozinha, não informa de forma confiável qual datasource/query deve ser utilizada para cada métrica. Para completar essa etapa, obtenha no Grafana:
-
-**Painel → Edit → Inspect → Query**
-
-e identifique:
-
-- datasource;
-- query;
-- metric;
-- labels/variáveis;
-- unidade do RX/TX;
-- consulta de status.
-
-Não envie tokens ou senhas.
-
-## 7. Dashboard TV
+## 5. Dashboard TV
 
 A Dashboard continua disponível em:
 
@@ -239,12 +151,12 @@ Cada equipamento mostra:
 - quantidade de portas;
 - portas utilizadas;
 - portas livres;
-- consumo;
 - barra de utilização.
 
-Os valores de status e consumo estão preparados para serem substituídos pelos dados do Grafana.
+Status e utilização vêm do inventário do Zabbix aplicado à topologia. O tráfego
+por interface fica na tela de **Tráfego** (`/trafego.html`).
 
-## 8. NE F1A
+## 6. NE F1A
 
 A visualização 3D usa a frente do equipamento e as portas estão organizadas em:
 
@@ -260,27 +172,27 @@ Portas livres possuem destaque visual.
 Nunca faça isto:
 
 ```javascript
-const GRAFANA_TOKEN = "eyJ...";
+const ZABBIX_TOKEN = "4a46...";
 ```
 
 Use sempre:
 
 ```text
-Cloudflare Secret → GRAFANA_TOKEN
+Cloudflare Secret → ZABBIX_TOKEN
 ```
 
 O navegador conversa apenas com:
 
 ```text
-/api/grafana/*
+/api/zabbix/*
 ```
 
-e o Worker conversa com o Grafana.
+e o Worker conversa com o Zabbix.
 
 O Worker é executado antes dos assets (`run_worker_first`): páginas internas,
 scripts operacionais e arquivos de `public/data` exigem sessão, e as páginas do
 catálogo também são verificadas contra `role_screens` no servidor. As rotas do
-Grafana exigem `grafana.view` ou `grafana.query`.
+Zabbix exigem `zabbix.view`, `zabbix.sync` ou `zabbix.link`.
 
 No D1, dados de requisições nunca são concatenados em SQL. Valores usam
 prepared statements com `.bind()`; identificadores usados pelas rotinas de
@@ -761,8 +673,7 @@ coloca em Perfis, no menu e sob controle de acesso, sem lista fixa no front.
 | Módulo | Ações |
 | --- | --- |
 | Topologia (`network`) | `topology.view`, `topology.edit`, `topology.delete`, `topology.equipment.create`, `topology.equipment.edit`, `topology.equipment.delete`, `topology.port.edit`, `topology.link.create`, `topology.link.delete`, `topology.pop.link`, `topology.layout`, `topology.config` |
-| Monitoramento (`network`) | `zabbix.view`, `zabbix.sync`, `zabbix.link` |
-| Grafana (`dashboard`) | `grafana.view`, `grafana.query` |
+| Monitoramento Zabbix (`network`) | `zabbix.view`, `zabbix.sync`, `zabbix.link` |
 | POPs e anel (`pops`) | `pops.create`, `pops.edit`, `pops.delete`, `pops.order`, `pops.routes`, `pops.ring.layout` |
 | Plataforma (`platform`) | `roles.view`, `roles.manage`, `screens.manage`, `users.view`, `users.manage`, `users.password`, `audit.view`, `audit.export`, `settings.manage` |
 

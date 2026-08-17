@@ -203,7 +203,7 @@
 
   $("#btnRefresh").onclick = () => {
     renderAll();
-    toast("Dados atualizados", { text: "No sistema real a coleta vem do Worker e do Grafana.", type: "ok", timeout: 2400 });
+    toast("Dados atualizados", { text: "No sistema real a coleta vem do Worker e do Zabbix.", type: "ok", timeout: 2400 });
   };
 
   $$("[data-sort]").forEach((b) => (b.onclick = () => {

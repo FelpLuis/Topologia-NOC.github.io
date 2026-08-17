@@ -791,7 +791,7 @@
               <span>Porta livre e disponível para novo cliente ou expansão do anel.</span></div>`}
         </div>
         <div class="modal-foot">
-          <span class="dim" style="font-size:var(--fs-11)">RX/TX vêm da integração com o Grafana.</span>
+          <span class="dim" style="font-size:var(--fs-11)">RX/TX vêm da integração com o Zabbix.</span>
           <span class="row">
             <button class="btn" data-close type="button">Fechar</button>
             ${remoto ? `<button class="btn btn-primary" data-goto="${esc(remoto.id)}" type="button">Abrir ${esc(remoto.nome)}</button>` : ""}

@@ -2,7 +2,7 @@
 
 Versão navegável das telas novas, com **dados fixos** e **sem nenhuma chamada à
 API**. Serve para avaliar fluxo, layout e interação sem depender de sessão, D1 ou
-Grafana. Nada é gravado.
+Zabbix. Nada é gravado.
 
 Abra `prototype/index.html` (guia com todas as telas) ou vá direto:
 
@@ -28,9 +28,9 @@ Abra `prototype/index.html` (guia com todas as telas) ou vá direto:
 
 `js/mock-data.js` é gerado a partir de `public/data/*.json` (equipamentos,
 conexões e POPs reais) e acrescenta campos de monitoramento fictícios — status,
-CPU, RX/TX — apenas para mostrar como a tela fica **depois** da integração com o
-Grafana. A aplicação real (`/js/noc-*.js`) não usa esses valores: sem Grafana,
-ela mostra “aguardando”.
+CPU, RX/TX — apenas para mostrar como a tela fica com a integração ativa. A
+aplicação real (`/js/noc-*.js`) não usa esses valores: ela lê o inventário do
+Zabbix, e equipamento sem host vinculado mostra “aguardando Zabbix”.
 
 ## Relação com a aplicação real
 

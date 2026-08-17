@@ -76,7 +76,7 @@ aparecer só depois do clique:
 1. **Uma porta de entrada para buscar** — a busca do topo abre a mesma paleta de comandos do `Ctrl/⌘+K`: equipamento, POP, tela ou ação no mesmo campo.
 2. **Desfazer em vez de confirmar** — ações reversíveis salvam direto e oferecem “Desfazer”; só o destrutivo pede confirmação, sempre dizendo o que se perde.
 3. **Rollback honesto** — se o `PUT` falhar, o estado local volta ao anterior e o aviso mostra o erro real da API. A tela nunca exibe algo que não foi gravado.
-4. **Sem dado inventado** — status, RX e TX só aparecem quando o Grafana estiver integrado; até lá o painel mostra “aguardando” e explica a origem dos dados.
+4. **Sem dado inventado** — status, RX e TX vêm do inventário sincronizado do Zabbix; equipamento sem host vinculado mostra “aguardando Zabbix” e a tela explica a origem dos dados.
 5. **Estado não depende só de cor** — todo status tem ponto + rótulo (daltonismo).
 6. **Teclado e leitor de tela** — foco visível, foco preso em modais/gavetas, `Esc` fecha, avisos em `aria-live`, alvos de toque de 44 px no celular.
 7. **Tema claro e escuro** — trocável por `T` ou pelo menu do usuário, com preferência salva.
@@ -101,5 +101,5 @@ gaveta de cada equipamento.
 `public/prototype/index.html` é a versão de avaliação: mesmas telas, dados fixos
 em `prototype/js/mock-data.js` (gerados a partir de `public/data/*.json`), nenhuma
 chamada à API e nenhuma gravação. Serve para validar fluxo e visual sem depender
-de sessão, D1 ou Grafana — inclusive a tela `design-system.html`, que documenta
+de sessão, D1 ou Zabbix — inclusive a tela `design-system.html`, que documenta
 cores, tipografia, componentes e regras de acessibilidade.

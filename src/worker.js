@@ -267,8 +267,6 @@ const ACTIONS = [
   ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
   ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
 
-  ["grafana.view", "Consultar o Grafana", "Ver a saúde e dashboards permitidos do Grafana", "dashboard", "Monitoramento (Grafana)", 10],
-  ["grafana.query", "Executar consultas no Grafana", "Executar consultas no datasource através do proxy protegido", "dashboard", "Monitoramento (Grafana)", 20],
 
   ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
   ["pops.edit", "Editar POP", "Alterar nome e dados do POP", "pops", "POPs e anel", 20],
@@ -1194,105 +1192,6 @@ async function handleHealth(env) {
   });
 }
 
-
-function grafanaHeaders(env) {
-  const headers = {
-    "Accept": "application/json",
-    "Content-Type": "application/json"
-  };
-
-  if (env.GRAFANA_TOKEN) {
-    headers.Authorization = `Bearer ${env.GRAFANA_TOKEN}`;
-  }
-
-  return headers;
-}
-
-function grafanaBase(env) {
-  return String(env.GRAFANA_URL || "").replace(/\/+$/, "");
-}
-
-async function grafanaRequest(env, path, init = {}) {
-  const base = grafanaBase(env);
-  if (!base) throw new Error("GRAFANA_URL não configurada.");
-  const url = `${base}${path}`;
-
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      ...grafanaHeaders(env),
-      ...(init.headers || {})
-    }
-  });
-
-  const text = await response.text();
-  let body;
-  try { body = text ? JSON.parse(text) : null; }
-  catch { body = { raw: text }; }
-
-  return { response, body };
-}
-
-async function handleGrafana(request, env, url) {
-  const permission = request.method === "POST" ? "grafana.query" : "grafana.view";
-  const gate = await requirePermission(env, request, permission);
-  if (gate.response) return gate.response;
-
-  // GET /api/grafana/health
-  if (request.method === "GET" && url.pathname === "/api/grafana/health") {
-    try {
-      const result = await grafanaRequest(env, "/api/health");
-      return json({
-        ok: result.response.ok,
-        grafanaStatus: result.response.status,
-        data: result.body
-      }, result.response.ok ? 200 : 502);
-    } catch (error) {
-      console.error(JSON.stringify({message:"Grafana health failed", error:error instanceof Error?error.message:String(error)}));
-      return json({
-        ok: false,
-        error: "GRAFANA_UNAVAILABLE"
-      }, 500);
-    }
-  }
-
-  // POST /api/grafana/query
-  // Proxy genérico para a API moderna de consulta do Grafana.
-  // O frontend envia somente a consulta; a credencial fica no Worker.
-  if (request.method === "POST" && url.pathname === "/api/grafana/query") {
-    try {
-      const payload = await readJson(request, 262144);
-      const result = await grafanaRequest(env, "/api/ds/query", {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-
-      return json(result.body, result.response.status);
-    } catch (error) {
-      console.error(JSON.stringify({message:"Grafana query failed", error:error instanceof Error?error.message:String(error)}));
-      return json({ ok: false, error: "GRAFANA_QUERY_FAILED" }, 400);
-    }
-  }
-
-  // GET /api/grafana/dashboard/:uid
-  if (request.method === "GET" && url.pathname.startsWith("/api/grafana/dashboard/")) {
-    const uid = url.pathname.split("/").filter(Boolean).pop();
-    if (!uid) return json({ error: "UID do dashboard não informado." }, 400);
-
-    try {
-      const result = await grafanaRequest(
-        env,
-        `/api/dashboards/uid/${encodeURIComponent(uid)}`
-      );
-      return json(result.body, result.response.status);
-    } catch (error) {
-      console.error(JSON.stringify({message:"Grafana dashboard failed", error:error instanceof Error?error.message:String(error)}));
-      return json({ ok: false, error: "GRAFANA_UNAVAILABLE" }, 502);
-    }
-  }
-
-  return json({ error: "Endpoint Grafana não encontrado." }, 404);
-}
 
 
 // ---------------------------------------------------------------------------
@@ -2305,9 +2204,6 @@ export default {
 
         if (url.pathname === "/api/auth/oauth/callback" && request.method === "GET")
           return await handleOAuthCallback(env, request);
-
-        if (url.pathname.startsWith("/api/grafana/"))
-          return await handleGrafana(request, env, url);
 
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))

@@ -1,11 +1,8 @@
 {
   "integration": {
-    "statusSource": "placeholder",
-    "consumptionSource": "placeholder",
-    "grafana": {
-      "enabled": false,
-      "note": "Substituir status/consumo pelos valores provenientes do Grafana/JSON/API."
-    }
+    "statusSource": "zabbix",
+    "consumptionSource": "zabbix",
+    "note": "Arquivo legado, sem leitor: o Dashboard NOC usa /api/topology e /api/zabbix/*. Status e utilização vêm do Zabbix."
   },
   "pops": [
     {

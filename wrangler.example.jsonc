@@ -10,7 +10,9 @@
     "run_worker_first": true
   },
   "vars": {
-    "GRAFANA_URL": "https://dashboard.lv.network",
+    // Zabbix: ZABBIX_URL e ZABBIX_TOKEN são Secrets, não vars.
+    //   npx wrangler secret put ZABBIX_URL
+    //   npx wrangler secret put ZABBIX_TOKEN
     "OAUTH_ISSUER": "https://login.exemplo.com/tenant/v2.0",
     "OAUTH_CLIENT_ID": "SEU_CLIENT_ID",
     "OAUTH_ALLOWED_DOMAINS": "updown.com.br",

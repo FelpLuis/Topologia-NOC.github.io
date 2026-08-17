@@ -191,18 +191,36 @@ window.NOC = (() => {
     return { portas, emUso, livres: portas - emUso, ocup: portas ? Math.round((emUso / portas) * 100) : 0 };
   }
 
-  /* O status vem das interfaces sincronizadas do Zabbix que foram projetadas
-     na topologia. Sem inventário aplicado, a tela informa que aguarda o Zabbix. */
+  /* O status vem das interfaces sincronizadas do Zabbix que foram projetadas na
+     topologia. Sem inventário aplicado, a tela informa que aguarda o Zabbix.
+
+     Degradação é avaliada só nas portas com enlace documentado: porta livre fica
+     administrativamente desligada, e contá-la deixaria quase todo equipamento
+     "Degradado" para sempre (o DWDM tem 10 portas e usa 5). Quando não há enlace
+     documentado, o que importa é se o equipamento responde — aí basta uma porta
+     no ar para considerá-lo online. */
+  const monitorada = (p) => Number.isFinite(Number(p?.zabbix?.operStatus));
+  const noAr = (p) => Number(p.zabbix.operStatus) === 1;
+
   function statusInfo(e) {
-    const monitoradas = (e?.portas || []).filter((p) =>
-      p?.zabbix?.operStatus !== null && p?.zabbix?.operStatus !== undefined &&
-      Number.isFinite(Number(p.zabbix.operStatus))
-    );
+    const monitoradas = (e?.portas || []).filter(monitorada);
     if (!monitoradas.length) return { dot: "", label: "Aguardando Zabbix", badge: "" };
-    const up = monitoradas.filter((p) => Number(p.zabbix.operStatus) === 1).length;
-    if (up === monitoradas.length) return { dot: "dot-ok", label: "Online", badge: "badge-ok" };
-    if (up === 0) return { dot: "dot-danger", label: "Offline", badge: "badge-danger" };
+
+    const comEnlace = monitoradas.filter((p) => portaEmUso(e.id, p.numero));
+    const base = comEnlace.length ? comEnlace : monitoradas;
+    const up = base.filter(noAr).length;
+
+    if (!up) return { dot: "dot-danger", label: "Offline", badge: "badge-danger" };
+    if (up === base.length) return { dot: "dot-ok", label: "Online", badge: "badge-ok" };
     return { dot: "dot-warn", label: "Degradado", badge: "badge-warn" };
+  }
+
+  /* Enlaces documentados que estão fora do ar — é o que a operação precisa ver
+     primeiro. Devolve a porta e o enlace correspondente. */
+  function enlacesCaidos(e) {
+    return (e?.portas || [])
+      .filter((p) => monitorada(p) && !noAr(p) && portaEmUso(e.id, p.numero))
+      .map((p) => ({ porta: p, conexao: portConnection(e.id, p.numero) }));
   }
 
   /* ---------------- Zabbix ---------------- */
@@ -294,7 +312,7 @@ window.NOC = (() => {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
     pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
-    usedPorts, occupancy, occClass, statsOf, statusInfo, skeleton, errorState,
+    usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, skeleton, errorState,
     zabbix, interfaceStatus, formatBps, deviceConnection,
   };
 })();
