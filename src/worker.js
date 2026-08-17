@@ -1498,13 +1498,15 @@ async function handleZabbixLinks(env, request) {
       hostid: String(l.a.hostid), host: nameOf.get(String(l.a.hostid)),
       equipamento_id: equipOf.get(String(l.a.hostid)) || null,
       interface: l.a.if_name, descricao: l.a.if_alias,
-      oper_status: l.a.oper_status, in_bps: l.a.in_bps, out_bps: l.a.out_bps
+      oper_status: l.a.oper_status, speed_bps: l.a.speed_bps,
+      in_bps: l.a.in_bps, out_bps: l.a.out_bps
     },
     b: {
       hostid: String(l.b.hostid), host: nameOf.get(String(l.b.hostid)),
       equipamento_id: equipOf.get(String(l.b.hostid)) || null,
       interface: l.b.if_name, descricao: l.b.if_alias,
-      oper_status: l.b.oper_status, in_bps: l.b.in_bps, out_bps: l.b.out_bps
+      oper_status: l.b.oper_status, speed_bps: l.b.speed_bps,
+      in_bps: l.b.in_bps, out_bps: l.b.out_bps
     }
   }));
 
