@@ -219,6 +219,38 @@ CREATE TABLE IF NOT EXISTS device_credentials (
   PRIMARY KEY (device_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS device_connection_targets (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  management_ip TEXT NOT NULL,
+  protocol TEXT NOT NULL CHECK(protocol IN ('ssh','telnet')),
+  port INTEGER NOT NULL,
+  browser_url TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort INTEGER NOT NULL DEFAULT 0,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS device_connection_acl (
+  target_id TEXT NOT NULL REFERENCES device_connection_targets(id) ON DELETE CASCADE,
+  role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+  can_connect INTEGER NOT NULL DEFAULT 0,
+  can_manage INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (target_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS device_target_credentials (
+  target_id TEXT NOT NULL REFERENCES device_connection_targets(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  login_username TEXT NOT NULL,
+  password_ciphertext TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (target_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
@@ -235,6 +267,9 @@ CREATE INDEX IF NOT EXISTS idx_zbx_if_oper ON zabbix_interfaces(oper_status);
 CREATE INDEX IF NOT EXISTS idx_zbx_hosts_equip ON zabbix_hosts(equipamento_id);
 CREATE INDEX IF NOT EXISTS idx_zbx_snapshots_taken ON zabbix_traffic_snapshots(taken_at);
 CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_device_targets_device ON device_connection_targets(device_id,sort,name);
+CREATE INDEX IF NOT EXISTS idx_device_acl_role ON device_connection_acl(role_id,target_id);
+CREATE INDEX IF NOT EXISTS idx_device_target_credentials_user ON device_target_credentials(user_id);
 `;
 
 
@@ -869,6 +904,40 @@ async function ensureDatabaseImpl(env) {
       for (const roleId of perfis) grants.push(grantPermission(roleId, destino));
     }
     await runGrants(grants);
+  });
+
+  // Converte o acesso único da primeira versão em um destino nomeado. O texto
+  // cifrado é copiado sem ser aberto; o AAD continua usando usuário+aparelho.
+  await seedOnce(db, "seed.device_connection_targets.v1", async () => {
+    await db.batch([
+      db.prepare(`
+        INSERT OR IGNORE INTO device_connection_targets
+          (id,device_id,name,management_ip,protocol,port,updated_by,created_at,updated_at)
+        SELECT 'legacy:'||device_id,device_id,'Acesso principal',management_ip,protocol,port,updated_by,updated_at,updated_at
+        FROM device_connections
+      `),
+      db.prepare(`
+        INSERT OR IGNORE INTO device_target_credentials
+          (target_id,user_id,login_username,password_ciphertext,updated_at)
+        SELECT 'legacy:'||device_id,user_id,login_username,password_ciphertext,updated_at
+        FROM device_credentials
+      `),
+      db.prepare(`
+        INSERT OR IGNORE INTO device_connection_acl(target_id,role_id,can_connect,can_manage)
+        SELECT t.id,rp.role_id,1,0
+        FROM device_connection_targets t
+        JOIN permissions p ON p.code='topology.connection.use'
+        JOIN role_permissions rp ON rp.permission_id=p.id
+      `),
+      db.prepare(`
+        INSERT INTO device_connection_acl(target_id,role_id,can_connect,can_manage)
+        SELECT t.id,rp.role_id,1,1
+        FROM device_connection_targets t
+        JOIN permissions p ON p.code='topology.connection.configure'
+        JOIN role_permissions rp ON rp.permission_id=p.id
+        ON CONFLICT(target_id,role_id) DO UPDATE SET can_connect=1,can_manage=1
+      `)
+    ]);
   });
 
   /* O painel de tráfego ganhou ajustes próprios (limites, período, apelidos de
@@ -2300,6 +2369,9 @@ async function handleTopology(env,request) {
       UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
     `).bind(JSON.stringify(after),nextVersion,user.id),
     ...diff.equipamentos.removed.flatMap(id => [
+      db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_connection_targets WHERE device_id=?`).bind(id),
       db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
       db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id)
     ])
@@ -2385,68 +2457,173 @@ function publicCredential(row) {
   } : null;
 }
 
-async function handleDeviceConnection(env, request, deviceId) {
-  const gate = await requirePermission(env, request,
-    request.method === "GET" ? "topology.connection.use" : "topology.connection.configure");
-  if (gate.response) return gate.response;
-  if (!(await topologyHasDevice(env, request, deviceId))) return json({error:"EQUIPAMENTO_NAO_ENCONTRADO"},404);
-  const db = getDB(env);
+function normalizeBrowserUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && url.username === "" && url.password === "" && raw.length <= 512
+      ? url.toString() : null;
+  } catch { return null; }
+}
 
-  if (request.method === "GET") {
-    const [connection, credential] = await Promise.all([
-      db.prepare(`SELECT management_ip,protocol,port,updated_at FROM device_connections WHERE device_id=?`).bind(deviceId).first(),
-      db.prepare(`SELECT login_username,password_ciphertext,updated_at FROM device_credentials WHERE device_id=? AND user_id=?`)
-        .bind(deviceId,gate.user.id).first()
-    ]);
-    return json({
-      connection:connection ? {
-        ip:connection.management_ip,
-        protocol:connection.protocol,
-        port:Number(connection.port),
-        updated_at:connection.updated_at
-      } : null,
-      credentials:publicCredential(credential)
-    });
-  }
+async function targetAccess(env, user, target) {
+  const globalManage = await hasPermission(env,user,"topology.connection.configure");
+  if (globalManage) return {can_connect:true,can_manage:true,global_manage:true};
+  const row = await getDB(env).prepare(`
+    SELECT can_connect,can_manage FROM device_connection_acl WHERE target_id=? AND role_id=?
+  `).bind(target.id,user.role_id).first();
+  return {
+    can_connect:Boolean(row?.can_connect || row?.can_manage),
+    can_manage:Boolean(row?.can_manage),
+    global_manage:false
+  };
+}
 
-  if (request.method === "DELETE") {
-    const before = await db.prepare(`SELECT management_ip,protocol,port FROM device_connections WHERE device_id=?`).bind(deviceId).first();
-    await db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(deviceId).run();
-    await audit(env,request,gate.user,"DEVICE_CONNECTION_DELETE","device_connection",deviceId,before,null);
-    return json({ok:true});
-  }
-
-  let body;
-  try { body = await readJson(request, 8192); }
-  catch { return json({error:"JSON_INVALIDO"},400); }
+async function normalizedTargetBody(db, body) {
+  const name = String(body.name || "").trim();
   const ip = normalizeManagementIp(body.ip);
   const protocol = String(body.protocol || "").toLowerCase();
   const port = Number(body.port);
-  if (!ip) return json({error:"IP_DE_GERENCIA_INVALIDO"},400);
-  if (!['ssh','telnet'].includes(protocol)) return json({error:"PROTOCOLO_INVALIDO"},400);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return json({error:"PORTA_INVALIDA"},400);
+  const rawBrowserUrl = String(body.browser_url || "").trim();
+  const browserUrl = normalizeBrowserUrl(rawBrowserUrl);
+  if (!name || name.length > 100) return {error:"NOME_DO_DESTINO_INVALIDO"};
+  if (!ip) return {error:"IP_DE_GERENCIA_INVALIDO"};
+  if (!['ssh','telnet'].includes(protocol)) return {error:"PROTOCOLO_INVALIDO"};
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return {error:"PORTA_INVALIDA"};
+  if (rawBrowserUrl && !browserUrl) return {error:"URL_DO_TERMINAL_DEVE_USAR_HTTPS"};
 
-  const before = await db.prepare(`SELECT management_ip,protocol,port FROM device_connections WHERE device_id=?`).bind(deviceId).first();
-  await db.prepare(`
-    INSERT INTO device_connections(device_id,management_ip,protocol,port,updated_by,updated_at)
-    VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(device_id) DO UPDATE SET
-      management_ip=excluded.management_ip,protocol=excluded.protocol,port=excluded.port,
-      updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP
-  `).bind(deviceId,ip,protocol,port,gate.user.id).run();
-  const after = {management_ip:ip,protocol,port};
-  await audit(env,request,gate.user,"DEVICE_CONNECTION_UPDATE","device_connection",deviceId,before,after);
-  return json({ok:true,connection:{ip,protocol,port}});
+  const validRoles = new Set(((await db.prepare(`SELECT id FROM roles`).all()).results || []).map(r => Number(r.id)));
+  const requestedConnect = Array.isArray(body.connect_role_ids) ? body.connect_role_ids.map(Number) : [];
+  const requestedManage = Array.isArray(body.manage_role_ids) ? body.manage_role_ids.map(Number) : [];
+  if ([...requestedConnect,...requestedManage].some(id => !Number.isInteger(id) || !validRoles.has(id)))
+    return {error:"PERFIL_DE_ACESSO_INVALIDO"};
+  const manageRoleIds = [...new Set(requestedManage)];
+  const connectRoleIds = [...new Set([...requestedConnect,...manageRoleIds])];
+  return {name,ip,protocol,port,browser_url:browserUrl,connectRoleIds,manageRoleIds};
 }
 
-async function handleDeviceCredentials(env, request, deviceId, reveal = false) {
-  const gate = await requirePermission(env, request,"topology.connection.use");
+function targetAclStatements(db, targetId, normalized) {
+  const manage = new Set(normalized.manageRoleIds);
+  return [
+    db.prepare(`DELETE FROM device_connection_acl WHERE target_id=?`).bind(targetId),
+    ...normalized.connectRoleIds.map(roleId => db.prepare(`
+      INSERT INTO device_connection_acl(target_id,role_id,can_connect,can_manage) VALUES (?,?,1,?)
+    `).bind(targetId,roleId,manage.has(roleId)?1:0))
+  ];
+}
+
+async function handleDeviceConnections(env, request, deviceId) {
+  const required = request.method === "POST" ? "topology.connection.configure" : "topology.connection.use";
+  const gate = await requirePermission(env,request,required);
   if (gate.response) return gate.response;
-  if (!(await topologyHasDevice(env, request, deviceId))) return json({error:"EQUIPAMENTO_NAO_ENCONTRADO"},404);
+  if (!(await topologyHasDevice(env,request,deviceId))) return json({error:"EQUIPAMENTO_NAO_ENCONTRADO"},404);
   const db = getDB(env);
+
+  if (request.method === "POST") {
+    let body; try { body = await readJson(request,16384); } catch { return json({error:"JSON_INVALIDO"},400); }
+    const normalized = await normalizedTargetBody(db,body);
+    if (normalized.error) return json({error:normalized.error},400);
+    const id = crypto.randomUUID();
+    await db.batch([
+      db.prepare(`
+        INSERT INTO device_connection_targets
+          (id,device_id,name,management_ip,protocol,port,browser_url,updated_by,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      `).bind(id,deviceId,normalized.name,normalized.ip,normalized.protocol,normalized.port,normalized.browser_url,gate.user.id),
+      ...targetAclStatements(db,id,normalized)
+    ]);
+    await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_CREATE","device_connection_target",id,null,
+      {...normalized,device_id:deviceId});
+    return json({ok:true,id},201);
+  }
+
+  const [targetsResult, aclResult, rolesResult] = await Promise.all([
+    db.prepare(`
+      SELECT t.*,c.login_username,c.password_ciphertext,c.updated_at credential_updated_at
+      FROM device_connection_targets t
+      LEFT JOIN device_target_credentials c ON c.target_id=t.id AND c.user_id=?
+      WHERE t.device_id=? AND t.active=1 ORDER BY t.sort,t.name
+    `).bind(gate.user.id,deviceId).all(),
+    db.prepare(`
+      SELECT a.target_id,a.role_id,a.can_connect,a.can_manage,r.name role_name
+      FROM device_connection_acl a JOIN roles r ON r.id=a.role_id
+      JOIN device_connection_targets t ON t.id=a.target_id
+      WHERE t.device_id=? ORDER BY r.name
+    `).bind(deviceId).all(),
+    db.prepare(`SELECT id,name,description FROM roles ORDER BY name`).all()
+  ]);
+  const aclByTarget = new Map();
+  for (const row of aclResult.results || []) {
+    if (!aclByTarget.has(row.target_id)) aclByTarget.set(row.target_id,[]);
+    aclByTarget.get(row.target_id).push(row);
+  }
+  const globalManage = await hasPermission(env,gate.user,"topology.connection.configure");
+  const targets = (targetsResult.results || []).map(row => {
+    const acl = aclByTarget.get(row.id) || [];
+    const own = acl.find(a => Number(a.role_id) === Number(gate.user.role_id));
+    const canManage = globalManage || Boolean(own?.can_manage);
+    const canConnect = canManage || Boolean(own?.can_connect);
+    if (!canConnect) return null;
+    return {
+      id:row.id,name:row.name,ip:row.management_ip,protocol:row.protocol,port:Number(row.port),
+      browser_url:row.browser_url,updated_at:row.updated_at,can_manage:canManage,
+      credentials:publicCredential(row.login_username ? {
+        login_username:row.login_username,password_ciphertext:row.password_ciphertext,updated_at:row.credential_updated_at
+      } : null),
+      connect_role_ids:canManage?acl.filter(a=>a.can_connect||a.can_manage).map(a=>Number(a.role_id)):undefined,
+      manage_role_ids:canManage?acl.filter(a=>a.can_manage).map(a=>Number(a.role_id)):undefined,
+      access_profiles:acl.filter(a=>a.can_connect||a.can_manage).map(a=>({name:a.role_name,manage:Boolean(a.can_manage)}))
+    };
+  }).filter(Boolean);
+  return json({targets,roles:rolesResult.results || [],can_create:globalManage});
+}
+
+async function handleDeviceConnectionTarget(env, request, deviceId, targetId) {
+  const gate = await requirePermission(env,request,"topology.connection.use");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const target = await db.prepare(`SELECT * FROM device_connection_targets WHERE id=? AND device_id=?`).bind(targetId,deviceId).first();
+  if (!target) return json({error:"DESTINO_NAO_ENCONTRADO"},404);
+  const access = await targetAccess(env,gate.user,target);
+  if (!access.can_manage) return json({error:"FORBIDDEN",permission:"device_connection.manage"},403);
+
+  if (request.method === "DELETE") {
+    await db.batch([
+      db.prepare(`DELETE FROM device_target_credentials WHERE target_id=?`).bind(targetId),
+      db.prepare(`DELETE FROM device_connection_acl WHERE target_id=?`).bind(targetId),
+      db.prepare(`DELETE FROM device_connection_targets WHERE id=?`).bind(targetId)
+    ]);
+    await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_DELETE","device_connection_target",targetId,target,null);
+    return json({ok:true});
+  }
+
+  let body; try { body = await readJson(request,16384); } catch { return json({error:"JSON_INVALIDO"},400); }
+  const normalized = await normalizedTargetBody(db,body);
+  if (normalized.error) return json({error:normalized.error},400);
+  await db.batch([
+    db.prepare(`
+      UPDATE device_connection_targets SET name=?,management_ip=?,protocol=?,port=?,browser_url=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND device_id=?
+    `).bind(normalized.name,normalized.ip,normalized.protocol,normalized.port,normalized.browser_url,gate.user.id,targetId,deviceId),
+    ...targetAclStatements(db,targetId,normalized)
+  ]);
+  await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_UPDATE","device_connection_target",targetId,target,normalized);
+  return json({ok:true});
+}
+
+async function handleTargetCredentials(env, request, deviceId, targetId, reveal = false) {
+  const gate = await requirePermission(env,request,"topology.connection.use");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const target = await db.prepare(`SELECT id,device_id FROM device_connection_targets WHERE id=? AND device_id=? AND active=1`)
+    .bind(targetId,deviceId).first();
+  if (!target) return json({error:"DESTINO_NAO_ENCONTRADO"},404);
+  const access = await targetAccess(env,gate.user,target);
+  if (!access.can_connect) return json({error:"FORBIDDEN",permission:"device_connection.connect"},403);
   const before = await db.prepare(`
-    SELECT login_username,password_ciphertext,updated_at FROM device_credentials WHERE device_id=? AND user_id=?
-  `).bind(deviceId,gate.user.id).first();
+    SELECT login_username,password_ciphertext,updated_at FROM device_target_credentials WHERE target_id=? AND user_id=?
+  `).bind(targetId,gate.user.id).first();
 
   if (reveal) {
     if (!before?.password_ciphertext) return json({error:"CREDENCIAL_SEM_SENHA"},404);
@@ -2457,26 +2634,22 @@ async function handleDeviceCredentials(env, request, deviceId, reveal = false) {
         return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
       return json({error:"NAO_FOI_POSSIVEL_DECIFRAR_A_CREDENCIAL"},500);
     }
-    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_REVEAL","device_credential",deviceId,null,null,{username:before.login_username});
+    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_REVEAL","device_target_credential",targetId,null,null,{username:before.login_username});
     return json({password});
   }
-
   if (request.method === "DELETE") {
-    await db.prepare(`DELETE FROM device_credentials WHERE device_id=? AND user_id=?`).bind(deviceId,gate.user.id).run();
-    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_DELETE","device_credential",deviceId,
-      before ? {username:before.login_username,has_password:Boolean(before.password_ciphertext)} : null,null);
+    await db.prepare(`DELETE FROM device_target_credentials WHERE target_id=? AND user_id=?`).bind(targetId,gate.user.id).run();
+    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_DELETE","device_target_credential",targetId,
+      before?{username:before.login_username,has_password:Boolean(before.password_ciphertext)}:null,null);
     return json({ok:true});
   }
 
-  let body;
-  try { body = await readJson(request, 8192); }
-  catch { return json({error:"JSON_INVALIDO"},400); }
+  let body; try { body = await readJson(request,8192); } catch { return json({error:"JSON_INVALIDO"},400); }
   const username = String(body.username || "").trim();
   const passwordProvided = Object.hasOwn(body,"password") && String(body.password).length > 0;
   if (!username || username.length > 128) return json({error:"USUARIO_DE_ACESSO_INVALIDO"},400);
   if (!before && !passwordProvided) return json({error:"SENHA_DE_ACESSO_OBRIGATORIA"},400);
   if (passwordProvided && String(body.password).length > 512) return json({error:"SENHA_DE_ACESSO_MUITO_LONGA"},400);
-
   let ciphertext = before?.password_ciphertext || null;
   if (passwordProvided) {
     try { ciphertext = await encryptDevicePassword(env,String(body.password),gate.user.id,deviceId); }
@@ -2487,14 +2660,14 @@ async function handleDeviceCredentials(env, request, deviceId, reveal = false) {
     }
   }
   await db.prepare(`
-    INSERT INTO device_credentials(device_id,user_id,login_username,password_ciphertext,updated_at)
+    INSERT INTO device_target_credentials(target_id,user_id,login_username,password_ciphertext,updated_at)
     VALUES (?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(device_id,user_id) DO UPDATE SET
+    ON CONFLICT(target_id,user_id) DO UPDATE SET
       login_username=excluded.login_username,password_ciphertext=excluded.password_ciphertext,updated_at=CURRENT_TIMESTAMP
-  `).bind(deviceId,gate.user.id,username,ciphertext).run();
-  const after = {username,has_password:Boolean(ciphertext)};
-  await audit(env,request,gate.user,"DEVICE_CREDENTIAL_UPDATE","device_credential",deviceId,
-    before ? {username:before.login_username,has_password:Boolean(before.password_ciphertext)} : null,after);
+  `).bind(targetId,gate.user.id,username,ciphertext).run();
+  const after={username,has_password:Boolean(ciphertext)};
+  await audit(env,request,gate.user,"DEVICE_CREDENTIAL_UPDATE","device_target_credential",targetId,
+    before?{username:before.login_username,has_password:Boolean(before.password_ciphertext)}:null,after);
   return json({ok:true,credentials:after});
 }
 
@@ -2655,16 +2828,23 @@ export default {
           return await handleTopology(env,request);
 
         const connectionMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)$/);
-        if (connectionMatch && ["GET","PUT","DELETE"].includes(request.method))
-          return await handleDeviceConnection(env,request,decodeURIComponent(connectionMatch[1]));
+        if (connectionMatch && ["GET","POST"].includes(request.method))
+          return await handleDeviceConnections(env,request,decodeURIComponent(connectionMatch[1]));
 
-        const credentialMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/credentials$/);
+        const targetMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/([^/]+)$/);
+        if (targetMatch && ["PUT","DELETE"].includes(request.method))
+          return await handleDeviceConnectionTarget(env,request,
+            decodeURIComponent(targetMatch[1]),decodeURIComponent(targetMatch[2]));
+
+        const credentialMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/([^/]+)\/credentials$/);
         if (credentialMatch && ["PUT","DELETE"].includes(request.method))
-          return await handleDeviceCredentials(env,request,decodeURIComponent(credentialMatch[1]));
+          return await handleTargetCredentials(env,request,
+            decodeURIComponent(credentialMatch[1]),decodeURIComponent(credentialMatch[2]));
 
-        const revealMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/credentials\/reveal$/);
+        const revealMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/([^/]+)\/credentials\/reveal$/);
         if (revealMatch && request.method === "POST")
-          return await handleDeviceCredentials(env,request,decodeURIComponent(revealMatch[1]),true);
+          return await handleTargetCredentials(env,request,
+            decodeURIComponent(revealMatch[1]),decodeURIComponent(revealMatch[2]),true);
 
         if (url.pathname === "/api/users" && request.method === "GET")
           return await handleUsers(env,request);

@@ -1072,57 +1072,72 @@
     }));
   }
 
+  function targetAccessFields(data, target = {}) {
+    const connect = new Set(target.connect_role_ids || []);
+    const manage = new Set(target.manage_role_ids || []);
+    return `<div class="row" style="gap:var(--s-5);align-items:flex-start">
+      <div class="field grow"><label>Pode conectar</label>
+        <div class="stack" style="gap:6px">${data.roles.map((r) => `<label class="row" style="gap:8px"><input type="checkbox" name="connect_role" value="${r.id}" ${connect.has(r.id) ? "checked" : ""}> ${esc(r.name)}</label>`).join("")}</div></div>
+      <div class="field grow"><label>Pode administrar</label>
+        <div class="stack" style="gap:6px">${data.roles.map((r) => `<label class="row" style="gap:8px"><input type="checkbox" name="manage_role" value="${r.id}" ${manage.has(r.id) ? "checked" : ""}> ${esc(r.name)}</label>`).join("")}</div></div>
+    </div>`;
+  }
+
+  function targetForm(data, target = null) {
+    const protocol = target?.protocol || "ssh";
+    return `<form class="stack" data-target-form data-target-id="${esc(target?.id || "")}">
+      <div class="row" style="gap:var(--s-3);align-items:flex-start">
+        <div class="field grow"><label>Nome do destino</label><input class="input" name="name" maxlength="100" placeholder="Ex.: Acesso pela matriz" value="${esc(target?.name || "")}" required></div>
+        <div class="field grow"><label>IP de acesso</label><input class="input mono" name="ip" placeholder="192.168.0.1" value="${esc(target?.ip || "")}" required></div>
+      </div>
+      <div class="row" style="gap:var(--s-3);align-items:flex-start">
+        <div class="field" style="width:130px"><label>Protocolo</label><select class="select" name="protocol">
+          <option value="ssh" ${protocol === "ssh" ? "selected" : ""}>SSH</option>
+          <option value="telnet" ${protocol === "telnet" ? "selected" : ""}>TELNET</option>
+        </select></div>
+        <div class="field" style="width:110px"><label>Porta</label><input class="input mono" name="port" type="number" min="1" max="65535" value="${target?.port || (protocol === "telnet" ? 23 : 22)}" required></div>
+        <div class="field grow"><label>URL do terminal web</label><input class="input" name="browser_url" type="url" placeholder="https://ssh-aparelho.seudominio.com" value="${esc(target?.browser_url || "")}">
+          <span class="field-hint">Endereço HTTPS publicado pelo túnel para abrir o terminal no navegador.</span></div>
+      </div>
+      ${targetAccessFields(data,target || {})}
+      <div class="row-between"><button class="btn btn-primary" type="submit">${target ? "Salvar destino" : "Adicionar destino"}</button>
+        ${target ? '<button class="btn btn-danger btn-sm" type="button" data-delete-target>Excluir destino</button>' : ""}</div>
+    </form>`;
+  }
+
   function connectionTab(e, data) {
-    const connection = data.connection;
-    const credentials = data.credentials;
-    const canConfigure = NOC.can("topology.connection.configure");
-    const protocol = connection?.protocol || "ssh";
-    const port = connection?.port || (protocol === "telnet" ? 23 : 22);
-    const ready = Boolean(connection && credentials?.username && credentials?.has_password);
-    return `
-      <form id="connectionForm" class="stack">
-        <div class="card" style="padding:var(--s-4)">
-          <div class="row-between" style="margin-bottom:var(--s-4)">
-            <div><span class="kicker">Aparelho</span><h3 style="font-size:var(--fs-14);margin-top:4px">Acesso de gerência</h3></div>
-            ${connection ? `<span class="badge badge-info">${esc(protocol.toUpperCase())} • ${esc(connection.ip)}:${port}</span>` : '<span class="badge badge-warn">Não configurado</span>'}
+    return `<div class="stack">
+      <div class="row-between wrap" style="gap:var(--s-3)">
+        <div><span class="kicker">Aparelho</span><h3 style="font-size:var(--fs-14);margin-top:4px">Destinos de acesso</h3>
+          <p class="dim" style="font-size:var(--fs-11)">Cada destino possui endereço, terminal, perfis autorizados e credenciais pessoais.</p></div>
+        <span class="badge badge-info">${data.targets.length} destino${data.targets.length === 1 ? "" : "s"}</span>
+      </div>
+      ${data.can_create ? `<details class="card" style="padding:var(--s-4)"><summary class="btn btn-primary" style="display:inline-flex;cursor:pointer">Adicionar destino</summary><div style="margin-top:var(--s-4)">${targetForm(data)}</div></details>` : ""}
+      ${data.targets.length ? data.targets.map((target) => {
+        const credentials = target.credentials;
+        const ready = Boolean(credentials?.username && credentials?.has_password);
+        const profiles = target.access_profiles?.map((p) => `<span class="badge ${p.manage ? "badge-info" : ""}">${esc(p.name)}${p.manage ? " • administra" : ""}</span>`).join(" ") || '<span class="badge badge-warn">Somente administradores globais</span>';
+        return `<section class="card stack" style="padding:var(--s-4)" data-target-card="${esc(target.id)}">
+          <div class="row-between wrap" style="gap:var(--s-3)">
+            <div><h3 style="font-size:var(--fs-14)">${esc(target.name)}</h3><div class="row wrap" style="margin-top:6px">${profiles}</div></div>
+            <div class="row wrap"><span class="badge badge-info">${esc(target.protocol.toUpperCase())} • ${esc(target.ip)}:${target.port}</span>
+              <span class="badge ${target.browser_url ? "badge-ok" : "badge-warn"}">${target.browser_url ? "Terminal web pronto" : "Sem terminal web"}</span></div>
           </div>
-          <div class="row" style="gap:var(--s-3);align-items:flex-start">
-            <div class="field grow"><label for="mgmtIp">IP de acesso</label>
-              <input class="input mono" id="mgmtIp" inputmode="decimal" placeholder="192.168.0.1" value="${esc(connection?.ip || "")}" ${canConfigure ? "required" : "disabled"}></div>
-            <div class="field" style="width:120px"><label for="mgmtProtocol">Protocolo</label>
-              <select class="select" id="mgmtProtocol" ${canConfigure ? "" : "disabled"}>
-                <option value="ssh" ${protocol === "ssh" ? "selected" : ""}>SSH</option>
-                <option value="telnet" ${protocol === "telnet" ? "selected" : ""}>TELNET</option>
-              </select></div>
-            <div class="field" style="width:105px"><label for="mgmtPort">Porta</label>
-              <input class="input mono" id="mgmtPort" type="number" min="1" max="65535" value="${port}" ${canConfigure ? "required" : "disabled"}></div>
-          </div>
-          <p class="field-hint">${canConfigure ? "O IP, o protocolo e a porta são compartilhados por todos os usuários deste aparelho." : "Somente perfis autorizados podem alterar o IP, o protocolo e a porta."}</p>
-        </div>
-
-        <div class="card" style="padding:var(--s-4)">
-          <div class="row-between" style="margin-bottom:var(--s-4)">
-            <div><span class="kicker">Pessoal</span><h3 style="font-size:var(--fs-14);margin-top:4px">Minhas credenciais</h3></div>
-            <span class="badge ${credentials?.has_password ? "badge-ok" : ""}">${credentials?.has_password ? "Senha protegida" : "Não cadastradas"}</span>
-          </div>
-          <div class="field"><label for="mgmtUser">Usuário no aparelho</label>
-            <input class="input" id="mgmtUser" autocomplete="username" maxlength="128" value="${esc(credentials?.username || "")}" required></div>
-          <div class="field"><label for="mgmtPassword">Senha no aparelho</label>
-            <input class="input" id="mgmtPassword" type="password" autocomplete="new-password" maxlength="512"
-              placeholder="${credentials?.has_password ? "Deixe em branco para manter a senha atual" : "Digite sua senha de acesso"}" ${credentials?.has_password ? "" : "required"}>
-            <span class="field-hint">A senha é criptografada antes de ser gravada e pertence somente ao seu usuário.</span></div>
-        </div>
-
-        <div class="row-between wrap" style="gap:var(--s-3)">
-          <span class="row wrap">
-            <button class="btn btn-primary" type="submit">Salvar conexão</button>
-            <button class="btn" type="button" data-copy-password ${credentials?.has_password ? "" : "disabled"}>${icon("lock")} Copiar senha</button>
-            <button class="btn" type="button" data-connect ${ready ? "" : "disabled"}>Conectar via ${esc(protocol.toUpperCase())}</button>
-          </span>
-          <button class="btn btn-danger btn-sm" type="button" data-remove-credentials ${credentials ? "" : "disabled"}>Remover minhas credenciais</button>
-        </div>
-        <p class="dim" style="font-size:var(--fs-11)">Ao conectar, o navegador abre o cliente ${esc(protocol.toUpperCase())} instalado neste computador. A senha nunca é incluída no endereço de conexão.</p>
-      </form>`;
+          <form class="stack" data-credential-form data-target-id="${esc(target.id)}">
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label>Meu usuário neste destino</label><input class="input" name="username" autocomplete="username" maxlength="128" value="${esc(credentials?.username || "")}" required></div>
+              <div class="field grow"><label>Minha senha</label><input class="input" name="password" type="password" autocomplete="new-password" maxlength="512" placeholder="${credentials?.has_password ? "Em branco mantém a senha atual" : "Digite sua senha"}" ${credentials?.has_password ? "" : "required"}></div>
+            </div>
+            <div class="row-between wrap" style="gap:var(--s-3)"><span class="row wrap">
+              <button class="btn btn-primary" type="submit">Salvar minhas credenciais</button>
+              <button class="btn" type="button" data-copy-password ${credentials?.has_password ? "" : "disabled"}>${icon("lock")} Copiar senha</button>
+              <button class="btn" type="button" data-connect ${ready ? "" : "disabled"}>Conectar via ${esc(target.protocol.toUpperCase())}</button>
+            </span><button class="btn btn-danger btn-sm" type="button" data-remove-credentials ${credentials ? "" : "disabled"}>Remover credenciais</button></div>
+          </form>
+          ${target.can_manage ? `<details><summary class="btn btn-sm" style="display:inline-flex;cursor:pointer">Editar destino e permissões</summary><div style="margin-top:var(--s-4)">${targetForm(data,target)}</div></details>` : ""}
+        </section>`;
+      }).join("") : '<div class="empty"><b>Nenhum destino disponível</b><span>Peça a um administrador para cadastrar um destino e liberar seu perfil.</span></div>'}
+    </div>`;
   }
 
   async function loadConnectionTab(e, root) {
@@ -1139,69 +1154,53 @@
   }
 
   function wireConnectionTab(e, root, data) {
-    const form = $("#connectionForm", root);
-    const protocol = $("#mgmtProtocol", form);
-    const port = $("#mgmtPort", form);
-    protocol?.addEventListener("change", () => {
-      const oldDefault = protocol.value === "ssh" ? "23" : "22";
-      if (!port.value || port.value === oldDefault) port.value = protocol.value === "ssh" ? "22" : "23";
+    $$('[data-target-form]',root).forEach((form) => {
+      const protocol = $('[name="protocol"]',form), port = $('[name="port"]',form);
+      protocol.onchange = () => {
+        const oldDefault = protocol.value === "ssh" ? "23" : "22";
+        if (!port.value || port.value === oldDefault) port.value = protocol.value === "ssh" ? "22" : "23";
+      };
+      form.onsubmit = async (ev) => {
+        ev.preventDefault(); const submit=$('[type="submit"]',form); submit.disabled=true;
+        const payload={
+          name:form.elements.name.value.trim(),ip:form.elements.ip.value.trim(),protocol:protocol.value,
+          port:Number(port.value),browser_url:form.elements.browser_url.value.trim(),
+          connect_role_ids:new FormData(form).getAll("connect_role").map(Number),
+          manage_role_ids:new FormData(form).getAll("manage_role").map(Number)
+        };
+        try {
+          if(form.dataset.targetId) await NOC.deviceConnection.save(e.id,form.dataset.targetId,payload);
+          else await NOC.deviceConnection.create(e.id,payload);
+          toast("Destino salvo",{type:"ok"}); await loadConnectionTab(e,root);
+        } catch(err){toast("Não foi possível salvar",{text:err.message,type:"danger"});submit.disabled=false;}
+      };
+      const del=$('[data-delete-target]',form);
+      if(del) del.onclick=()=>askConfirm({title:"Excluir este destino?",text:"As credenciais pessoais vinculadas a este destino também serão removidas.",confirmLabel:"Excluir destino",danger:true,onConfirm:async()=>{
+        await NOC.deviceConnection.remove(e.id,form.dataset.targetId);toast("Destino excluído",{type:"ok"});await loadConnectionTab(e,root);
+      }});
     });
 
-    form.onsubmit = async (ev) => {
-      ev.preventDefault();
-      const submit = form.querySelector('[type="submit"]');
-      submit.disabled = true;
-      try {
-        if (NOC.can("topology.connection.configure")) {
-          await NOC.deviceConnection.save(e.id, {
-            ip: $("#mgmtIp", form).value.trim(),
-            protocol: protocol.value,
-            port: Number(port.value),
-          });
-        }
-        const credentials = { username: $("#mgmtUser", form).value.trim() };
-        const password = $("#mgmtPassword", form).value;
-        if (password) credentials.password = password;
-        await NOC.deviceConnection.saveCredentials(e.id, credentials);
-        toast("Conexão salva", { text: "O acesso do aparelho e suas credenciais estão prontos.", type: "ok" });
-        await loadConnectionTab(e, root);
-      } catch (err) {
-        toast("Não foi possível salvar", { text: err.message, type: "danger" });
-        submit.disabled = false;
-      }
-    };
-
-    const copy = $("[data-copy-password]", form);
-    if (copy) copy.onclick = async () => {
-      copy.disabled = true;
-      try {
-        const result = await NOC.deviceConnection.revealPassword(e.id);
-        await navigator.clipboard.writeText(result.password);
-        toast("Senha copiada", { text: "Cole-a no cliente e evite deixá-la na área de transferência.", type: "ok" });
-      } catch (err) {
-        toast("Não foi possível copiar", { text: err.message, type: "danger" });
-      } finally { copy.disabled = false; }
-    };
-
-    const connect = $("[data-connect]", form);
-    if (connect) connect.onclick = () => {
-      const c = data.connection;
-      const username = data.credentials?.username;
-      if (!c || !username) return;
-      const host = c.ip.includes(":") ? `[${c.ip}]` : c.ip;
-      location.href = `${c.protocol}://${encodeURIComponent(username)}@${host}:${c.port}`;
-    };
-
-    const remove = $("[data-remove-credentials]", form);
-    if (remove) remove.onclick = () => askConfirm({
-      title: "Remover suas credenciais?",
-      text: `O IP de gerência de ${e.nome} continua cadastrado, mas seu usuário e sua senha serão apagados.`,
-      confirmLabel: "Remover credenciais", danger: true,
-      onConfirm: async () => {
-        await NOC.deviceConnection.removeCredentials(e.id);
-        toast("Credenciais removidas", { type: "ok" });
-        await loadConnectionTab(e, root);
-      },
+    $$('[data-credential-form]',root).forEach((form) => {
+      const target=data.targets.find(t=>t.id===form.dataset.targetId); if(!target)return;
+      form.onsubmit=async(ev)=>{ev.preventDefault();const submit=$('[type="submit"]',form);submit.disabled=true;
+        const credentials={username:form.elements.username.value.trim()};
+        if(form.elements.password.value)credentials.password=form.elements.password.value;
+        try{await NOC.deviceConnection.saveCredentials(e.id,target.id,credentials);toast("Credenciais salvas",{type:"ok"});await loadConnectionTab(e,root);}
+        catch(err){toast("Não foi possível salvar",{text:err.message,type:"danger"});submit.disabled=false;}
+      };
+      $('[data-copy-password]',form).onclick=async(ev)=>{const button=ev.currentTarget;button.disabled=true;try{
+        const result=await NOC.deviceConnection.revealPassword(e.id,target.id);await navigator.clipboard.writeText(result.password);toast("Senha copiada",{type:"ok"});
+      }catch(err){toast("Não foi possível copiar",{text:err.message,type:"danger"});}finally{button.disabled=false;}};
+      $('[data-connect]',form).onclick=async()=>{
+        if(target.browser_url){window.open(target.browser_url,"_blank","noopener");return;}
+        const username=target.credentials?.username;const host=target.ip.includes(":")?`[${target.ip}]`:target.ip;
+        const command=target.protocol==="ssh"?`ssh -p ${target.port} ${username}@${host}`:`telnet ${host} ${target.port}`;
+        try{await navigator.clipboard.writeText(command);}catch{}
+        toast("Terminal web não configurado",{text:`O comando foi copiado: ${command}`,type:"warn"});
+      };
+      $('[data-remove-credentials]',form).onclick=()=>askConfirm({title:"Remover suas credenciais?",text:`Seu usuário e sua senha de ${target.name} serão apagados.`,confirmLabel:"Remover credenciais",danger:true,onConfirm:async()=>{
+        await NOC.deviceConnection.removeCredentials(e.id,target.id);toast("Credenciais removidas",{type:"ok"});await loadConnectionTab(e,root);
+      }});
     });
   }
 

@@ -539,6 +539,7 @@ table.table { width: 100%; border-collapse: collapse; }
   pointer-events: auto;
   width: min(560px, 100%);
   max-height: calc(100vh - var(--s-10));
+  max-height: calc(100dvh - var(--s-10));
   display: flex;
   flex-direction: column;
   background: var(--surface-1);
@@ -548,8 +549,20 @@ table.table { width: 100%; border-collapse: collapse; }
   animation: modal-in var(--dur-3) var(--ease-out);
 }
 .modal-card.is-wide { width: min(1080px, 100%); }
+/* Alguns editores usam um form envolvendo cabeçalho, conteúdo e rodapé.
+   Ele também precisa participar do layout flexível do modal; sem isso, o
+   conteúdo cresce além da tela e deixa os botões de ação inacessíveis. */
+.modal-card > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
+  overflow: hidden;
+  border-radius: inherit;
+}
 @keyframes modal-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
 .modal-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -557,8 +570,15 @@ table.table { width: 100%; border-collapse: collapse; }
   padding: var(--s-5);
   border-bottom: 1px solid var(--line);
 }
-.modal-body { padding: var(--s-5); overflow: auto; }
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--s-5);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .modal-foot {
+  flex: 0 0 auto;
   padding: var(--s-4) var(--s-5);
   border-top: 1px solid var(--line);
   display: flex;
@@ -567,6 +587,14 @@ table.table { width: 100%; border-collapse: collapse; }
   gap: var(--s-3);
   background: var(--surface-2);
   border-radius: 0 0 var(--r-lg) var(--r-lg);
+}
+
+@media (max-height: 700px), (max-width: 640px) {
+  .modal { padding: var(--s-2); }
+  .modal-card {
+    max-height: calc(100vh - var(--s-4));
+    max-height: calc(100dvh - var(--s-4));
+  }
 }
 
 /* Gaveta lateral: usada para detalhe de equipamento e de conexão.

@@ -386,15 +386,18 @@ window.NOC = (() => {
   /* ---------------- acesso remoto aos equipamentos ---------------- */
   const deviceConnection = {
     get: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`),
-    save: (deviceId, connection) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`, {
-      method: "PUT", body: JSON.stringify(connection),
+    create: (deviceId, target) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`, {
+      method: "POST", body: JSON.stringify(target),
     }),
-    remove: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`, { method: "DELETE" }),
-    saveCredentials: (deviceId, credentials) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials`, {
+    save: (deviceId, targetId, target) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}`, {
+      method: "PUT", body: JSON.stringify(target),
+    }),
+    remove: (deviceId, targetId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}`, { method: "DELETE" }),
+    saveCredentials: (deviceId, targetId, credentials) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}/credentials`, {
       method: "PUT", body: JSON.stringify(credentials),
     }),
-    removeCredentials: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials`, { method: "DELETE" }),
-    revealPassword: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials/reveal`, { method: "POST" }),
+    removeCredentials: (deviceId, targetId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}/credentials`, { method: "DELETE" }),
+    revealPassword: (deviceId, targetId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}/credentials/reveal`, { method: "POST" }),
   };
 
   /* speed_bps e in_bps/out_bps vêm em bits/s. */
