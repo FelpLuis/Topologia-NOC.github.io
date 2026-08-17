@@ -20,6 +20,18 @@
   };
   let repaintDevice = null; // repinta a gaveta aberta depois de editar uma porta
 
+  /* Cada funcionalidade da tela exige a sua ação, do mesmo jeito que o Worker
+     verifica na gravação — os nomes são os do catálogo em Plataforma → Perfis.
+     topology.edit/delete continuam sendo a base de qualquer escrita. */
+  const podeCriarEquipamento = () => NOC.canAll(["topology.edit", "topology.equipment.create"]);
+  const podeEditarEquipamento = () => NOC.canAll(["topology.edit", "topology.equipment.edit"]);
+  const podeExcluirEquipamento = () => NOC.canAll(["topology.delete", "topology.equipment.delete"]);
+  const podeEditarPorta = () => NOC.canAll(["topology.edit", "topology.port.edit"]);
+  const podeCriarEnlace = () => NOC.canAll(["topology.edit", "topology.link.create"]);
+  const podeRemoverEnlace = () => NOC.canAll(["topology.delete", "topology.link.delete"]);
+  const podeVincularPop = () => NOC.canAll(["topology.edit", "topology.pop.link"]);
+  const podeCriarPop = () => NOC.canAll(["topology.edit", "pops.create"]);
+
   const device = (id) => (NOC.data()?.equipamentos || []).find((e) => e.id === id);
   const sites = () => [
     ...NOC.pops().map((p) => ({ id: p.id, nome: p.nome, local: (p.rotas || []).length + " rota(s)", tipo: "POP" })),
@@ -668,10 +680,10 @@
         </header>
         <div class="drawer-body" id="devBody"></div>
         <footer class="drawer-foot">
-          <span class="dim" style="font-size:var(--fs-11)">${NOC.can("topology.edit") ? "Alterações são auditadas com usuário, IP e data/hora." : "Seu perfil tem acesso somente de leitura."}</span>
+          <span class="dim" style="font-size:var(--fs-11)">${podeEditarEquipamento() ? "Alterações são auditadas com usuário, IP e data/hora." : "Seu perfil tem acesso somente de leitura."}</span>
           <span class="row">
             <a class="btn btn-sm" href="/legado.html">Editor clássico</a>
-            <button class="btn btn-sm btn-primary" data-edit type="button" ${NOC.can("topology.edit") ? "" : "disabled title='Requer a permissão topology.edit'"}>Editar</button>
+            <button class="btn btn-sm btn-primary" data-edit type="button" ${podeEditarEquipamento() ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.edit'"}>Editar</button>
           </span>
         </footer>`,
       onMount: (host, close) => {
@@ -754,7 +766,7 @@
           <td>${remoto ? `<button class="btn btn-ghost btn-sm" data-goto="${esc(remoto.id)}">${esc(remoto.nome)} • porta ${remotaPorta}</button>` : '<span class="dim">—</span>'}</td>
           <td><button class="btn btn-ghost btn-sm btn-icon" data-editport="${p.numero}" type="button"
                 aria-label="Editar a porta ${p.numero}" title="Editar porta e conexão"
-                ${NOC.can("topology.edit") ? "" : "disabled"}>${icon("edit")}</button></td>
+                ${podeEditarPorta() ? "" : "disabled"}>${icon("edit")}</button></td>
         </tr>`;
       }).join("") : `<tr><td colspan="6"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
       $$("#portRows [data-goto]", root).forEach((b) => (b.onclick = () => openDevice(b.dataset.goto)));
@@ -782,8 +794,8 @@
   function openPort(e, numero, opts = {}) {
     const p = e.portas.find((x) => +x.numero === numero);
     if (!p) return;
-    const canEdit = NOC.can("topology.edit");
-    const canDelete = NOC.can("topology.delete");
+    const canEdit = podeEditarPorta();
+    const canDelete = podeRemoverEnlace();
 
     modal({
       labelledBy: "portTitle",
@@ -805,8 +817,11 @@
           const c = NOC.portConnection(e.id, numero);
           const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
           const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
-          // Alterar ou apagar um enlace existente conta como remoção na API.
-          const travado = !!c && !canDelete;
+          /* Alterar ou apagar um enlace existente conta como remoção na API;
+             documentar um enlace novo exige a ação de criação de enlace. */
+          const semRemover = !!c && !canDelete;
+          const semCriar = !c && !podeCriarEnlace();
+          const travado = semRemover || semCriar;
 
           $("#portSub", host).textContent = `${p.tipo || "—"} • ${p.capacidade || "A confirmar"}`;
 
@@ -868,10 +883,12 @@
               <hr>
               <div class="row-between">
                 <h3 style="font-size:var(--fs-13)">${icon("link")} O que está conectado nesta porta</h3>
-                ${c ? `<button class="btn btn-danger btn-sm" type="button" data-unlink ${canDelete ? "" : "disabled title='Requer a permissão topology.delete'"}>${icon("trash")} Remover enlace</button>` : ""}
+                ${c ? `<button class="btn btn-danger btn-sm" type="button" data-unlink ${canDelete ? "" : "disabled title='Requer as ações topology.delete + topology.link.delete'"}>${icon("trash")} Remover enlace</button>` : ""}
               </div>
-              ${travado ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
-                <span>Esta porta já tem enlace. Alterar ou remover um enlace existente exige a permissão <b>topology.delete</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
+              ${semRemover ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
+                <span>Esta porta já tem enlace. Alterar ou remover um enlace existente exige as ações <b>topology.delete</b> e <b>topology.link.delete</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
+              ${semCriar ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
+                <span>Documentar um enlace novo exige as ações <b>topology.edit</b> e <b>topology.link.create</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
               <div class="row" style="gap:var(--s-3);align-items:flex-start">
                 <div class="field grow"><label for="pDest">Equipamento conectado</label>
                   <select class="select" id="pDest" ${travado ? "disabled" : ""}>
@@ -1024,7 +1041,7 @@
             <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
             <button class="btn btn-sm" type="button" data-focus="${esc(remoto?.id || "")}">Ver no mapa</button>
             <button class="btn btn-sm" type="button" data-editlink="${saida ? c.portaOrigem : c.portaDestino}"
-              ${NOC.can("topology.edit") ? "" : "disabled title='Requer a permissão topology.edit'"}>Editar</button>
+              ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>Editar</button>
           </div>
         </div>
       </div>`;
@@ -1044,7 +1061,7 @@
   }
 
   function sheetTab(e) {
-    const canEdit = NOC.can("topology.edit");
+    const canEdit = podeEditarEquipamento();
     return `
       <form id="sheetForm" class="stack">
         <div class="row-between">
@@ -1079,7 +1096,7 @@
         <div class="row-between">
           <div><b style="font-size:var(--fs-13)">Remover equipamento</b>
             <p class="dim" style="font-size:var(--fs-11)">Remove o equipamento, as portas e os enlaces ligados a ele.</p></div>
-          <button class="btn btn-danger btn-sm" type="button" data-delete ${NOC.can("topology.delete") ? "" : "disabled title='Requer a permissão topology.delete'"}>${icon("trash")} Remover</button>
+          <button class="btn btn-danger btn-sm" type="button" data-delete ${podeExcluirEquipamento() ? "" : "disabled title='Requer as ações topology.delete + topology.equipment.delete'"}>${icon("trash")} Remover</button>
         </div>
       </form>`;
   }
@@ -1219,7 +1236,7 @@
 
   /* ---------------- gerenciar rede ---------------- */
   function openManage() {
-    const canEdit = NOC.can("topology.edit");
+    const canEdit = podeVincularPop();
     modal({
       wide: true,
       labelledBy: "mgTitle",
@@ -1290,7 +1307,7 @@
               <div class="row-between">
                 <span class="dim" style="font-size:var(--fs-11)">As portas nascem livres, com capacidade “A confirmar”.</span>
                 <span class="row"><button class="btn" data-close type="button">Cancelar</button>
-                <button class="btn btn-primary" type="submit" ${canEdit ? "" : "disabled"}>Cadastrar equipamento</button></span>
+                <button class="btn btn-primary" type="submit" ${podeCriarEquipamento() ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.create'"}>Cadastrar equipamento</button></span>
               </div>
             </form>`,
           pops: () => `
@@ -1298,7 +1315,7 @@
               <form class="row" style="gap:var(--s-3);align-items:flex-end" id="newPop">
                 <div class="field grow"><label for="pNome">Novo POP</label><input class="input" id="pNome" placeholder="Ex.: POP ASCENTY"></div>
                 <div class="field grow"><label for="pRotas">Rotas (separadas por vírgula)</label><input class="input" id="pRotas" placeholder="Aérea → Santos, Subterrânea → Cubatão"></div>
-                <button class="btn btn-primary" type="submit" ${canEdit ? "" : "disabled"}>Criar POP</button>
+                <button class="btn btn-primary" type="submit" ${podeCriarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.create'"}>Criar POP</button>
               </form>
               <div class="table-wrap"><table class="table">
                 <thead><tr><th>POP</th><th>Rotas</th><th class="num">Equipamentos</th><th class="num">Portas</th><th></th></tr></thead>
@@ -1321,7 +1338,7 @@
                 <td><b>${esc(device(c.origem)?.nome || c.origem)}</b> <span class="dim mono">porta ${c.portaOrigem}</span></td>
                 <td><b>${esc(device(c.destino)?.nome || c.destino)}</b> <span class="dim mono">porta ${c.portaDestino}</span></td>
                 <td>${esc(c.tipo || "—")}</td><td>${esc(c.capacidade || "A confirmar")}</td>
-                <td><button class="btn btn-sm" type="button" data-editconn="${i}" ${canEdit && device(c.origem) ? "" : "disabled"}>Editar</button></td></tr>`).join("")}</tbody>
+                <td><button class="btn btn-sm" type="button" data-editconn="${i}" ${podeEditarPorta() && device(c.origem) ? "" : "disabled"}>Editar</button></td></tr>`).join("")}</tbody>
             </table></div>
             <p class="dim" style="font-size:var(--fs-11);margin-top:var(--s-3)">
               ${icon("info")} Um enlace é editado pela porta de origem: escolha o equipamento e a porta do outro lado.
@@ -1462,12 +1479,9 @@
     const t = NOC.data();
     if (t.config?.coreTitle) $("#topoKicker").textContent = t.config.coreTitle;
     state.layout = { ...(t.config?.layout || {}) };
-    if (!NOC.can("topology.edit")) {
-      [$("#btnManage"), $("#btnLayout")].forEach((b) => {
-        b.disabled = true;
-        b.title = "Requer a permissão topology.edit";
-      });
-    }
+    // Cada botão declara a ação que exige no HTML (data-action) e o NOC
+    // aplica o perfil do usuário de uma vez só.
+    NOC.applyActions(document);
 
     renderFilters();
     layout();

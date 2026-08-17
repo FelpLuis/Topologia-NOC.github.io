@@ -35,13 +35,53 @@ window.NOC = (() => {
     return `Falha na requisição (HTTP ${status}).`;
   }
 
-  /* ---------------- estado da topologia ---------------- */
-  const state = { topology: null, permissions: new Set(), version: null };
+  /* ---------------- acesso do usuário ---------------- */
+  /* Ações e telas do perfil vêm de /api/access. É a mesma lista que a tela
+     Plataforma monta em Perfis: o que não está marcado lá não aparece aqui. */
+  const state = { topology: null, permissions: new Set(), screens: [], version: null };
+  let accessPromise = null;
 
+  function loadAccess() {
+    if (!accessPromise) {
+      accessPromise = api("/api/access")
+        .then((a) => {
+          state.permissions = new Set(a.permissions || []);
+          state.screens = Array.isArray(a.screens) ? a.screens : [];
+          return a;
+        })
+        .catch((err) => { accessPromise = null; throw err; });
+    }
+    return accessPromise;
+  }
+
+  const can = (code) => state.permissions.has(code);
+  const canAll = (codes) => codes.every(can);
+  const screens = () => state.screens;
+  const hasScreen = (code) => state.screens.some((s) => s.code === code);
+
+  /* Gating declarativo: o HTML anuncia a ação exigida com data-action e a
+     regra de acesso é aplicada em um lugar só, em vez de espalhada por tela.
+     data-action-hide esconde em vez de desabilitar. */
+  function applyActions(root = document) {
+    root.querySelectorAll("[data-action]").forEach((el) => {
+      const codes = el.dataset.action.split(/\s+/).filter(Boolean);
+      const liberado = canAll(codes);
+      if (el.hasAttribute("data-action-hide")) {
+        el.hidden = !liberado;
+        return;
+      }
+      el.disabled = !liberado;
+      el.classList.toggle("is-denied", !liberado);
+      if (!liberado) el.title = `Requer a ação ${codes.join(" + ")} no seu perfil.`;
+      else if (el.dataset.actionTitle !== undefined) el.title = el.dataset.actionTitle;
+    });
+  }
+
+  /* ---------------- estado da topologia ---------------- */
   async function load() {
-    const [topology, perms] = await Promise.all([
+    const [topology] = await Promise.all([
       api("/api/topology"),
-      api("/api/topology/permissions").catch(() => ({ permissions: [] })),
+      loadAccess().catch(() => ({ permissions: [] })),
     ]);
     topology.equipamentos = Array.isArray(topology.equipamentos) ? topology.equipamentos : [];
     topology.conexoes = Array.isArray(topology.conexoes) ? topology.conexoes : [];
@@ -52,11 +92,9 @@ window.NOC = (() => {
     });
     state.topology = topology;
     state.version = topology.version;
-    state.permissions = new Set(perms.permissions || []);
     return topology;
   }
 
-  const can = (code) => state.permissions.has(code);
   const data = () => state.topology;
 
   /* Grava a topologia inteira: é assim que a API foi desenhada, e é o que
@@ -222,7 +260,8 @@ window.NOC = (() => {
   }
 
   return {
-    api, load, save, data, can, pops, popById, suggestPop, effectivePop, isSuggested,
+    api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
+    pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, grafanaHealth, skeleton, errorState,
     zabbix, interfaceStatus, formatBps,

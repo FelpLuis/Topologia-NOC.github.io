@@ -51,7 +51,8 @@
 
   /* ---------------- lista de POPs ---------------- */
   function render() {
-    const canEdit = NOC.can("topology.edit");
+    // Vincular equipamento a um POP é ação da topologia, não do cadastro do POP.
+    const canEdit = NOC.canAll(["topology.edit", "topology.pop.link"]);
     const foco = new URLSearchParams(location.search).get("pop");
     const pops = NOC.pops();
 
@@ -476,7 +477,7 @@
   }
 
   function openRoutes() {
-    const canEdit = NOC.can("topology.edit");
+    const canEdit = NOC.canAll(["topology.edit", "pops.routes"]);
     modal({
       wide: true,
       labelledBy: "rotasTitle",
@@ -500,7 +501,7 @@
               <div class="field grow" style="min-width:170px"><label for="rB">Para</label><select class="select" id="rB">${opcoes(pops[1]?.id)}</select></div>
               <div class="field" style="width:180px"><label for="rTipo">Tipo</label>
                 <select class="select" id="rTipo"><option>Aérea</option><option>Subterrânea</option></select></div>
-              <button class="btn btn-primary" type="submit" ${canEdit ? "" : "disabled title='Requer a permissão topology.edit'"}>Adicionar rota</button>
+              <button class="btn btn-primary" type="submit" ${canEdit ? "" : "disabled title='Requer as ações topology.edit + pops.routes'"}>Adicionar rota</button>
             </form>
             <div class="table-wrap" style="max-height:360px"><table class="table">
               <thead><tr><th>POP</th><th>POP</th><th>Aérea</th><th>Subterrânea</th></tr></thead>
@@ -590,12 +591,8 @@
 
     state.ring = { ...(NOC.data()?.config?.ringLayout || {}) };
 
-    if (!NOC.can("topology.edit")) {
-      [$("#btnOrder"), $("#btnRing"), $("#btnRoutes")].forEach((b) => {
-        b.disabled = true;
-        b.title = "Requer a permissão topology.edit";
-      });
-    }
+    // As ações exigidas por cada botão estão declaradas no HTML (data-action).
+    NOC.applyActions(document);
     $("#btnOrder").onclick = toggleOrder;
     $("#orderSave").onclick = saveOrder;
     $("#orderDiscard").onclick = discardOrder;

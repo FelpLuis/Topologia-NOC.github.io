@@ -9,21 +9,37 @@
 
   const state = {
     tab: "perfis",
-    model: { roles: [], permissions: [], screens: [], rolePermissions: [], roleScreens: [] },
+    model: { roles: [], permissions: [], screens: [], rolePermissions: [], roleScreens: [], can: {}, protectedRole: "administrador" },
     users: [],
     audit: [],
     role: null,
+    roleQuery: "",
+    dirty: false,
     userQuery: "", userFilter: "todos",
     auditQuery: "", auditFilter: "todos",
-    isAdmin: false,
   };
 
+  const can = (acao) => !!state.model.can?.[acao];
+  const ehProtegido = (r) => r?.name === state.model.protectedRole;
   const permIdsOf = (roleId) => new Set(state.model.rolePermissions.filter((x) => x.role_id === roleId).map((x) => x.permission_id));
   const screenIdsOf = (roleId) => new Set(state.model.roleScreens.filter((x) => x.role_id === roleId).map((x) => x.screen_id));
+
+  /* Ações agrupadas na mesma ordem do catálogo do Worker: cada módulo do
+     sistema vira um bloco, então nenhuma funcionalidade fica de fora da tela. */
+  function modulos() {
+    const grupos = new Map();
+    state.model.permissions.forEach((p) => {
+      const chave = p.module || "Geral";
+      if (!grupos.has(chave)) grupos.set(chave, { nome: chave, screen_code: p.screen_code, acoes: [] });
+      grupos.get(chave).acoes.push(p);
+    });
+    return [...grupos.values()];
+  }
 
   /* ---------------- carregamento ---------------- */
   async function loadModel() {
     state.model = await NOC.api("/api/platform/roles");
+    state.dirty = false;
     if (!state.role) state.role = state.model.roles[0] || null;
     else state.role = state.model.roles.find((r) => r.id === state.role.id) || state.model.roles[0] || null;
     renderRoles();
@@ -41,16 +57,36 @@
 
   /* ---------------- perfis ---------------- */
   function renderRoles() {
-    $("#roleList").innerHTML = state.model.roles.map((r) => `
+    const q = state.roleQuery;
+    const lista = state.model.roles.filter((r) => !q || `${r.name} ${r.description || ""}`.toLowerCase().includes(q));
+
+    $("#roleList").innerHTML = lista.length ? lista.map((r) => `
       <button class="role-item" type="button" data-role="${r.id}" aria-current="${state.role?.id === r.id}">
         <span class="row-between"><b>${esc(r.name)}</b>
-          <span class="badge">${permIdsOf(r.id).size} perm.</span></span>
+          <span class="row" style="gap:4px">
+            <span class="badge">${permIdsOf(r.id).size} ações</span>
+            <span class="badge">${screenIdsOf(r.id).size} telas</span>
+          </span></span>
         <small>${esc(r.description || "Sem descrição.")}</small>
-      </button>`).join("");
+        <small class="dim">${r.usuarios || 0} usuário${Number(r.usuarios) === 1 ? "" : "s"}${ehProtegido(r) ? " • perfil protegido" : ""}</small>
+      </button>`).join("")
+      : `<div class="empty" style="padding:var(--s-4)"><b>Nenhum perfil encontrado</b><p>Ajuste a busca.</p></div>`;
+
     $$("#roleList [data-role]").forEach((b) => (b.onclick = () => {
-      state.role = state.model.roles.find((r) => r.id === +b.dataset.role);
-      renderRoles();
-      renderRoleEditor();
+      const ir = () => {
+        state.role = state.model.roles.find((r) => r.id === +b.dataset.role);
+        state.dirty = false;
+        renderRoles();
+        renderRoleEditor();
+      };
+      if (!state.dirty) return ir();
+      askConfirm({
+        title: "Descartar as alterações?",
+        text: `As mudanças no perfil ${state.role?.name} ainda não foram salvas.`,
+        confirmLabel: "Descartar e trocar de perfil",
+        danger: true,
+        onConfirm: ir,
+      });
     }));
   }
 
@@ -58,13 +94,39 @@
     const r = state.role;
     const host = $("#roleEditor");
     if (!r) {
-      host.innerHTML = `<div class="empty"><span class="empty-icon">${icon("shield")}</span><b>Selecione um perfil</b><p>As permissões e as telas aparecem aqui.</p></div>`;
+      host.innerHTML = `<div class="empty"><span class="empty-icon">${icon("shield")}</span><b>Selecione um perfil</b><p>As ações e as telas aparecem aqui.</p></div>`;
       return;
     }
     const perms = permIdsOf(r.id);
     const screens = screenIdsOf(r.id);
-    const protegido = r.name === "administrador";
-    const bloqueado = protegido || !state.isAdmin;
+    const protegido = ehProtegido(r);
+    const editavel = can("manageRoles");
+    // O administrador continua com acesso total: só o texto do perfil muda.
+    const acessoBloqueado = protegido || !editavel;
+
+    const telaPorCodigo = Object.fromEntries(state.model.screens.map((s) => [s.code, s]));
+
+    const blocoAcoes = (m) => {
+      const tela = telaPorCodigo[m.screen_code];
+      const marcadas = m.acoes.filter((p) => perms.has(p.id)).length;
+      return `
+        <div class="perm-box" data-modulo="${esc(m.nome)}">
+          <div class="row-between" style="gap:var(--s-2);padding-bottom:var(--s-3);border-bottom:1px solid var(--line);margin-bottom:var(--s-2)">
+            <span>
+              <b style="font-size:var(--fs-13)">${esc(m.nome)}</b>
+              <small class="dim" style="display:block;font-size:var(--fs-11)">
+                ${tela ? `Tela ${esc(tela.name)}` : "Sistema"} • <span data-conta>${marcadas}</span>/${m.acoes.length} ações
+              </small>
+            </span>
+            ${acessoBloqueado ? "" : `<button class="btn btn-ghost btn-sm" type="button" data-todas>Marcar todas</button>`}
+          </div>
+          ${m.acoes.map((p) => `
+            <label class="checkbox">
+              <input type="checkbox" data-perm="${p.id}" ${perms.has(p.id) ? "checked" : ""} ${acessoBloqueado ? "disabled" : ""}>
+              <span><b>${esc(p.name || p.code)}</b><small>${esc(p.description || "")}<br><span class="mono dim">${esc(p.code)}</span></small></span>
+            </label>`).join("")}
+        </div>`;
+    };
 
     host.innerHTML = `
       <div class="card-head">
@@ -74,66 +136,144 @@
           <p>${esc(r.description || "Sem descrição.")}</p>
         </div>
         <div class="row wrap" style="gap:6px;justify-content:flex-end">
-          <span class="badge badge-info">${perms.size} permissões</span>
-          <span class="badge">${screens.size} telas</span>
+          <span class="badge badge-info" id="contaAcoes">${perms.size} ações</span>
+          <span class="badge" id="contaTelas">${screens.size} telas</span>
+          <span class="badge">${r.usuarios || 0} usuário${Number(r.usuarios) === 1 ? "" : "s"}</span>
           ${protegido ? '<span class="badge badge-ok">perfil protegido</span>' : ""}
         </div>
       </div>
       <div class="card-body stack">
         ${protegido ? `<div class="alert alert-info" style="animation:none">${icon("info")}
-          <span>O perfil administrador mantém acesso total por definição do sistema — é a garantia de que sempre existe quem consiga reabrir o acesso.</span></div>` : ""}
+          <span>O perfil administrador mantém acesso total por definição do sistema — é a garantia de que sempre existe quem consiga reabrir o acesso. O nome e a descrição continuam editáveis.</span></div>` : ""}
+        ${editavel ? "" : `<div class="alert alert-info" style="animation:none">${icon("info")}
+          <span>Seu perfil pode consultar, mas não alterar, a configuração de acesso. É preciso a ação <b class="mono">roles.manage</b>.</span></div>`}
 
-        <div class="field">
-          <label for="roleDesc">Descrição</label>
-          <textarea class="textarea" id="roleDesc" ${state.isAdmin ? "" : "disabled"}>${esc(r.description || "")}</textarea>
+        <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+          <div class="field grow" style="min-width:220px">
+            <label for="roleName">Nome do perfil</label>
+            <input class="input" id="roleName" value="${esc(r.name)}" ${!editavel || protegido ? "disabled" : ""}>
+            <span class="field-hint">${protegido ? "O perfil administrador não pode ser renomeado." : "Letras minúsculas, números, hífen e sublinhado."}</span>
+          </div>
+          <div class="field grow" style="min-width:260px">
+            <label for="roleDesc">Descrição</label>
+            <textarea class="textarea" id="roleDesc" ${editavel ? "" : "disabled"}>${esc(r.description || "")}</textarea>
+          </div>
         </div>
 
-        <div class="perm-grid">
-          <div class="perm-box">
-            <h3>Permissões</h3>
-            ${state.model.permissions.map((p) => `
-              <label class="checkbox">
-                <input type="checkbox" data-perm="${p.id}" ${perms.has(p.id) ? "checked" : ""} ${bloqueado ? "disabled" : ""}>
-                <span><b class="mono">${esc(p.code)}</b><small>${esc(p.description || "")}</small></span>
-              </label>`).join("")}
+        <div class="perm-box">
+          <div class="row-between" style="gap:var(--s-2);padding-bottom:var(--s-3);border-bottom:1px solid var(--line);margin-bottom:var(--s-2)">
+            <span>
+              <b style="font-size:var(--fs-13)">Telas do sistema</b>
+              <small class="dim" style="display:block;font-size:var(--fs-11)">O que este perfil consegue abrir no menu.</small>
+            </span>
+            ${acessoBloqueado ? "" : `<button class="btn btn-ghost btn-sm" type="button" data-todas-telas>Marcar todas</button>`}
           </div>
-          <div class="perm-box">
-            <h3>Telas visíveis</h3>
+          <div class="perm-grid" style="gap:var(--s-2)">
             ${state.model.screens.map((s) => `
               <label class="checkbox">
-                <input type="checkbox" data-screen="${s.id}" ${screens.has(s.id) && s.active ? "checked" : ""} ${!s.active || bloqueado ? "disabled" : ""}>
-                <span><b>${esc(s.name)}</b><small>${esc(s.route || "")} — ${esc(s.description || "")}${s.active ? "" : " (tela desativada)"}</small></span>
+                <input type="checkbox" data-screen="${s.id}" ${screens.has(s.id) ? "checked" : ""} ${!s.active || acessoBloqueado ? "disabled" : ""}>
+                <span><b>${esc(s.name)}</b><small><span class="mono">${esc(s.route || "")}</span> — ${esc(s.description || "")}${s.active ? "" : " (tela desativada)"}</small></span>
               </label>`).join("")}
           </div>
+        </div>
+
+        <div>
+          <h3 style="font-size:var(--fs-13);margin-bottom:var(--s-2)">Funcionalidades</h3>
+          <p class="dim" style="font-size:var(--fs-11);margin-bottom:var(--s-3)">
+            Cada funcionalidade do sistema é uma ação declarada aqui. A tela diz onde o perfil entra; a ação diz o que ele faz lá dentro.
+          </p>
+          <div class="perm-grid">${modulos().map(blocoAcoes).join("")}</div>
         </div>
       </div>
       <div class="card-foot" style="justify-content:space-between">
-        <span class="dim" style="font-size:var(--fs-11)">${state.isAdmin ? "Somente o perfil administrador altera RBAC." : "Seu perfil não pode alterar RBAC."}</span>
+        <span class="dim" style="font-size:var(--fs-11)" id="roleDirty">Toda alteração de perfil é auditada.</span>
         <span class="row">
-          ${protegido || !state.isAdmin ? "" : `<button class="btn btn-danger btn-sm" id="delRole" type="button">${icon("trash")} Excluir perfil</button>`}
-          <button class="btn btn-primary btn-sm" id="saveRole" type="button" ${bloqueado ? "disabled" : ""}>Salvar alterações</button>
+          ${editavel ? `<button class="btn btn-sm" id="dupRole" type="button">${icon("plus")} Duplicar</button>` : ""}
+          ${protegido || !editavel ? "" : `<button class="btn btn-danger btn-sm" id="delRole" type="button">${icon("trash")} Excluir perfil</button>`}
+          <button class="btn btn-primary btn-sm" id="saveRole" type="button" ${editavel ? "" : "disabled"}>Salvar alterações</button>
         </span>
       </div>`;
+
+    /* Contadores acompanham a marcação, para o administrador enxergar o
+       tamanho do acesso antes de gravar. */
+    const atualizarResumo = () => {
+      $("#contaAcoes", host).textContent = `${$$("[data-perm]:checked", host).length} ações`;
+      $("#contaTelas", host).textContent = `${$$("[data-screen]:checked", host).length} telas`;
+      $$("[data-modulo]", host).forEach((box) => {
+        const conta = $("[data-conta]", box);
+        if (conta) conta.textContent = $$("[data-perm]:checked", box).length;
+      });
+    };
+
+    const marcarSujo = () => {
+      state.dirty = true;
+      $("#roleDirty", host).innerHTML = "<b>Alterações não salvas.</b>";
+    };
+
+    // #roleEditor sobrevive ao innerHTML: sem remover o anterior, cada
+    // re-render empilharia mais um ouvinte no mesmo elemento.
+    if (host._onChange) host.removeEventListener("change", host._onChange);
+    host._onChange = (e) => {
+      if (!e.target.matches("[data-perm],[data-screen]")) return;
+      atualizarResumo();
+      marcarSujo();
+    };
+    host.addEventListener("change", host._onChange);
+    ["#roleName", "#roleDesc"].forEach((sel) => {
+      const el = $(sel, host);
+      if (el) el.addEventListener("input", marcarSujo);
+    });
+
+    $$("[data-todas]", host).forEach((b) => (b.onclick = () => {
+      const box = b.closest("[data-modulo]");
+      const caixas = $$("[data-perm]:not(:disabled)", box);
+      const marcar = caixas.some((c) => !c.checked);
+      caixas.forEach((c) => (c.checked = marcar));
+      b.textContent = marcar ? "Desmarcar todas" : "Marcar todas";
+      atualizarResumo();
+      marcarSujo();
+    }));
+
+    const todasTelas = $("[data-todas-telas]", host);
+    if (todasTelas) todasTelas.onclick = () => {
+      const caixas = $$("[data-screen]:not(:disabled)", host);
+      const marcar = caixas.some((c) => !c.checked);
+      caixas.forEach((c) => (c.checked = marcar));
+      todasTelas.textContent = marcar ? "Desmarcar todas" : "Marcar todas";
+      atualizarResumo();
+      marcarSujo();
+    };
 
     const save = $("#saveRole");
     if (save) save.onclick = async () => {
       save.classList.add("is-loading");
       try {
-        const permissionIds = $$("[data-perm]:checked", host).map((x) => +x.dataset.perm);
-        const screenIds = $$("[data-screen]:checked", host).map((x) => +x.dataset.screen);
+        const nome = $("#roleName", host).value.trim();
         const description = $("#roleDesc", host).value;
+        if (!protegido && nome !== r.name) {
+          await NOC.api(`/api/platform/roles/${r.id}`, { method: "PATCH", body: JSON.stringify({ name: nome, description }) });
+        } else {
+          await NOC.api(`/api/platform/roles/${r.id}`, { method: "PATCH", body: JSON.stringify({ description }) });
+        }
         await NOC.api(`/api/platform/roles/${r.id}/access`, {
-          method: "PUT", body: JSON.stringify({ permissionIds, screenIds, description }),
+          method: "PUT",
+          body: JSON.stringify({
+            permissionIds: $$("[data-perm]:checked", host).map((x) => +x.dataset.perm),
+            screenIds: $$("[data-screen]:checked", host).map((x) => +x.dataset.screen),
+          }),
         });
-        await NOC.api(`/api/platform/roles/${r.id}`, { method: "PATCH", body: JSON.stringify({ description }) });
+        state.dirty = false;
         await loadModel();
-        toast("Perfil atualizado", { text: `${r.name}: permissões e telas gravadas e auditadas.`, type: "ok" });
+        toast("Perfil atualizado", { text: `${nome || r.name}: ações e telas gravadas e auditadas.`, type: "ok" });
       } catch (err) {
         toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
       } finally {
         save.classList.remove("is-loading");
       }
     };
+
+    const dup = $("#dupRole");
+    if (dup) dup.onclick = () => duplicarPerfil(r, host);
 
     const del = $("#delRole");
     if (del) del.onclick = () => askConfirm({
@@ -145,11 +285,63 @@
         try {
           await NOC.api(`/api/platform/roles/${r.id}`, { method: "DELETE" });
           state.role = null;
+          state.dirty = false;
           await loadModel();
           toast("Perfil excluído", { text: "Exclusão registrada na auditoria.", type: "warn" });
         } catch (err) {
           toast("Não foi possível excluir", { text: err.message, type: "danger", timeout: 7000 });
         }
+      },
+    });
+  }
+
+  /* Duplicar copia o que está marcado na tela: é assim que se cria uma
+     variação de um perfil sem remarcar dezenas de ações uma a uma. */
+  function duplicarPerfil(r, host) {
+    modal({
+      labelledBy: "dupTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${esc(r.name)}</span><h2 id="dupTitle" style="margin-top:6px">Duplicar perfil</h2></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="field"><label for="dupName">Nome do novo perfil</label>
+            <input class="input" id="dupName" value="${esc(r.name)}-copia"></div>
+          <span class="field-hint">As ações e as telas marcadas agora na tela são copiadas para o novo perfil.</span>
+          <span class="field-error" id="dupErr" hidden></span>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">A criação é auditada.</span>
+          <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+          <button class="btn btn-primary" data-go type="button">Duplicar</button></span>
+        </div>`,
+      onMount: (m, close) => {
+        $("[data-go]", m).onclick = async () => {
+          const err = $("#dupErr", m);
+          const name = $("#dupName", m).value.trim();
+          try {
+            const novo = await NOC.api("/api/platform/roles", {
+              method: "POST",
+              body: JSON.stringify({ name, description: r.description || "" }),
+            });
+            await NOC.api(`/api/platform/roles/${novo.id}/access`, {
+              method: "PUT",
+              body: JSON.stringify({
+                permissionIds: $$("[data-perm]:checked", host).map((x) => +x.dataset.perm),
+                screenIds: $$("[data-screen]:checked", host).map((x) => +x.dataset.screen),
+              }),
+            });
+            close();
+            state.role = novo;
+            state.dirty = false;
+            await loadModel();
+            toast("Perfil duplicado", { text: `${novo.name} nasceu com o mesmo acesso de ${r.name}.`, type: "ok" });
+          } catch (e2) {
+            err.hidden = false;
+            err.innerHTML = icon("alert") + " " + esc(e2.message);
+          }
+        };
       },
     });
   }
@@ -217,7 +409,7 @@
         </td>
         <td>
           <label class="sr-only" for="role-${u.id}">Perfil de ${esc(u.display_name || u.username)}</label>
-          <select class="select" id="role-${u.id}" data-user-role="${u.id}" ${state.isAdmin ? "" : "disabled"}>
+          <select class="select" id="role-${u.id}" data-user-role="${u.id}" ${can("manageUsers") ? "" : "disabled"}>
             ${state.model.roles.map((r) => `<option value="${esc(r.name)}" ${r.name === u.role ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
           </select>
         </td>
@@ -225,8 +417,8 @@
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
           <div class="row" style="gap:6px;justify-content:flex-end">
-            <button class="btn btn-sm" type="button" data-reset="${u.id}" ${state.isAdmin ? "" : "disabled"}>Redefinir senha</button>
-            <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${state.isAdmin ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
+            <button class="btn btn-sm" type="button" data-reset="${u.id}" ${can("resetPassword") ? "" : "disabled"}>Redefinir senha</button>
+            <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
           </div>
         </td>
       </tr>`).join("") : `<tr><td colspan="5"><div class="empty">
@@ -396,14 +588,16 @@
   function renderScreens() {
     $("#screenRows").innerHTML = state.model.screens.map((s) => {
       const perfis = state.model.roles.filter((r) => screenIdsOf(r.id).has(s.id));
+      const acoes = state.model.permissions.filter((p) => p.screen_code === s.code);
       return `<tr>
         <td><b>${esc(s.name)}</b><br><small class="dim mono">${esc(s.code)}</small></td>
         <td class="mono dim">${esc(s.route || "—")}</td>
         <td class="dim">${esc(s.description || "")}</td>
+        <td><span class="badge">${acoes.length} ações</span></td>
         <td>${perfis.length ? perfis.map((r) => `<span class="badge">${esc(r.name)}</span>`).join(" ") : '<span class="dim">nenhum</span>'}</td>
         <td>
           <label class="switch">
-            <input type="checkbox" data-screen-toggle="${s.id}" ${s.active ? "checked" : ""} ${state.isAdmin ? "" : "disabled"}>
+            <input type="checkbox" data-screen-toggle="${s.id}" ${s.active ? "checked" : ""} ${can("manageScreens") && s.code !== "platform" ? "" : "disabled"}>
             <span class="switch-track"></span>
             <span class="sr-only">Ativar a tela ${esc(s.name)}</span>
           </label>
@@ -474,7 +668,9 @@
     state.tab = tab;
     $$("[data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
     ["perfis", "usuarios", "telas", "auditoria"].forEach((id) => ($("#painel-" + id).hidden = id !== tab));
-    if (tab === "auditoria" && !state.audit.length) loadAudit().catch((e) => toast("Falha ao carregar auditoria", { text: e.message, type: "danger" }));
+    if (tab === "auditoria" && !state.audit.length && can("viewAudit")) {
+      loadAudit().catch((e) => toast("Falha ao carregar auditoria", { text: e.message, type: "danger" }));
+    }
   }
 
   /* ---------------- início ---------------- */
@@ -490,10 +686,14 @@
     NOC.skeleton($("#roleEditor"), 6);
 
     try {
-      const me = await NOC.api("/api/auth/me");
-      state.isAdmin = me.authenticated && me.user?.role === "administrador";
       await loadModel();
-      await loadUsers();
+      if (can("viewUsers")) await loadUsers();
+      else $("#userRows").innerHTML = `<tr><td colspan="5"><div class="empty">
+        <span class="empty-icon">${icon("users")}</span><b>Sem acesso às contas</b>
+        <p>Seu perfil não tem a ação <span class="mono">users.view</span>.</p></div></td></tr>`;
+      if (!can("viewAudit")) $("#auditList").innerHTML = `<div class="empty">
+        <span class="empty-icon">${icon("clock")}</span><b>Sem acesso à auditoria</b>
+        <p>Seu perfil não tem a ação <span class="mono">audit.view</span>.</p></div>`;
     } catch (err) {
       NOC.errorState($("#roleEditor"), err, () => location.reload());
       toast("Falha ao carregar a plataforma", { text: err.message, type: "danger", timeout: 8000 });
@@ -503,8 +703,20 @@
     $$("[data-tab]").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
     $("#newRole").onclick = openNewRole;
     $("#newUser").onclick = openNewUser;
-    $("#newRole").disabled = !state.isAdmin;
-    $("#newUser").disabled = !state.isAdmin;
+    $("#newRole").disabled = !can("manageRoles");
+    $("#newUser").disabled = !can("manageUsers");
+    $("#btnExport").disabled = !can("exportAudit");
+    $("#roleSearch").addEventListener("input", (e) => {
+      state.roleQuery = e.target.value.trim().toLowerCase();
+      renderRoles();
+    });
+
+    // Aviso antes de perder a marcação de ações ao sair da página.
+    addEventListener("beforeunload", (e) => {
+      if (!state.dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
 
     $("#btnExport").onclick = () => {
       if (!state.audit.length) return toast("Abra a aba Auditoria primeiro", { type: "info" });
@@ -536,8 +748,11 @@
       renderAudit();
     }));
 
-    if (!state.isAdmin) {
-      toast("Somente leitura", { text: "Apenas o perfil administrador altera perfis, telas e contas.", type: "info", timeout: 6000 });
+    if (!can("manageRoles")) {
+      toast("Perfis em modo leitura", {
+        text: "Alterar perfis exige a ação roles.manage. As demais abas seguem o que o seu perfil permite.",
+        type: "info", timeout: 6000,
+      });
     }
   }
 

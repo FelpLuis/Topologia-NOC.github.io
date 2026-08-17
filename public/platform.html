@@ -31,7 +31,7 @@
     </div>
 
     <div class="tabs" role="tablist" aria-label="Módulos de administração" style="margin-bottom:var(--s-5)">
-      <button class="tab" role="tab" aria-selected="true" data-tab="perfis" id="tab-perfis" aria-controls="painel-perfis">Perfis e permissões</button>
+      <button class="tab" role="tab" aria-selected="true" data-tab="perfis" id="tab-perfis" aria-controls="painel-perfis">Perfis e ações</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="usuarios" id="tab-usuarios" aria-controls="painel-usuarios">Usuários <span class="badge" id="userCount">0</span></button>
       <button class="tab" role="tab" aria-selected="false" data-tab="telas" id="tab-telas" aria-controls="painel-telas">Telas do sistema</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="auditoria" id="tab-auditoria" aria-controls="painel-auditoria">Auditoria</button>
@@ -43,6 +43,9 @@
         <aside class="card">
           <div class="card-head"><div><h2 style="font-size:var(--fs-14)">Perfis</h2><p>Selecione para editar.</p></div></div>
           <div class="card-body stack" style="gap:var(--s-2)">
+            <div class="input-affix">
+              <input class="input" id="roleSearch" type="search" placeholder="Buscar perfil" aria-label="Buscar perfil">
+            </div>
             <div id="roleList" class="stack" style="gap:var(--s-2)"></div>
             <button class="btn btn-sm btn-block" id="newRole" type="button">Criar perfil</button>
           </div>
@@ -84,12 +87,12 @@
     <section id="painel-telas" role="tabpanel" aria-labelledby="tab-telas" hidden>
       <div class="card">
         <div class="card-head">
-          <div><h2>Telas do sistema</h2><p>Ative ou desative módulos. O acesso por perfil é definido em Perfis e permissões.</p></div>
+          <div><h2>Telas do sistema</h2><p>Ative ou desative módulos. O acesso por perfil é definido em Perfis e ações.</p></div>
         </div>
         <div class="card-body">
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Perfis com acesso</th><th>Ativa</th></tr></thead>
+              <thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Ações</th><th>Perfis com acesso</th><th>Ativa</th></tr></thead>
               <tbody id="screenRows"></tbody>
             </table>
           </div>

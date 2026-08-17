@@ -318,15 +318,11 @@ O usuário inicial `admin` recebe automaticamente o perfil `administrador`.
 
 Perfis antigos da primeira versão (`admin`, `editor`, `viewer`) são migrados automaticamente para `administrador`, `analista` e `atendimento`, respectivamente, quando o script de inicialização é executado.
 
-Permissões disponíveis:
-
-- `topology.view`
-- `topology.edit`
-- `topology.delete`
-- `users.view`
-- `users.manage`
-- `audit.view`
-- `settings.manage`
+As permissões passaram a ser o **catálogo de ações** descrito em
+[Catálogo de telas e ações](#catálogo-de-telas-e-ações). `topology.view`,
+`topology.edit`, `topology.delete`, `users.view`, `users.manage`, `audit.view` e
+`settings.manage` continuam existindo, agora acompanhadas das ações granulares
+de cada funcionalidade.
 
 ### Auditoria
 
@@ -495,7 +491,7 @@ A tela `/platform.html` concentra:
 - **Gerenciar usuários:** criar usuários, trocar perfil, ativar/desativar e redefinir senha;
 - **Auditoria:** consultar as alterações administrativas.
 
-O perfil `administrador` é o único autorizado a administrar perfis, permissões e telas. As alterações são auditadas.
+Administrar perfis exige a ação `roles.manage` e ativar/desativar telas exige `screens.manage` — por padrão, só o perfil `administrador` tem as duas, mas agora isso é configurável como qualquer outra ação. As alterações são auditadas.
 
 
 ## CORREÇÃO CLOUDFLARE D1
@@ -682,12 +678,12 @@ O script sem `--apply` só gera `backend/data/zabbix-sync.sql` e
 
 | Método | Rota | Permissão |
 | --- | --- | --- |
-| `GET` | `/api/zabbix/health` | `topology.view` |
-| `GET` | `/api/zabbix/status` | `topology.view` |
-| `GET` | `/api/zabbix/hosts` | `topology.view` |
-| `GET` | `/api/zabbix/interfaces` | `topology.view` |
-| `POST` | `/api/zabbix/sync` | `topology.edit` |
-| `PATCH` | `/api/zabbix/hosts/:hostid` | `topology.edit` |
+| `GET` | `/api/zabbix/health` | `zabbix.view` |
+| `GET` | `/api/zabbix/status` | `zabbix.view` |
+| `GET` | `/api/zabbix/hosts` | `zabbix.view` |
+| `GET` | `/api/zabbix/interfaces` | `zabbix.view` |
+| `POST` | `/api/zabbix/sync` | `zabbix.sync` |
+| `PATCH` | `/api/zabbix/hosts/:hostid` | `zabbix.link` |
 
 Filtros de `/api/zabbix/interfaces`: `equipamento`, `hostid`, `status=up|down`,
 `conectadas=1` (só as com enlace documentado), `q` (busca em nome e alias) e
@@ -695,3 +691,63 @@ Filtros de `/api/zabbix/interfaces`: `equipamento`, `hostid`, `status=up|down`,
 
 No front, `NOC.zabbix` (`public/js/noc-api.js`) cobre todos eles, com
 `NOC.formatBps()` e `NOC.interfaceStatus()` para exibição.
+
+
+## Catálogo de telas e ações
+
+Toda tela e toda funcionalidade do sistema são **declaradas no catálogo do
+Worker** (`SCREENS` e `ACTIONS` em `src/worker.js`) e aparecem em
+`/platform.html` → **Perfis e ações**, onde são marcadas perfil a perfil.
+
+- **Tela** responde por *onde o perfil entra* (`screens` + `role_screens`).
+- **Ação** responde por *o que ele faz lá dentro* (`permissions` + `role_permissions`).
+
+### Telas
+
+| Código | Rota | Tela |
+| --- | --- | --- |
+| `network` | `/` | Topologia |
+| `pops` | `/pops.html` | POPs e anel óptico |
+| `dashboard` | `/dashboard.html` | Dashboard NOC |
+| `platform` | `/platform.html` | Gerenciar plataforma |
+| `legado` | `/legado.html` | Editor clássico |
+
+O menu lateral, o menu inferior e o guardião de rotas (`public/js/auth-guard.js`)
+são montados a partir desse catálogo: incluir uma tela nova no `SCREENS` já a
+coloca em Perfis, no menu e sob controle de acesso, sem lista fixa no front.
+
+### Ações
+
+| Módulo | Ações |
+| --- | --- |
+| Topologia (`network`) | `topology.view`, `topology.edit`, `topology.delete`, `topology.equipment.create`, `topology.equipment.edit`, `topology.equipment.delete`, `topology.port.edit`, `topology.link.create`, `topology.link.delete`, `topology.pop.link`, `topology.layout`, `topology.config` |
+| Monitoramento (`network`) | `zabbix.view`, `zabbix.sync`, `zabbix.link` |
+| POPs e anel (`pops`) | `pops.create`, `pops.edit`, `pops.delete`, `pops.order`, `pops.routes`, `pops.ring.layout` |
+| Plataforma (`platform`) | `roles.view`, `roles.manage`, `screens.manage`, `users.view`, `users.manage`, `users.password`, `audit.view`, `audit.export`, `settings.manage` |
+
+`topology.edit` e `topology.delete` continuam sendo a base de qualquer gravação
+ou remoção na topologia; as ações granulares são exigidas **além** delas.
+
+### Como a ação é verificada
+
+A topologia é gravada inteira em `PUT /api/topology`, então o Worker deduz as
+ações exigidas do **diff entre o estado anterior e o enviado**
+(`requiredTopologyActions`) — nunca de um rótulo mandado pelo cliente. Criar um
+POP exige `pops.create`, mexer em portas exige `topology.port.edit`, arrastar o
+mapa exige `topology.layout`, e assim por diante.
+
+No front, os botões declaram a ação exigida no próprio HTML
+(`data-action="topology.edit pops.order"`) e `NOC.applyActions()` aplica o
+perfil de uma vez só.
+
+### Perfis editáveis
+
+Em **Perfis e ações** é possível criar, renomear, descrever, duplicar e excluir
+perfis, além de marcar telas e ações por módulo. O perfil `administrador` é
+protegido: não pode ser renomeado nem excluído e mantém acesso total (o Worker
+reaplica todas as ações e telas a ele em cada inicialização).
+
+Os acessos padrão dos perfis são semeados **uma única vez** (registrado em
+`platform_meta`): o que o administrador desmarcar não volta em um novo deploy.
+Perfis criados fora do catálogo recebem as ações novas equivalentes ao que já
+podiam fazer (`ACTION_EQUIVALENCE`), também uma única vez.

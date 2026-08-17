@@ -58,11 +58,14 @@
     window.UPDOWN_ACCESS=access;
 
     const screens=Array.isArray(access.screens)?access.screens:[];
+    const catalogo=Array.isArray(access.allScreens)?access.allScreens:[];
+    const liberadas=new Set(screens.map(s=>s.code));
+
     const platform=document.getElementById("platformBtn");
     const dashboard=document.getElementById("dashboardBtn");
     const manageNetwork=document.getElementById("manageNetworkBtn");
     if(platform){
-      if(screens.some(s=>s.code==="platform")){
+      if(liberadas.has("platform")){
         platform.classList.remove("hidden");
         platform.onclick=()=>location.href="/platform.html";
       }else{
@@ -70,19 +73,30 @@
       }
     }
 
-    if(dashboard && !screens.some(s=>s.code==="dashboard"))
-      dashboard.classList.add("hidden");
+    if(dashboard && !liberadas.has("dashboard")) dashboard.classList.add("hidden");
+    if(manageNetwork && !liberadas.has("network")) manageNetwork.classList.add("hidden");
 
-    if(manageNetwork && !screens.some(s=>s.code==="network"))
-      manageNetwork.classList.add("hidden");
+    /* Guardião genérico de rotas: toda tela declarada no catálogo é protegida
+       pelo que o perfil tem marcado, sem lista fixa aqui dentro. */
+    const normaliza=(rota)=>String(rota||"").replace(/\/index\.html$/,"/")||"/";
+    const atual=normaliza(location.pathname);
+    const tela=catalogo.find(s=>normaliza(s.route)===atual);
 
-    if(location.pathname==="/dashboard.html" && !screens.some(s=>s.code==="dashboard")){
-      location.href="/";
-      return;
-    }
-
-    if(location.pathname==="/platform.html" && !screens.some(s=>s.code==="platform")){
-      location.href="/";
+    if(tela && (!liberadas.has(tela.code) || !tela.active)){
+      const destino=screens.find(s=>normaliza(s.route)!==atual);
+      if(destino){
+        location.replace(destino.route);
+        return;
+      }
+      // Sem nenhuma tela liberada não há para onde mandar o usuário:
+      // redirecionar aqui viraria laço infinito entre páginas negadas.
+      document.body.innerHTML='<main style="max-width:520px;margin:12vh auto;padding:24px;font-family:system-ui,sans-serif;text-align:center">'
+        +'<h1 style="font-size:20px;margin-bottom:8px">Sem telas liberadas</h1>'
+        +'<p style="opacity:.75;line-height:1.5">O seu perfil não tem nenhuma tela habilitada. Fale com um administrador da plataforma.</p>'
+        +'<p style="margin-top:20px"><a href="/login.html?logged_out=1" id="semAcessoSair">Sair</a></p></main>';
+      document.getElementById("semAcessoSair").addEventListener("click", ()=>{
+        fetch("/api/auth/logout",{method:"POST",credentials:"same-origin"}).catch(()=>{});
+      });
       return;
     }
 

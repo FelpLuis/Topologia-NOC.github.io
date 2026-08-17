@@ -190,17 +190,36 @@ window.UI = (() => {
   }
 
   /* ---------------- navegação da aplicação ---------------- */
-  const NAV = [
-    { id: "topologia", code: "topology", label: "Topologia", href: "/", icon: "topology", desc: "Mapa por localidade, equipamentos e portas" },
-    { id: "pops", code: "topology", label: "POPs e anel", href: "/pops.html", icon: "pops", desc: "Inventário por POP e rotas ópticas" },
-    { id: "dashboard", code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", desc: "Painel operacional para TV" },
-    { id: "plataforma", code: "platform", label: "Plataforma", href: "/platform.html", icon: "platform", desc: "Perfis, usuários, telas e auditoria" },
+  /* O menu é montado a partir das telas liberadas para o perfil (/api/access).
+     Esta lista é só o desenho inicial, usada enquanto o acesso não chega. */
+  const NAV_PADRAO = [
+    { code: "network", label: "Topologia", href: "/", icon: "topology", desc: "Mapa por localidade, equipamentos e portas" },
+    { code: "pops", label: "POPs e anel óptico", href: "/pops.html", icon: "pops", desc: "Inventário por POP e rotas ópticas" },
+    { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", desc: "Painel operacional para TV" },
+    { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", desc: "Perfis, ações, telas, usuários e auditoria" },
   ];
+
+  // Telas de apoio ficam no grupo "Ferramentas" do menu lateral.
+  const TELAS_FERRAMENTA = new Set(["legado"]);
+
+  function NAV() {
+    const telas = window.UPDOWN_ACCESS?.screens;
+    if (!Array.isArray(telas) || !telas.length) return NAV_PADRAO;
+    return telas
+      .filter((s) => s.nav !== 0 && s.route)
+      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", desc: s.description || "" }));
+  }
+
+  // A tela atual é reconhecida pela rota, e não por um id fixo em cada página.
+  const rotaAtual = () => location.pathname.replace(/\/index\.html$/, "/") || "/";
+  const ehAtual = (href) => rotaAtual() === href;
 
   const SIDEBAR_KEY = "updown.sidebar";
   let searchProvider = null; // a tela pode registrar itens próprios na paleta
 
-  function mountShell({ active, search = null } = {}) {
+  /* `active` continua aceito pelas telas, mas o item atual do menu é
+     reconhecido pela rota — o menu agora vem do catálogo de telas. */
+  function mountShell({ search = null } = {}) {
     if (search) searchProvider = search;
     const user = session();
 
@@ -235,23 +254,7 @@ window.UI = (() => {
       $("#globalSearch", bar).addEventListener("focus", (e) => { e.target.blur(); openPalette(); });
     }
 
-    const side = $("[data-sidebar]");
-    if (side) {
-      side.className = "sidebar";
-      side.innerHTML = `
-        <nav class="nav" aria-label="Navegação principal">
-          <span class="nav-label">Operação</span>
-          ${NAV.map((n) => `
-            <a class="nav-item" data-nav="${n.id}" data-code="${n.code}" href="${n.href}" ${n.id === active ? 'aria-current="page"' : ""}>
-              ${icon(n.icon)}<span>${n.label}</span>
-            </a>`).join("")}
-          <span class="nav-label">Ferramentas</span>
-          <a class="nav-item" href="/legado.html">${icon("edit")}<span>Editor clássico</span></a>
-        </nav>
-        <div class="sidebar-foot stack" style="gap:var(--s-3)">
-          <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
-        </div>`;
-    }
+    renderNav();
 
     const shell = $(".shell");
     if (shell) {
@@ -265,27 +268,51 @@ window.UI = (() => {
       };
     }
 
+    $$("[data-shortcuts]").forEach((b) => (b.onclick = openShortcuts));
+    $$("[data-palette-open]").forEach((b) => (b.onclick = () => openPalette()));
+    $$("[data-theme-toggle]").forEach((b) => (b.onclick = toggleTheme));
+    bindGlobalKeys();
+    applyAccess(window.UPDOWN_ACCESS);
+  }
+
+  /* Monta o menu lateral e o inferior com as telas liberadas para o perfil. */
+  function renderNav() {
+    const itens = NAV();
+    const operacao = itens.filter((n) => !TELAS_FERRAMENTA.has(n.code));
+    const ferramentas = itens.filter((n) => TELAS_FERRAMENTA.has(n.code));
+    const item = (n) => `
+      <a class="nav-item" data-nav="${n.code}" data-code="${n.code}" href="${n.href}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
+        ${icon(n.icon)}<span>${esc(n.label)}</span>
+      </a>`;
+
+    const side = $("[data-sidebar]");
+    if (side) {
+      side.className = "sidebar";
+      side.innerHTML = `
+        <nav class="nav" aria-label="Navegação principal">
+          <span class="nav-label">Operação</span>
+          ${operacao.map(item).join("")}
+          ${ferramentas.length ? `<span class="nav-label">Ferramentas</span>${ferramentas.map(item).join("")}` : ""}
+        </nav>
+        <div class="sidebar-foot stack" style="gap:var(--s-3)">
+          <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
+        </div>`;
+      $$("[data-shortcuts]", side).forEach((b) => (b.onclick = openShortcuts));
+    }
+
     const mobile = $("[data-mobile-nav]");
     if (mobile) {
       mobile.className = "mobile-nav";
-      mobile.innerHTML = NAV.map((n) => `
-        <a href="${n.href}" data-nav="${n.id}" data-code="${n.code}" ${n.id === active ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${n.label.split(" ")[0]}</span></a>`).join("");
+      mobile.innerHTML = operacao.map((n) => `
+        <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${esc(n.label.split(" ")[0])}</span></a>`).join("");
     }
-
-    $$("[data-shortcuts]").forEach((b) => (b.onclick = openShortcuts));
-    $$("[data-palette-open]").forEach((b) => (b.onclick = () => openPalette()));
-    bindGlobalKeys();
-    applyAccess(window.UPDOWN_ACCESS);
   }
 
   /* O RBAC continua mandando: tela sem acesso some do menu. */
   function applyAccess(access) {
     if (!access || !Array.isArray(access.screens)) return;
     const codes = new Set(access.screens.map((s) => s.code));
-    $$("[data-code]").forEach((el) => {
-      if (el.dataset.code === "topology") return; // topologia é a tela base
-      el.hidden = !codes.has(el.dataset.code);
-    });
+    $$("[data-code]").forEach((el) => { el.hidden = !codes.has(el.dataset.code); });
   }
 
   addEventListener("updown:auth-ready", (ev) => {
@@ -297,6 +324,7 @@ window.UI = (() => {
       $(".avatar", chip).textContent = initials(nome);
       $(".user-info", chip).innerHTML = `<b>${esc(nome)}</b><small>${esc(u.role || "")}</small>`;
     }
+    renderNav();
     applyAccess(ev.detail?.access);
   });
 
@@ -345,7 +373,7 @@ window.UI = (() => {
 
   /* ---------------- paleta de comandos ---------------- */
   function paletteCommands() {
-    const cmds = NAV.map((n) => ({ group: "Ir para", label: n.label, hint: n.desc, icon: n.icon, run: () => (location.href = n.href) }));
+    const cmds = NAV().map((n) => ({ group: "Ir para", label: n.label, hint: n.desc, icon: n.icon, run: () => (location.href = n.href) }));
     cmds.push(
       { group: "Ações", label: "Alternar tema claro/escuro", hint: "Atalho: T", icon: "moon", run: toggleTheme },
       { group: "Ações", label: "Ver atalhos de teclado", hint: "Atalho: ?", icon: "keyboard", run: openShortcuts },

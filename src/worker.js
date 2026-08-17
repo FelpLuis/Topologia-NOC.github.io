@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS roles (
 CREATE TABLE IF NOT EXISTS permissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,
-  description TEXT NOT NULL DEFAULT ''
+  description TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  module TEXT NOT NULL DEFAULT 'Geral',
+  screen_code TEXT,
+  sort INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS role_permissions (
@@ -77,7 +81,16 @@ CREATE TABLE IF NOT EXISTS screens (
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   route TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1
+  active INTEGER NOT NULL DEFAULT 1,
+  icon TEXT NOT NULL DEFAULT 'topology',
+  sort INTEGER NOT NULL DEFAULT 0,
+  nav INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS platform_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS role_screens (
@@ -160,33 +173,111 @@ const ROLES = [
   ["logistica", "Pode visualizar e alterar informações operacionais da topologia"]
 ];
 
-const PERMISSIONS = [
-  ["topology.view", "Visualizar topologia, equipamentos, POPs e portas"],
-  ["topology.edit", "Criar e alterar equipamentos, POPs, portas e conexões"],
-  ["topology.delete", "Excluir equipamentos, POPs e conexões"],
-  ["users.view", "Visualizar usuários"],
-  ["users.manage", "Criar, alterar, ativar/desativar e excluir usuários"],
-  ["audit.view", "Visualizar auditoria"],
-  ["settings.manage", "Alterar configurações administrativas"]
+// Catálogo de telas do sistema. Toda tela navegável é declarada aqui e passa
+// a aparecer em Plataforma → Perfis, onde o acesso é dado por perfil.
+// [code, name, description, route, active, icon, sort, nav]
+const SCREENS = [
+  ["network", "Topologia", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
+  ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
+  ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
+  ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
+  ["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 1]
 ];
+
+// Catálogo de ações (funcionalidades) do sistema.
+// A tela responde por "posso abrir"; a ação responde por "o que posso fazer lá".
+// [code, name, description, screen_code, module, sort]
+const ACTIONS = [
+  ["topology.view", "Visualizar a topologia", "Ler equipamentos, POPs, portas e enlaces", "network", "Topologia", 10],
+  ["topology.edit", "Alterar a topologia", "Permissão base para qualquer gravação na topologia", "network", "Topologia", 20],
+  ["topology.delete", "Excluir na topologia", "Permissão base para qualquer remoção na topologia", "network", "Topologia", 30],
+  ["topology.equipment.create", "Cadastrar equipamento", "Criar novos equipamentos na topologia", "network", "Topologia", 40],
+  ["topology.equipment.edit", "Editar equipamento", "Alterar nome, modelo, categoria e demais dados", "network", "Topologia", 50],
+  ["topology.equipment.delete", "Excluir equipamento", "Remover equipamentos da topologia", "network", "Topologia", 60],
+  ["topology.port.edit", "Editar portas", "Criar, alterar e remover portas de um equipamento", "network", "Topologia", 70],
+  ["topology.link.create", "Criar enlace", "Documentar enlaces entre portas", "network", "Topologia", 80],
+  ["topology.link.delete", "Remover enlace", "Desfazer enlaces já documentados", "network", "Topologia", 90],
+  ["topology.pop.link", "Vincular equipamento ao POP", "Definir ou desfazer o POP de um equipamento", "network", "Topologia", 100],
+  ["topology.layout", "Salvar posições do mapa", "Gravar o posicionamento manual dos POPs no mapa", "network", "Topologia", 110],
+  ["topology.config", "Alterar configurações do mapa", "Títulos e demais parâmetros de exibição da topologia", "network", "Topologia", 120],
+
+  ["zabbix.view", "Consultar o Zabbix", "Ver hosts, interfaces e status da sincronização", "network", "Monitoramento (Zabbix)", 10],
+  ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
+  ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
+
+  ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
+  ["pops.edit", "Editar POP", "Alterar nome e dados do POP", "pops", "POPs e anel", 20],
+  ["pops.delete", "Excluir POP", "Remover POPs do cadastro", "pops", "POPs e anel", 30],
+  ["pops.order", "Editar a sequência dos POPs", "Reordenar os POPs do anel", "pops", "POPs e anel", 40],
+  ["pops.routes", "Editar rotas do anel", "Criar e remover rotas aéreas e subterrâneas", "pops", "POPs e anel", 50],
+  ["pops.ring.layout", "Salvar desenho do anel", "Gravar o posicionamento manual do mapa do anel", "pops", "POPs e anel", 60],
+
+  ["roles.view", "Consultar perfis", "Ver perfis, ações e telas configuradas", "platform", "Plataforma", 10],
+  ["roles.manage", "Gerenciar perfis", "Criar, editar, duplicar e excluir perfis e seus acessos", "platform", "Plataforma", 20],
+  ["screens.manage", "Gerenciar telas", "Ativar e desativar telas do sistema", "platform", "Plataforma", 30],
+  ["users.view", "Consultar usuários", "Ver as contas de acesso", "platform", "Plataforma", 40],
+  ["users.manage", "Gerenciar usuários", "Criar, alterar e ativar/desativar contas", "platform", "Plataforma", 50],
+  ["users.password", "Redefinir senha", "Definir senha temporária para outras contas", "platform", "Plataforma", 60],
+  ["audit.view", "Consultar auditoria", "Ver o histórico de ações da plataforma", "platform", "Plataforma", 70],
+  ["audit.export", "Exportar auditoria", "Baixar o histórico em CSV", "platform", "Plataforma", 80],
+  ["settings.manage", "Alterar configurações", "Configurações administrativas da plataforma", "platform", "Plataforma", 90]
+];
+
+const ALL_ACTION_CODES = ACTIONS.map(x => x[0]);
+const ALL_SCREEN_CODES = SCREENS.map(x => x[0]);
+
+const TOPOLOGY_ACTIONS = ALL_ACTION_CODES.filter(c => c.startsWith("topology.") || c.startsWith("pops.") || c.startsWith("zabbix."));
 
 const ROLE_PERMISSIONS = {
-  administrador: PERMISSIONS.map(x => x[0]),
-  gerente: ["topology.view","topology.edit","topology.delete","users.view","users.manage","audit.view","settings.manage"],
-  analista: ["topology.view","topology.edit","topology.delete","audit.view"],
-  atendimento: ["topology.view"],
-  tecnico: ["topology.view","topology.edit"],
-  logistica: ["topology.view","topology.edit"]
+  administrador: ALL_ACTION_CODES,
+  gerente: [
+    ...TOPOLOGY_ACTIONS,
+    "roles.view","users.view","users.manage","users.password","audit.view","audit.export","settings.manage"
+  ],
+  analista: [
+    "topology.view","topology.edit","topology.delete","topology.equipment.create","topology.equipment.edit",
+    "topology.equipment.delete","topology.port.edit","topology.link.create","topology.link.delete",
+    "topology.pop.link","topology.layout","zabbix.view","zabbix.sync",
+    "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
+    "audit.view"
+  ],
+  atendimento: ["topology.view","zabbix.view"],
+  tecnico: [
+    "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
+    "topology.link.create","topology.pop.link","topology.layout",
+    "zabbix.view","zabbix.sync","zabbix.link",
+    "pops.edit","pops.order","pops.routes","pops.ring.layout"
+  ],
+  logistica: [
+    "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
+    "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order"
+  ]
 };
 
-const SCREENS = [
-  ["network", "Gerenciar Rede", "Topologia, equipamentos, portas, POPs e conexões", "/", 1],
-  ["dashboard", "Dashboard", "Dashboard operacional para TV/NOC", "/dashboard.html", 1],
-  ["platform", "Gerenciar Plataforma", "Perfis, permissões e usuários", "/platform.html", 1]
+const ROLE_SCREENS = {
+  administrador: ALL_SCREEN_CODES,
+  gerente: ["network","pops","dashboard","platform","legado"],
+  analista: ["network","pops","dashboard","legado"],
+  atendimento: ["network","pops","dashboard"],
+  tecnico: ["network","pops","dashboard","legado"],
+  logistica: ["network","pops","dashboard"]
+};
+
+/* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
+   novas a partir do que já tinham. Roda uma única vez, controlado por
+   platform_meta: depois disso, quem manda é o que o administrador marcou. */
+const ACTION_EQUIVALENCE = [
+  ["topology.view", ["zabbix.view"]],
+  ["topology.edit", [
+    "topology.equipment.create","topology.equipment.edit","topology.port.edit","topology.link.create",
+    "topology.pop.link","topology.layout","topology.config","zabbix.sync","zabbix.link",
+    "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout"
+  ]],
+  ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete"]],
+  ["users.manage", ["users.password"]],
+  ["audit.view", ["audit.export"]],
+  ["settings.manage", ["roles.view"]]
 ];
-
-
-
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -349,6 +440,18 @@ async function requireUser(env, request) {
   return getCurrentUser(env, request);
 }
 
+// Conjunto de ações do perfil do usuário. Uma consulta só por requisição:
+// as verificações granulares da topologia comparam dezenas de códigos.
+async function permissionsOf(env, user) {
+  if (!user) return new Set();
+  const rows = (await getDB(env).prepare(`
+    SELECT p.code FROM role_permissions rp
+    JOIN permissions p ON p.id=rp.permission_id
+    WHERE rp.role_id=?
+  `).bind(user.role_id).all()).results || [];
+  return new Set(rows.map(x => x.code));
+}
+
 async function hasPermission(env, user, code) {
   if (!user) return false;
   const db = getDB(env);
@@ -363,6 +466,27 @@ async function hasPermission(env, user, code) {
   return !!row;
 }
 
+async function ensureColumns(db, table, columns) {
+  const info = (await db.prepare(`PRAGMA table_info(${table})`).all()).results || [];
+  const existentes = new Set(info.map(c => c.name));
+  for (const [name, ddl] of columns) {
+    if (existentes.has(name)) continue;
+    await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`).run();
+  }
+}
+
+/* Semeadura idempotente: roda uma vez e registra em platform_meta.
+   Sem isso, um deploy devolveria as ações que o administrador tirou. */
+async function seedOnce(db, key, run) {
+  const feito = await db.prepare(`SELECT key FROM platform_meta WHERE key=?`).bind(key).first();
+  if (feito) return false;
+  await run();
+  await db.prepare(`
+    INSERT OR REPLACE INTO platform_meta(key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+  `).bind(key, new Date().toISOString()).run();
+  return true;
+}
+
 async function requirePermission(env, request, code) {
   const user = await requireUser(env, request);
   if (!user) return { user: null, response: json({error:"AUTH_REQUIRED"},401) };
@@ -370,13 +494,6 @@ async function requirePermission(env, request, code) {
     return { user, response: json({error:"FORBIDDEN", permission:code},403) };
   }
   return { user, response: null };
-}
-
-async function requireAdmin(env, request) {
-  const user = await requireUser(env, request);
-  if (!user) return { user:null, response:json({error:"AUTH_REQUIRED"},401) };
-  if (user.role !== "administrador") return { user, response:json({error:"ADMIN_ONLY"},403) };
-  return { user, response:null };
 }
 
 let databaseReadyPromise = null;
@@ -402,62 +519,106 @@ async function ensureDatabaseImpl(env) {
     .map(x => db.prepare(x));
   await db.batch(statements);
 
+  // Bancos criados por versões anteriores não recebem colunas novas pelo
+  // CREATE TABLE IF NOT EXISTS: os ALTER TABLE abaixo completam o schema.
+  await ensureColumns(db, "permissions", [
+    ["name", "TEXT NOT NULL DEFAULT ''"],
+    ["module", "TEXT NOT NULL DEFAULT 'Geral'"],
+    ["screen_code", "TEXT"],
+    ["sort", "INTEGER NOT NULL DEFAULT 0"]
+  ]);
+  await ensureColumns(db, "screens", [
+    ["icon", "TEXT NOT NULL DEFAULT 'topology'"],
+    ["sort", "INTEGER NOT NULL DEFAULT 0"],
+    ["nav", "INTEGER NOT NULL DEFAULT 1"]
+  ]);
+
   for (const [name, description] of ROLES) {
     await db.prepare(`
       INSERT INTO roles(name,description) VALUES (?,?)
-      ON CONFLICT(name) DO UPDATE SET description=excluded.description
+      ON CONFLICT(name) DO NOTHING
     `).bind(name,description).run();
   }
 
-  for (const [code, description] of PERMISSIONS) {
+  // O catálogo (rótulo, descrição, módulo, rota, ícone) é do código.
+  // O que o administrador decide — quem acessa o quê e qual tela está ativa —
+  // fica no banco e nunca é sobrescrito por um deploy.
+  for (const [code,name,description,screenCode,module,sort] of ACTIONS) {
     await db.prepare(`
-      INSERT INTO permissions(code,description) VALUES (?,?)
-      ON CONFLICT(code) DO UPDATE SET description=excluded.description
-    `).bind(code,description).run();
-  }
-
-  for (const [code,name,description,route,active] of SCREENS) {
-    await db.prepare(`
-      INSERT INTO screens(code,name,description,route,active) VALUES (?,?,?,?,?)
+      INSERT INTO permissions(code,name,description,screen_code,module,sort) VALUES (?,?,?,?,?,?)
       ON CONFLICT(code) DO UPDATE SET
         name=excluded.name, description=excluded.description,
-        route=excluded.route, active=excluded.active
-    `).bind(code,name,description,route,active).run();
+        screen_code=excluded.screen_code, module=excluded.module, sort=excluded.sort
+    `).bind(code,name,description,screenCode,module,sort).run();
   }
 
-  const roles = await db.prepare(`SELECT id,name FROM roles`).all();
-  const perms = await db.prepare(`SELECT id,code FROM permissions`).all();
-  const screens = await db.prepare(`SELECT id,code FROM screens`).all();
-  const roleMap = Object.fromEntries((roles.results||[]).map(x=>[x.name,x.id]));
-  const permMap = Object.fromEntries((perms.results||[]).map(x=>[x.code,x.id]));
-  const screenMap = Object.fromEntries((screens.results||[]).map(x=>[x.code,x.id]));
-
-  for (const [role,codes] of Object.entries(ROLE_PERMISSIONS)) {
-    for (const code of codes) {
-      if (roleMap[role] && permMap[code]) {
-        await db.prepare(`
-          INSERT OR IGNORE INTO role_permissions(role_id,permission_id) VALUES (?,?)
-        `).bind(roleMap[role],permMap[code]).run();
-      }
-    }
+  for (const [code,name,description,route,active,icon,sort,nav] of SCREENS) {
+    await db.prepare(`
+      INSERT INTO screens(code,name,description,route,active,icon,sort,nav) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(code) DO UPDATE SET
+        name=excluded.name, description=excluded.description, route=excluded.route,
+        icon=excluded.icon, sort=excluded.sort, nav=excluded.nav
+    `).bind(code,name,description,route,active,icon,sort,nav).run();
   }
 
-  const roleScreens = {
-    administrador:["network","dashboard","platform"],
-    gerente:["network","dashboard"],
-    analista:["network","dashboard"],
-    atendimento:["network","dashboard"],
-    tecnico:["network","dashboard"],
-    logistica:["network","dashboard"]
-  };
-  for (const [role,codes] of Object.entries(roleScreens)) {
-    for (const code of codes) {
-      if (roleMap[role] && screenMap[code]) {
-        await db.prepare(`
-          INSERT OR IGNORE INTO role_screens(role_id,screen_id) VALUES (?,?)
-        `).bind(roleMap[role],screenMap[code]).run();
+  const idsOf = async (table, key) => Object.fromEntries(
+    ((await db.prepare(`SELECT id,${key} FROM ${table}`).all()).results || []).map(x => [x[key], x.id])
+  );
+  const roleMap = await idsOf("roles","name");
+  const permMap = await idsOf("permissions","code");
+  const screenMap = await idsOf("screens","code");
+
+  const grantPermission = (roleId, code) => permMap[code]
+    ? db.prepare(`INSERT OR IGNORE INTO role_permissions(role_id,permission_id) VALUES (?,?)`).bind(roleId,permMap[code]).run()
+    : null;
+  const grantScreen = (roleId, code) => screenMap[code]
+    ? db.prepare(`INSERT OR IGNORE INTO role_screens(role_id,screen_id) VALUES (?,?)`).bind(roleId,screenMap[code]).run()
+    : null;
+
+  // Acessos padrão dos perfis do catálogo: aplicados uma única vez.
+  await seedOnce(db, "seed.role_access.v2", async () => {
+    for (const [role,codes] of Object.entries(ROLE_PERMISSIONS)) {
+      if (!roleMap[role]) continue;
+      for (const code of codes) await grantPermission(roleMap[role], code);
+    }
+    for (const [role,codes] of Object.entries(ROLE_SCREENS)) {
+      if (!roleMap[role]) continue;
+      for (const code of codes) await grantScreen(roleMap[role], code);
+    }
+
+    // Perfis fora do catálogo (criados pelo administrador) recebem as ações
+    // novas equivalentes ao que já podiam fazer, para nada parar de funcionar.
+    // Object.hasOwn: nomes de perfil vêm do usuário e "constructor" não pode
+    // ser confundido com um perfil do catálogo.
+    const custom = ((await db.prepare(`SELECT id,name FROM roles`).all()).results || [])
+      .filter(r => !Object.hasOwn(ROLE_PERMISSIONS, r.name));
+    for (const role of custom) {
+      const atuais = new Set(((await db.prepare(`
+        SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=?
+      `).bind(role.id).all()).results || []).map(x => x.code));
+      for (const [origem, derivadas] of ACTION_EQUIVALENCE) {
+        if (!atuais.has(origem)) continue;
+        for (const code of derivadas) await grantPermission(role.id, code);
       }
     }
+  });
+
+  // As telas novas (POPs e editor clássico) entram para quem já tinha a
+  // topologia — o menu do perfil continua com as mesmas telas de antes.
+  await seedOnce(db, "seed.new_screens.v2", async () => {
+    const comRede = ((await db.prepare(`
+      SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
+    `).all()).results || []).map(x => x.role_id);
+    for (const roleId of comRede) {
+      await grantScreen(roleId, "pops");
+      await grantScreen(roleId, "legado");
+    }
+  });
+
+  // O administrador nunca fica sem acesso: é a garantia de reabrir o sistema.
+  if (roleMap.administrador) {
+    for (const code of ALL_ACTION_CODES) await grantPermission(roleMap.administrador, code);
+    for (const code of ALL_SCREEN_CODES) await grantScreen(roleMap.administrador, code);
   }
 
   const adminRole = await db.prepare(`SELECT id FROM roles WHERE name='administrador'`).first();
@@ -474,6 +635,14 @@ async function ensureDatabaseImpl(env) {
   }
 }
 
+const DEFAULT_TOPOLOGY_CONFIG = {
+  subtitle:"Topologia de Rede • Ascenty / BGP / MPLS",
+  coreTitle:"NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
+  ringTitle:"ANEL ÓPTICO DOS POPs",
+  ringLabel:"ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
+  popSectionTitle:"EQUIPAMENTOS POR POP"
+};
+
 async function loadInitialTopology(env, request) {
   const read = async (name) => {
     const url = new URL(request.url);
@@ -486,13 +655,7 @@ async function loadInitialTopology(env, request) {
     equipamentos: await read("equipamentos.json"),
     conexoes: await read("conexoes.json"),
     pops: await read("pops.json"),
-    config: {
-      subtitle:"Topologia de Rede • Ascenty / BGP / MPLS",
-      coreTitle:"NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
-      ringTitle:"ANEL ÓPTICO DOS POPs",
-      ringLabel:"ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
-      popSectionTitle:"EQUIPAMENTOS POR POP"
-    }
+    config: {...DEFAULT_TOPOLOGY_CONFIG}
   };
 }
 
@@ -787,7 +950,7 @@ async function handleGrafana(request, env, url) {
 
 // GET /api/zabbix/health — conectividade e versão da API.
 async function handleZabbixHealth(env, request) {
-  const gate = await requirePermission(env, request, "topology.view");
+  const gate = await requirePermission(env, request, "zabbix.view");
   if (gate.response) return gate.response;
 
   try {
@@ -806,7 +969,7 @@ async function handleZabbixHealth(env, request) {
 
 // POST /api/zabbix/sync — importa hosts e interfaces do Zabbix para o D1.
 async function handleZabbixSync(env, request) {
-  const gate = await requirePermission(env, request, "topology.edit");
+  const gate = await requirePermission(env, request, "zabbix.sync");
   if (gate.response) return gate.response;
 
   const db = getDB(env);
@@ -839,7 +1002,7 @@ async function handleZabbixSync(env, request) {
 
 // GET /api/zabbix/hosts — hosts sincronizados, com contagem de interfaces.
 async function handleZabbixHosts(env, request) {
-  const gate = await requirePermission(env, request, "topology.view");
+  const gate = await requirePermission(env, request, "zabbix.view");
   if (gate.response) return gate.response;
 
   const rows = (await getDB(env).prepare(`
@@ -856,7 +1019,7 @@ async function handleZabbixHosts(env, request) {
 
 // PATCH /api/zabbix/hosts/:hostid — vincula o host a um equipamento da topologia.
 async function handleZabbixHostLink(env, request, hostid) {
-  const gate = await requirePermission(env, request, "topology.edit");
+  const gate = await requirePermission(env, request, "zabbix.link");
   if (gate.response) return gate.response;
 
   const db = getDB(env);
@@ -882,7 +1045,7 @@ async function handleZabbixHostLink(env, request, hostid) {
 
 // GET /api/zabbix/interfaces — inventário de interfaces, com filtros opcionais.
 async function handleZabbixInterfaces(env, request, url) {
-  const gate = await requirePermission(env, request, "topology.view");
+  const gate = await requirePermission(env, request, "zabbix.view");
   if (gate.response) return gate.response;
 
   const filters = [];
@@ -927,7 +1090,7 @@ async function handleZabbixInterfaces(env, request, url) {
 
 // GET /api/zabbix/status — resumo da última sincronização.
 async function handleZabbixStatus(env, request) {
-  const gate = await requirePermission(env, request, "topology.view");
+  const gate = await requirePermission(env, request, "zabbix.view");
   if (gate.response) return gate.response;
 
   const db = getDB(env);
@@ -990,57 +1153,101 @@ async function handleAccess(env, request) {
     WHERE rp.role_id=? ORDER BY p.code
   `).bind(user.role_id).all()).results.map(x=>x.code);
   const screens=(await db.prepare(`
-    SELECT s.code,s.name,s.description,s.route
+    SELECT s.code,s.name,s.description,s.route,s.icon,s.sort,s.nav
     FROM role_screens rs JOIN screens s ON s.id=rs.screen_id
-    WHERE rs.role_id=? AND s.active=1 ORDER BY s.id
+    WHERE rs.role_id=? AND s.active=1 ORDER BY s.sort,s.id
   `).bind(user.role_id).all()).results;
-  return json({role:user.role,permissions,screens});
+  // Catálogo completo: o guardião de rotas precisa saber quais endereços são
+  // telas do sistema para diferenciar "não existe" de "não é para você".
+  const allScreens=(await db.prepare(`
+    SELECT code,name,route,active FROM screens ORDER BY sort,id
+  `).all()).results;
+  return json({role:user.role,permissions,screens,allScreens});
 }
 
+const PERFIL_PROTEGIDO = "administrador";
+const NOME_PERFIL = /^[a-z][a-z0-9_-]{2,40}$/;
+const normalizaNomePerfil = (valor) => String(valor||"").trim().toLowerCase().replace(/\s+/g,"_");
+
 async function handlePlatformRoles(env, request) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"roles.view"); if(gate.response)return gate.response;
   const db=getDB(env);
-  const roles=(await db.prepare(`SELECT id,name,description FROM roles ORDER BY id`).all()).results;
-  const permissions=(await db.prepare(`SELECT id,code,description FROM permissions ORDER BY code`).all()).results;
-  const screens=(await db.prepare(`SELECT id,code,name,description,route,active FROM screens ORDER BY id`).all()).results;
+  const roles=(await db.prepare(`
+    SELECT r.id,r.name,r.description,(SELECT COUNT(*) FROM users u WHERE u.role_id=r.id) usuarios
+    FROM roles r ORDER BY r.name
+  `).all()).results;
+  const permissions=(await db.prepare(`
+    SELECT id,code,name,description,module,screen_code,sort FROM permissions ORDER BY module,sort,code
+  `).all()).results;
+  const screens=(await db.prepare(`
+    SELECT id,code,name,description,route,active,icon,sort,nav FROM screens ORDER BY sort,id
+  `).all()).results;
   const rolePermissions=(await db.prepare(`SELECT role_id,permission_id FROM role_permissions`).all()).results;
   const roleScreens=(await db.prepare(`SELECT role_id,screen_id FROM role_screens`).all()).results;
-  return json({roles,permissions,screens,rolePermissions,roleScreens});
+  const permissoes=await permissionsOf(env,gate.user);
+  return json({
+    roles,permissions,screens,rolePermissions,roleScreens,
+    protectedRole:PERFIL_PROTEGIDO,
+    can:{
+      manageRoles:permissoes.has("roles.manage"),
+      manageScreens:permissoes.has("screens.manage"),
+      viewUsers:permissoes.has("users.view"),
+      manageUsers:permissoes.has("users.manage"),
+      resetPassword:permissoes.has("users.password"),
+      viewAudit:permissoes.has("audit.view"),
+      exportAudit:permissoes.has("audit.export")
+    }
+  });
 }
 
 async function handlePlatformRoleCreate(env,request) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
   const db=getDB(env); let body={}; try{body=await request.json()}catch{}
-  const name=String(body.name||"").trim().toLowerCase().replace(/\s+/g,"_");
+  const name=normalizaNomePerfil(body.name);
   const description=String(body.description||"").trim();
-  if(!/^[a-z][a-z0-9_-]{2,40}$/.test(name))return json({error:"NOME_PERFIL_INVALIDO"},400);
+  if(!NOME_PERFIL.test(name))return json({error:"NOME_PERFIL_INVALIDO"},400);
   try{
     const r=await db.prepare(`INSERT INTO roles(name,description) VALUES (?,?)`).bind(name,description).run();
-    const after={id:r.meta.last_row_id,name,description};
+    const after={id:r.meta.last_row_id,name,description,usuarios:0};
     await audit(env,request,gate.user,"ROLE_CREATE","role",after.id,null,after);
     return json(after,201);
   }catch{return json({error:"PERFIL_JA_EXISTE"},409)}
 }
 
 async function handlePlatformRoleUpdate(env,request,id) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
   const db=getDB(env);
   const before=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   if(!before)return json({error:"PERFIL_NAO_ENCONTRADO"},404);
   let body={};try{body=await request.json()}catch{}
+
   const description=body.description===undefined?before.description:String(body.description).trim();
-  await db.prepare(`UPDATE roles SET description=? WHERE id=?`).bind(description,id).run();
+  let name=before.name;
+  if(body.name!==undefined){
+    const novo=normalizaNomePerfil(body.name);
+    if(novo!==before.name){
+      // O administrador é referência do sistema: renomeá-lo deixaria a
+      // plataforma sem o perfil que garante a reabertura do acesso.
+      if(before.name===PERFIL_PROTEGIDO)return json({error:"NAO_RENOMEIE_ADMINISTRADOR"},400);
+      if(!NOME_PERFIL.test(novo))return json({error:"NOME_PERFIL_INVALIDO"},400);
+      const existe=await db.prepare(`SELECT id FROM roles WHERE name=? AND id<>?`).bind(novo,id).first();
+      if(existe)return json({error:"PERFIL_JA_EXISTE"},409);
+      name=novo;
+    }
+  }
+
+  await db.prepare(`UPDATE roles SET name=?,description=? WHERE id=?`).bind(name,description,id).run();
   const after=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   await audit(env,request,gate.user,"ROLE_UPDATE","role",id,before,after);
   return json(after);
 }
 
 async function handlePlatformRoleDelete(env,request,id) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
   const db=getDB(env);
   const before=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   if(!before)return json({error:"PERFIL_NAO_ENCONTRADO"},404);
-  if(before.name==="administrador")return json({error:"NAO_EXCLUA_ADMINISTRADOR"},400);
+  if(before.name===PERFIL_PROTEGIDO)return json({error:"NAO_EXCLUA_ADMINISTRADOR"},400);
   const c=await db.prepare(`SELECT COUNT(*) c FROM users WHERE role_id=?`).bind(id).first();
   if(Number(c?.c)>0)return json({error:"PERFIL_EM_USO"},400);
   await db.prepare(`DELETE FROM roles WHERE id=?`).bind(id).run();
@@ -1049,12 +1256,19 @@ async function handlePlatformRoleDelete(env,request,id) {
 }
 
 async function handlePlatformRoleAccess(env,request,id) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
   const db=getDB(env); const role=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   if(!role)return json({error:"PERFIL_NAO_ENCONTRADO"},404);
   let body={};try{body=await request.json()}catch{}
-  const permissionIds=Array.isArray(body.permissionIds)?body.permissionIds.map(Number).filter(Number.isInteger):[];
-  const screenIds=Array.isArray(body.screenIds)?body.screenIds.map(Number).filter(Number.isInteger):[];
+  let permissionIds=Array.isArray(body.permissionIds)?body.permissionIds.map(Number).filter(Number.isInteger):[];
+  let screenIds=Array.isArray(body.screenIds)?body.screenIds.map(Number).filter(Number.isInteger):[];
+
+  // O administrador mantém acesso total por definição do sistema.
+  if(role.name===PERFIL_PROTEGIDO){
+    permissionIds=((await db.prepare(`SELECT id FROM permissions`).all()).results||[]).map(x=>x.id);
+    screenIds=((await db.prepare(`SELECT id FROM screens`).all()).results||[]).map(x=>x.id);
+  }
+
   const before={
     permissions:(await db.prepare(`SELECT permission_id FROM role_permissions WHERE role_id=? ORDER BY permission_id`).bind(id).all()).results,
     screens:(await db.prepare(`SELECT screen_id FROM role_screens WHERE role_id=? ORDER BY screen_id`).bind(id).all()).results
@@ -1072,12 +1286,14 @@ async function handlePlatformRoleAccess(env,request,id) {
 }
 
 async function handlePlatformScreen(env,request,id) {
-  const gate=await requireAdmin(env,request); if(gate.response)return gate.response;
+  const gate=await requirePermission(env,request,"screens.manage"); if(gate.response)return gate.response;
   const db=getDB(env);
-  const before=await db.prepare(`SELECT id,code,name,description,route,active FROM screens WHERE id=?`).bind(id).first();
+  const before=await db.prepare(`SELECT id,code,name,description,route,active,icon,sort,nav FROM screens WHERE id=?`).bind(id).first();
   if(!before)return json({error:"TELA_NAO_ENCONTRADA"},404);
   let body={};try{body=await request.json()}catch{}
   const active=body.active===undefined?before.active:(body.active?1:0);
+  // Desligar a tela de plataforma trancaria a porta com a chave dentro.
+  if(before.code==="platform" && !active)return json({error:"NAO_DESATIVE_A_PLATAFORMA"},400);
   const after={...before,active};
   await db.prepare(`UPDATE screens SET active=? WHERE id=?`).bind(active,id).run();
   await audit(env,request,gate.user,"SCREEN_UPDATE","screen",id,before,after);
@@ -1138,6 +1354,8 @@ async function handleUserUpdate(env,request,id) {
     fields.push("role_id=?");values.push(rr.id);
   }
   if(b.password!==undefined){
+    if(!(await hasPermission(env,gate.user,"users.password")))
+      return json({error:"FORBIDDEN",permission:"users.password"},403);
     if(String(b.password).length<8)return json({error:"SENHA_DEVE_TER_8_CARACTERES"},400);
     fields.push("password_hash=?","must_change_password=1");values.push(await hashPassword(String(b.password)));
   }
@@ -1160,7 +1378,7 @@ async function handleAudit(env,request) {
   const rows=(await db.prepare(`
     SELECT id,created_at,user_id,username,action,resource_type,resource_id,method,path,ip,user_agent,before_json,after_json,details_json
     FROM audit_logs ORDER BY id DESC LIMIT ?
-  `).bind(limit)).results;
+  `).bind(limit).all()).results;
   return json(rows);
 }
 
@@ -1187,6 +1405,63 @@ function topologyDiff(before,after){
   return diff;
 }
 
+/* Traduz o que mudou na topologia para as ações exigidas do perfil.
+   A topologia é gravada inteira em uma única rota, então é o diff — e não a
+   tela nem o motivo informado — que diz qual funcionalidade foi usada. */
+function requiredTopologyActions(before, after) {
+  const need = new Set();
+  const byId = (a) => new Map((Array.isArray(a)?a:[]).filter(x=>x&&x.id!=null).map(x=>[String(x.id),x]));
+  const sem = (obj, ...chaves) => {
+    const copia = {...(obj||{})};
+    for (const k of chaves) delete copia[k];
+    return JSON.stringify(copia);
+  };
+  const igual = (a,b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+  const eqA = byId(before?.equipamentos), eqB = byId(after?.equipamentos);
+  for (const id of eqB.keys()) if (!eqA.has(id)) need.add("topology.equipment.create");
+  for (const id of eqA.keys()) if (!eqB.has(id)) need.add("topology.equipment.delete");
+  for (const [id,a] of eqA) {
+    const b = eqB.get(id);
+    if (!b || JSON.stringify(a) === JSON.stringify(b)) continue;
+    if (!igual(a.portas,b.portas)) need.add("topology.port.edit");
+    if ((a.popId ?? null) !== (b.popId ?? null)) need.add("topology.pop.link");
+    if (sem(a,"portas","popId") !== sem(b,"portas","popId")) need.add("topology.equipment.edit");
+  }
+
+  const popA = byId(before?.pops), popB = byId(after?.pops);
+  for (const id of popB.keys()) if (!popA.has(id)) need.add("pops.create");
+  for (const id of popA.keys()) if (!popB.has(id)) need.add("pops.delete");
+  for (const [id,a] of popA) {
+    const b = popB.get(id);
+    if (!b || JSON.stringify(a) === JSON.stringify(b)) continue;
+    if (!igual(a.rotas,b.rotas)) need.add("pops.routes");
+    if (sem(a,"rotas") !== sem(b,"rotas")) need.add("pops.edit");
+  }
+
+  // Mesmos POPs em ordem diferente = reordenação do anel.
+  const ordemA = (before?.pops||[]).map(p=>String(p?.id));
+  const ordemB = (after?.pops||[]).map(p=>String(p?.id));
+  const mesmoConjunto = ordemA.length===ordemB.length
+    && [...ordemA].sort().join("|") === [...ordemB].sort().join("|");
+  if (mesmoConjunto && ordemA.join("|") !== ordemB.join("|")) need.add("pops.order");
+
+  const conA = new Set((before?.conexoes||[]).map(c=>JSON.stringify(c)));
+  const conB = new Set((after?.conexoes||[]).map(c=>JSON.stringify(c)));
+  for (const c of conB) if (!conA.has(c)) need.add("topology.link.create");
+  for (const c of conA) if (!conB.has(c)) need.add("topology.link.delete");
+
+  // O config é normalizado com os mesmos padrões dos dois lados, senão uma
+  // gravação comum pediria topology.config só por completar campos ausentes.
+  const cfgA = {...DEFAULT_TOPOLOGY_CONFIG, ...(before?.config||{})};
+  const cfgB = {...DEFAULT_TOPOLOGY_CONFIG, ...(after?.config||{})};
+  if (!igual(cfgA.layout,cfgB.layout)) need.add("topology.layout");
+  if (!igual(cfgA.ringLayout,cfgB.ringLayout)) need.add("pops.ring.layout");
+  if (sem(cfgA,"layout","ringLayout") !== sem(cfgB,"layout","ringLayout")) need.add("topology.config");
+
+  return need;
+}
+
 async function handleTopology(env,request) {
   const method=request.method;
   const gate=await requirePermission(env,request,method==="GET"?"topology.view":"topology.edit");
@@ -1205,20 +1480,24 @@ async function handleTopology(env,request) {
     equipamentos:incoming.equipamentos,
     conexoes:incoming.conexoes,
     pops:incoming.pops,
-    config:{
-      subtitle:"Topologia de Rede • Ascenty / BGP / MPLS",
-      coreTitle:"NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
-      ringTitle:"ANEL ÓPTICO DOS POPs",
-      ringLabel:"ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
-      popSectionTitle:"EQUIPAMENTOS POR POP",
-      ...(incoming.config||{})
-    }
+    config:{...DEFAULT_TOPOLOGY_CONFIG,...(incoming.config||{})}
   };
   const diff=topologyDiff(before,after);
+  const permissoes=await permissionsOf(env,gate.user);
+
   const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length||diff.conexoes.removed;
-  if(hasDeletion && !(await hasPermission(env,gate.user,"topology.delete"))){
+  if(hasDeletion && !permissoes.has("topology.delete")){
     await audit(env,request,gate.user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing topology.delete",diff});
     return json({error:"FORBIDDEN",permission:"topology.delete"},403);
+  }
+
+  /* Cada funcionalidade tem a sua ação. O que vale é o que mudou de fato
+     entre o estado anterior e o enviado — nunca um rótulo vindo do cliente. */
+  const exigidas=requiredTopologyActions(before,after);
+  const faltando=[...exigidas].filter(code=>!permissoes.has(code));
+  if(faltando.length){
+    await audit(env,request,gate.user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing actions",missing:faltando,diff});
+    return json({error:"FORBIDDEN",permission:faltando[0],permissions:faltando},403);
   }
   const nextVersion=Number(row.version||0)+1;
   await db.prepare(`
@@ -1274,7 +1553,9 @@ export default {
           const user=await getCurrentUser(env,request);
           if(!user)return json({error:"AUTH_REQUIRED"},401);
           let b={};try{b=await request.json()}catch{}
-          if(!(await verifyPassword(String(b.oldPassword||""),user.password_hash)))
+          // getCurrentUser não traz o hash; busca aqui para não expô-lo nas demais rotas.
+          const cred=await getDB(env).prepare(`SELECT password_hash FROM users WHERE id=?`).bind(user.id).first();
+          if(!cred||!(await verifyPassword(String(b.oldPassword||""),cred.password_hash)))
             return json({error:"SENHA_ATUAL_INVALIDA"},400);
           if(String(b.newPassword||"").length<8)return json({error:"SENHA_FRACA"},400);
           await env.bd.prepare(`UPDATE users SET password_hash=?,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
@@ -1327,8 +1608,10 @@ export default {
           return await handlePlatformScreen(env,request,Number(screenMatch[1]));
 
         if(url.pathname === "/api/platform/screens" && request.method==="GET"){
-          const gate=await requireAdmin(env,request);if(gate.response)return gate.response;
-          const rows=(await env.bd.prepare(`SELECT id,code,name,description,route,active FROM screens ORDER BY id`).all()).results;
+          const gate=await requirePermission(env,request,"roles.view");if(gate.response)return gate.response;
+          const rows=(await getDB(env).prepare(`
+            SELECT id,code,name,description,route,active,icon,sort,nav FROM screens ORDER BY sort,id
+          `).all()).results;
           return json(rows);
         }
 
