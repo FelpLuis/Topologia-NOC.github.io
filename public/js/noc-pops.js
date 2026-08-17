@@ -69,6 +69,7 @@
               <span class="kicker">Ponto de presença</span>
               <h2 style="margin:4px 0 2px">${esc(pop.nome)}</h2>
               <p class="dim mono" style="font-size:var(--fs-11)">${esc(pop.id)}</p>
+              ${pop.endereco ? `<p class="dim" style="font-size:var(--fs-12);margin-top:4px">${icon("pops")} ${esc(pop.endereco)}</p>` : ""}
             </div>
           </div>
           ${state.editOrder ? `<span class="row" style="gap:6px">
@@ -171,6 +172,7 @@
   function openEditPop(popId) {
     const pop = NOC.popById(popId);
     if (!pop) return;
+    const canEditRoutes = NOC.canAll(["topology.edit", "pops.routes"]);
     const canRename = NOC.canAll(["topology.edit", "pops.edit", "pops.routes"]);
 
     const noteRow = (e = {}) => `<div class="device-row pop-note">
@@ -199,6 +201,17 @@
               <input class="input" id="editPopName" required value="${esc(pop.nome || "")}" ${canRename ? "" : "readonly"}>
               ${canRename ? '<small class="dim">Ao renomear, as referências existentes no anel também serão atualizadas.</small>'
                 : '<small class="dim">Para renomear também é necessária a permissão de editar rotas.</small>'}
+            </div>
+            <div class="field">
+              <label for="editPopAddress">Endereço</label>
+              <input class="input" id="editPopAddress" value="${esc(pop.endereco || "")}" placeholder="Rua, número, bairro, cidade e CEP">
+              <small class="dim">Informe o endereço físico onde o POP está instalado.</small>
+            </div>
+            <div class="field">
+              <label for="editPopRoutes">Rotas do anel</label>
+              <textarea class="textarea mono" id="editPopRoutes" rows="5" ${canEditRoutes ? "" : "readonly"}
+                placeholder="Aérea → Santos&#10;Subterrânea → Cubatão">${esc((pop.rotas || []).join("\n"))}</textarea>
+              <small class="dim">Digite uma rota por linha, no formato “Aérea → Destino” ou “Subterrânea → Destino”.${canEditRoutes ? "" : " Seu perfil não permite editar rotas."}</small>
             </div>
             <div class="row-between">
               <div><h3 style="font-size:var(--fs-13)">Anotações de campo</h3><small class="dim">Dados descritivos do local; não alteram os equipamentos vinculados.</small></div>
@@ -237,6 +250,7 @@
           const antes = JSON.parse(JSON.stringify(NOC.data().pops || []));
           const nomeAnterior = pop.nome;
           const mudouNome = nome !== nomeAnterior;
+          const rotas = $("#editPopRoutes", form).value.split(/\r?\n/).map((rota) => rota.trim()).filter(Boolean);
 
           if (mudouNome) {
             for (const outro of NOC.data().pops) {
@@ -247,6 +261,8 @@
             }
           }
           pop.nome = nome;
+          pop.endereco = $("#editPopAddress", form).value.trim();
+          if (canEditRoutes) pop.rotas = rotas;
           pop.equipamentos = $$(".pop-note", notes).map((row) => ({
             nome: $("[data-note-name]", row).value.trim(),
             modelo: $("[data-note-model]", row).value.trim(),
