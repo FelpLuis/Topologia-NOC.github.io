@@ -131,10 +131,27 @@ export function applyZabbixToTopology(topology, inventory, links) {
       };
     });
 
+    /* O Zabbix só monitora as interfaces em uso, então o número de interfaces é
+       menor que o de portas do chassi. Completar com as portas livres que já
+       estavam cadastradas preserva o controle de capacidade: sem isso a
+       ocupação de todo equipamento passaria a marcar 100%.
+       `numero` deixa de espelhar a etiqueta física do chassi (nunca espelhou:
+       era um contador). A identidade física agora está em `nome`. */
+    const antes = equipamento.portas || [];
+    for (let i = portas.length; i < antes.length; i++) {
+      const original = antes[i];
+      portas.push({
+        ...original,
+        numero: i + 1,
+        status: "livre"
+      });
+    }
+
     relatorio.portas.push({
       equipamento: equipamento.id,
-      antes: (equipamento.portas || []).length,
-      depois: portas.length
+      antes: antes.length,
+      reais: fisicas.length,
+      total: portas.length
     });
 
     equipamentos.push({ ...equipamento, portas });
