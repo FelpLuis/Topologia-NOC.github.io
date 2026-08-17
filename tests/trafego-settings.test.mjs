@@ -40,3 +40,13 @@ test("descrição vazia é preservada para permitir limpar a exibição", () => 
 
   assert.equal(settings.interfaces["9:3"].descricao, "");
 });
+
+test("intervalo automático e painéis do telão permanecem configuráveis", () => {
+  const settings = normalizeTrafegoSettings({
+    intervaloSegundos: 45,
+    tvPaineis: ["kpis", "enlaces", "equipamentos"],
+  });
+
+  assert.equal(settings.intervaloSegundos, 45);
+  assert.deepEqual(settings.tvPaineis, ["kpis", "enlaces", "equipamentos"]);
+});

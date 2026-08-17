@@ -16,8 +16,6 @@
   const bps = (v) => NOC.formatBps(v);
   const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
   const inteiro = (v) => Number(v || 0).toLocaleString("pt-BR");
-  const AUTO_REFRESH_SECONDS = 1;
-
   const GUIAS = [
     { id: "visao", label: "Visão geral", icon: "dashboard" },
     { id: "enlaces", label: "Enlaces", icon: "link" },
@@ -1054,11 +1052,7 @@
 
             <div class="set-group">
               <h3>Atualização e período</h3>
-              <div class="field">
-                <label>Atualização automática</label>
-                <div class="input" aria-readonly="true">A cada ${AUTO_REFRESH_SECONDS} segundos</div>
-                <span class="field-hint">Usada quando “Atualizar sozinho” está ativado.</span>
-              </div>
+              ${campo("setIntervalo", "Atualização automática (s)", s.intervaloSegundos, "Intervalo das consultas ao Zabbix quando “Atualizar sozinho” está ativado (15 a 900 segundos).", 'min="15" max="900"')}
               ${campo("setHistorico", "Janela do gráfico (h)", s.historicoHoras, "Quantas horas a curva do fluxo mostra.", 'min="1" max="168"')}
               ${campo("setTopN", "Maiores consumidores", s.topN, "Quantas interfaces entram na lista do topo.", 'min="3" max="50"')}
             </div>
@@ -1131,6 +1125,7 @@
       titulo: $("#setTitulo").value.trim() || AJUSTES_PADRAO.titulo,
       limiteAtencao: num("#setAtencao", state.settings.limiteAtencao),
       limiteCritico: num("#setCritico", state.settings.limiteCritico),
+      intervaloSegundos: num("#setIntervalo", state.settings.intervaloSegundos),
       toleranciaLeitura: num("#setTolerancia", state.settings.toleranciaLeitura),
       historicoHoras: num("#setHistorico", state.settings.historicoHoras),
       topN: num("#setTopN", state.settings.topN),
@@ -1590,6 +1585,7 @@
   function agendar() {
     clearInterval(state.timer);
     if (!$("#autoRefresh").checked) return;
+    const intervalo = Math.min(900, Math.max(15, Number(state.settings.intervaloSegundos) || AJUSTES_PADRAO.intervaloSegundos));
     state.timer = setInterval(async () => {
       if (state.recarregando) return;
       state.recarregando = true;
@@ -1602,7 +1598,7 @@
       } finally {
         state.recarregando = false;
       }
-    }, AUTO_REFRESH_SECONDS * 1000);
+    }, intervalo * 1000);
   }
 
   async function sincronizar() {
