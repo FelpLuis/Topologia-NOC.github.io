@@ -5,10 +5,23 @@ import {
 } from "./zabbix.js";
 import { deriveLinks, capacityLabel, linkKind } from "./zabbix-links.js";
 import { applyZabbixToTopology } from "./zabbix-topology.js";
+import {
+  buildAuthorizationRequest,
+  constantTimeEqual,
+  exchangeAuthorizationCode,
+  oauthConfig,
+  oauthEnabled,
+  randomBase64Url,
+  safeReturnPath,
+  sha256Base64Url as oauthSha256Base64Url
+} from "./oauth.js";
 
-const COOKIE_NAME = "topologia_noc_session";
+const COOKIE_NAME = "__Host-topologia_noc_session";
+const OAUTH_STATE_COOKIE = "__Host-topologia_noc_oauth";
 const SESSION_DAYS = 7;
 const PBKDF2_ITERATIONS = 100000;
+const OAUTH_STATE_MINUTES = 10;
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 // Compatível com o binding mostrado no Cloudflare:
 // D1 binding: "bd"
@@ -42,6 +55,9 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
+  email TEXT,
+  oauth_issuer TEXT,
+  oauth_subject TEXT,
   password_hash TEXT NOT NULL,
   role_id INTEGER NOT NULL REFERENCES roles(id),
   active INTEGER NOT NULL DEFAULT 1,
@@ -59,6 +75,20 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   ip TEXT,
   user_agent TEXT
+);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  code_verifier TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  return_to TEXT NOT NULL DEFAULT '/',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  attempt_key TEXT NOT NULL,
+  attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -156,15 +186,39 @@ CREATE TABLE IF NOT EXISTS zabbix_sync_runs (
   error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS device_connections (
+  device_id TEXT PRIMARY KEY,
+  management_ip TEXT NOT NULL,
+  protocol TEXT NOT NULL CHECK(protocol IN ('ssh','telnet')),
+  port INTEGER NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS device_credentials (
+  device_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  login_username TEXT NOT NULL,
+  password_ciphertext TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (device_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_key_time ON login_attempts(attempt_key,attempted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+  ON users(oauth_issuer,oauth_subject)
+  WHERE oauth_issuer IS NOT NULL AND oauth_subject IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_role_screens_role ON role_screens(role_id);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_hostid ON zabbix_interfaces(hostid);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_alias ON zabbix_interfaces(if_alias);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_oper ON zabbix_interfaces(oper_status);
 CREATE INDEX IF NOT EXISTS idx_zbx_hosts_equip ON zabbix_hosts(equipamento_id);
+CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(user_id);
 `;
 
 
@@ -206,9 +260,15 @@ const ACTIONS = [
   ["topology.layout", "Salvar posições do mapa", "Gravar o posicionamento manual dos POPs no mapa", "network", "Topologia", 110],
   ["topology.config", "Alterar configurações do mapa", "Títulos e demais parâmetros de exibição da topologia", "network", "Topologia", 120],
 
+  ["topology.connection.use", "Usar conexão remota", "Cadastrar as próprias credenciais e abrir SSH ou TELNET", "network", "Acesso remoto", 10],
+  ["topology.connection.configure", "Configurar conexão remota", "Definir IP, protocolo e porta de gerência do equipamento", "network", "Acesso remoto", 20],
+
   ["zabbix.view", "Consultar o Zabbix", "Ver hosts, interfaces e status da sincronização", "network", "Monitoramento (Zabbix)", 10],
   ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
   ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
+
+  ["grafana.view", "Consultar o Grafana", "Ver a saúde e dashboards permitidos do Grafana", "dashboard", "Monitoramento (Grafana)", 10],
+  ["grafana.query", "Executar consultas no Grafana", "Executar consultas no datasource através do proxy protegido", "dashboard", "Monitoramento (Grafana)", 20],
 
   ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
   ["pops.edit", "Editar POP", "Alterar nome e dados do POP", "pops", "POPs e anel", 20],
@@ -272,12 +332,13 @@ const ROLE_SCREENS = {
    novas a partir do que já tinham. Roda uma única vez, controlado por
    platform_meta: depois disso, quem manda é o que o administrador marcou. */
 const ACTION_EQUIVALENCE = [
-  ["topology.view", ["zabbix.view"]],
+  ["topology.view", ["zabbix.view","topology.connection.use"]],
   ["topology.edit", [
     "topology.equipment.create","topology.equipment.edit","topology.port.edit","topology.link.create",
     "topology.pop.link","topology.layout","topology.config","zabbix.sync","zabbix.link",
     "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout"
   ]],
+  ["topology.equipment.edit", ["topology.connection.configure"]],
   ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete"]],
   ["users.manage", ["users.password"]],
   ["audit.view", ["audit.export"]],
@@ -292,6 +353,7 @@ function json(data, status = 200, extraHeaders = {}) {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
       ...extraHeaders
     }
   });
@@ -304,6 +366,8 @@ function securityHeaders(base) {
   h.set("Referrer-Policy", "no-referrer");
   h.set("X-Content-Type-Options", "nosniff");
   h.set("X-Frame-Options", "DENY");
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  h.set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'");
   return h;
 }
 
@@ -331,10 +395,7 @@ function base64UrlToBytes(value) {
 }
 
 function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return result === 0;
+  return constantTimeEqual(a, b);
 }
 
 async function sha256Base64Url(text) {
@@ -377,7 +438,7 @@ async function verifyPassword(password, encoded) {
     const actualEncoded = await hashPassword(password, salt, iterations);
     const actual = actualEncoded.split("$")[3];
 
-    return timingSafeEqual(actual, expected);
+    return await timingSafeEqual(actual, expected);
   } catch {
     return false;
   }
@@ -394,9 +455,36 @@ function parseCookies(request) {
 }
 
 function getClientIP(request) {
-  return request.headers.get("CF-Connecting-IP")
-    || request.headers.get("X-Forwarded-For")
-    || "unknown";
+  return (request.headers.get("CF-Connecting-IP") || "unknown").slice(0, 64);
+}
+
+function safeSqlIdentifier(value) {
+  const identifier = String(value || "");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) throw new Error("Identificador SQL inválido.");
+  return identifier;
+}
+
+function csrfFailure(request) {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return null;
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (site === "cross-site") return json({ error: "CROSS_SITE_REQUEST_BLOCKED" }, 403);
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== new URL(request.url).origin) return json({ error: "ORIGIN_INVALID" }, 403);
+  if (!origin && !site && parseCookies(request)[COOKIE_NAME]) return json({ error: "ORIGIN_REQUIRED" }, 403);
+  return null;
+}
+
+function boundedInteger(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? Math.min(Math.max(parsed, minimum), maximum) : fallback;
+}
+
+async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > maxBytes) throw new Error("BODY_TOO_LARGE");
+  const text = await request.text();
+  if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Error("BODY_TOO_LARGE");
+  return JSON.parse(text);
 }
 
 async function audit(env, request, user, action, resourceType, resourceId = null, before = null, after = null, details = null) {
@@ -446,9 +534,10 @@ async function audit(env, request, user, action, resourceType, resourceId = null
     add("occurred_at", new Date().toISOString());
   }
 
-  const placeholders = fields.map(() => "?").join(", ");
+  const safeFields = fields.map(safeSqlIdentifier);
+  const placeholders = safeFields.map(() => "?").join(", ");
   await db.prepare(`
-    INSERT INTO audit_logs (${fields.join(", ")})
+    INSERT INTO audit_logs (${safeFields.join(", ")})
     VALUES (${placeholders})
   `).bind(...values).run();
 }
@@ -484,11 +573,16 @@ async function hasPermission(env, user, code) {
 }
 
 async function ensureColumns(db, table, columns) {
-  const info = (await db.prepare(`PRAGMA table_info(${table})`).all()).results || [];
+  const safeTable = safeSqlIdentifier(table);
+  const info = (await db.prepare(`PRAGMA table_info(${safeTable})`).all()).results || [];
   const existentes = new Set(info.map(c => c.name));
   for (const [name, ddl] of columns) {
     if (existentes.has(name)) continue;
-    await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${name} ${ddl}`).run();
+    const safeName = safeSqlIdentifier(name);
+    if (!/^(?:TEXT|INTEGER)(?:\s+NOT NULL)?(?:\s+DEFAULT\s+(?:'[^']*'|\d+))?$/.test(ddl)) {
+      throw new Error("Definição de coluna não permitida.");
+    }
+    await db.prepare(`ALTER TABLE ${safeTable} ADD COLUMN ${safeName} ${ddl}`).run();
   }
 }
 
@@ -513,25 +607,21 @@ async function requirePermission(env, request, code) {
   return { user, response: null };
 }
 
-let databaseReadyPromise = null;
+let databaseSchemaReady = false;
 
 async function ensureDatabase(env) {
-  if (databaseReadyPromise) return databaseReadyPromise;
-
-  databaseReadyPromise = ensureDatabaseImpl(env).catch((error) => {
-    // Permite uma nova tentativa se uma migração/inicialização falhar.
-    databaseReadyPromise = null;
-    throw error;
-  });
-
-  return databaseReadyPromise;
+  if (databaseSchemaReady) return;
+  // Somente o sinal persistente de conclusão é mantido. A Promise e o binding
+  // D1 nunca atravessam requisições, evitando I/O ligado ao contexto anterior.
+  await ensureDatabaseImpl(env);
+  databaseSchemaReady = true;
 }
 
 async function ensureDatabaseImpl(env) {
   const db = getDB(env);
   if (!db) throw new Error('Binding D1 "bd" não encontrado.');
 
-  const schemaStatements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE INDEX)/)
+  const schemaStatements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE (?:UNIQUE )?INDEX)/)
     .map(x => x.trim()).filter(Boolean);
 
   // Índices que usam colunas adicionadas por migração só podem ser criados
@@ -547,6 +637,11 @@ async function ensureDatabaseImpl(env) {
     ["token_hash", "TEXT"],
     ["ip", "TEXT"],
     ["user_agent", "TEXT"]
+  ]);
+  await ensureColumns(db, "users", [
+    ["email", "TEXT"],
+    ["oauth_issuer", "TEXT"],
+    ["oauth_subject", "TEXT"]
   ]);
   await ensureColumns(db, "audit_logs", [
     ["created_at", "TEXT"]
@@ -607,9 +702,13 @@ async function ensureDatabaseImpl(env) {
     `).bind(code,name,description,route,active,icon,sort,nav).run();
   }
 
-  const idsOf = async (table, key) => Object.fromEntries(
-    ((await db.prepare(`SELECT id,${key} FROM ${table}`).all()).results || []).map(x => [x[key], x.id])
-  );
+  const idsOf = async (table, key) => {
+    const safeTable = safeSqlIdentifier(table);
+    const safeKey = safeSqlIdentifier(key);
+    return Object.fromEntries(
+      ((await db.prepare(`SELECT id,${safeKey} FROM ${safeTable}`).all()).results || []).map(x => [x[safeKey], x.id])
+    );
+  };
   const roleMap = await idsOf("roles","name");
   const permMap = await idsOf("permissions","code");
   const screenMap = await idsOf("screens","code");
@@ -661,23 +760,39 @@ async function ensureDatabaseImpl(env) {
     }
   });
 
+  // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez
+  // as capacidades já concedidas, sem voltar a alterar escolhas futuras do
+  // administrador na tela de perfis.
+  await seedOnce(db, "seed.device_connections.v1", async () => {
+    const equivalencias = [
+      ["topology.view", "topology.connection.use"],
+      ["topology.equipment.edit", "topology.connection.configure"]
+    ];
+    for (const [origem, destino] of equivalencias) {
+      if (!permMap[origem] || !permMap[destino]) continue;
+      const perfis = ((await db.prepare(`
+        SELECT role_id FROM role_permissions WHERE permission_id=?
+      `).bind(permMap[origem]).all()).results || []).map(x => x.role_id);
+      for (const roleId of perfis) await grantPermission(roleId, destino);
+    }
+  });
+
   // O administrador nunca fica sem acesso: é a garantia de reabrir o sistema.
   if (roleMap.administrador) {
     for (const code of ALL_ACTION_CODES) await grantPermission(roleMap.administrador, code);
     for (const code of ALL_SCREEN_CODES) await grantScreen(roleMap.administrador, code);
   }
 
+  const bootstrapPassword = String(env.BOOTSTRAP_ADMIN_PASSWORD || "");
+  const bootstrapUsername = String(env.BOOTSTRAP_ADMIN_USERNAME || "admin").trim();
   const adminRole = await db.prepare(`SELECT id FROM roles WHERE name='administrador'`).first();
-  const admin = await db.prepare(`SELECT id FROM users WHERE username='admin'`).first();
-  if (!admin) {
+  const admin = await db.prepare(`SELECT id FROM users WHERE lower(username)=lower(?)`).bind(bootstrapUsername).first();
+  if (!admin && bootstrapPassword) {
+    if (bootstrapPassword.length < 12) throw new Error("BOOTSTRAP_ADMIN_PASSWORD deve ter ao menos 12 caracteres.");
     await db.prepare(`
       INSERT INTO users(username,display_name,password_hash,role_id,active,must_change_password)
       VALUES (?,?,?,?,1,1)
-    `).bind("admin","Administrador",await hashPassword("admin"),adminRole.id).run();
-  } else {
-    await db.prepare(`
-      UPDATE users SET role_id=?,active=1,updated_at=CURRENT_TIMESTAMP WHERE username='admin'
-    `).bind(adminRole.id).run();
+    `).bind(bootstrapUsername,"Administrador",await hashPassword(bootstrapPassword),adminRole.id).run();
   }
 }
 
@@ -717,23 +832,44 @@ async function ensureTopologyState(env, request) {
   return await db.prepare(`SELECT * FROM topology_state WHERE id=1`).first();
 }
 
-async function createSession(env, request, user) {
+async function createSession(env, request, user, authenticationMethod = "password") {
   const db = getDB(env);
   const rawToken = bytesToBase64Url(randomBytes(48));
   const tokenHash = await sha256Base64Url(rawToken);
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
 
   await db.prepare(`
-    INSERT INTO sessions(token_hash, user_id, expires_at)
-    VALUES (?, ?, ?)
-  `).bind(tokenHash, user.id, expires).run();
+    INSERT INTO sessions(token_hash, user_id, expires_at, ip, user_agent)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(tokenHash, user.id, expires, getClientIP(request), (request.headers.get("User-Agent") || "").slice(0, 512)).run();
 
-  await audit(env, request, user, "LOGIN", "auth", String(user.id), null, {role:user.role}, null);
+  await audit(env, request, user, "LOGIN", "auth", String(user.id), null, {role:user.role}, {method:authenticationMethod});
 
   return {
     cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`,
     tokenHash
   };
+}
+
+async function loginAttemptKey(request, username) {
+  return oauthSha256Base64Url(`${getClientIP(request)}\n${String(username).trim().toLowerCase()}`);
+}
+
+async function isLoginRateLimited(env, request, username) {
+  const key = await loginAttemptKey(request, username);
+  const row = await getDB(env).prepare(`
+    SELECT COUNT(*) AS total FROM login_attempts
+    WHERE attempt_key=? AND attempted_at > datetime('now','-15 minutes')
+  `).bind(key).first();
+  return { key, blocked: Number(row?.total || 0) >= 5 };
+}
+
+async function recordFailedLogin(env, key) {
+  const db = getDB(env);
+  await db.batch([
+    db.prepare(`INSERT INTO login_attempts(attempt_key) VALUES (?)`).bind(key),
+    db.prepare(`DELETE FROM login_attempts WHERE attempted_at <= datetime('now','-1 day')`)
+  ]);
 }
 
 async function getCurrentUser(env, request) {
@@ -768,19 +904,22 @@ async function getCurrentUser(env, request) {
 async function handleLogin(env, request) {
   let body;
   try {
-    body = await request.json();
+    body = await readJson(request, 16384);
   } catch {
-    return json({ ok: false, error: "JSON inválido." }, 400);
+    return json({ ok: false, error: "INVALID_REQUEST" }, 400);
   }
 
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
 
   if (!username || !password) {
-    return json({ ok: false, error: "Informe usuário e senha." }, 400);
+    return json({ ok: false, error: "MISSING_FIELDS" }, 400);
   }
 
   const db = getDB(env);
+  if (env.PASSWORD_LOGIN_ENABLED === "false") return json({ error: "PASSWORD_LOGIN_DISABLED" }, 403);
+  const attempt = await isLoginRateLimited(env, request, username);
+  if (attempt.blocked) return json({ error: "TOO_MANY_ATTEMPTS" }, 429, { "Retry-After": "900" });
 
   const user = await db.prepare(`
     SELECT
@@ -795,11 +934,14 @@ async function handleLogin(env, request) {
 
   // Não revela se o usuário existe.
   if (!user || !user.active || !(await verifyPassword(password, user.password_hash))) {
+    await recordFailedLogin(env, attempt.key);
     if (user) {
       await audit(env, request, user, "LOGIN_FAILED", "auth", String(user.id), null, null, {reason:"invalid_credentials"});
     }
-    return json({ ok: false, error: "Usuário ou senha inválidos." }, 401);
+    return json({ ok: false, error: "INVALID_CREDENTIALS" }, 401);
   }
+
+  await db.prepare(`DELETE FROM login_attempts WHERE attempt_key=?`).bind(attempt.key).run();
 
   await db.prepare(`
     UPDATE users
@@ -821,6 +963,164 @@ async function handleLogin(env, request) {
   }, 200, {
     "Set-Cookie": session.cookie
   });
+}
+
+function oauthRedirectUri(env, request) {
+  const uri = new URL(String(env.OAUTH_REDIRECT_URI || "/api/auth/oauth/callback"), new URL(request.url).origin);
+  if (uri.protocol !== "https:" && uri.hostname !== "localhost" && uri.hostname !== "127.0.0.1") {
+    throw new Error("OAUTH_REDIRECT_URI deve usar HTTPS.");
+  }
+  if (uri.pathname !== "/api/auth/oauth/callback" || uri.search || uri.hash) {
+    throw new Error("OAUTH_REDIRECT_URI deve apontar exatamente para /api/auth/oauth/callback.");
+  }
+  return uri.toString();
+}
+
+async function handleOAuthStart(env, request) {
+  if (!oauthEnabled(env)) return json({ error: "OAUTH_NOT_CONFIGURED" }, 404);
+  const url = new URL(request.url);
+  const state = randomBase64Url(32);
+  const verifier = randomBase64Url(64);
+  const nonce = randomBase64Url(32);
+  const stateHash = await oauthSha256Base64Url(state);
+  const returnTo = safeReturnPath(url.searchParams.get("return_to"));
+  await getDB(env).batch([
+    getDB(env).prepare(`DELETE FROM oauth_states WHERE expires_at <= CURRENT_TIMESTAMP`),
+    getDB(env).prepare(`
+      INSERT INTO oauth_states(state_hash,code_verifier,nonce,return_to,expires_at)
+      VALUES (?,?,?,?,datetime('now',?))
+    `).bind(stateHash, verifier, nonce, returnTo, `+${OAUTH_STATE_MINUTES} minutes`)
+  ]);
+  const location = await buildAuthorizationRequest(env, oauthRedirectUri(env, request), state, nonce, verifier);
+  return new Response(null, {
+    status: 302,
+    headers: securityHeaders({
+      Location: location,
+      "Cache-Control": "no-store",
+      "Set-Cookie": `${OAUTH_STATE_COOKIE}=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${OAUTH_STATE_MINUTES * 60}`
+    })
+  });
+}
+
+function oauthFailure(request, code) {
+  const location = new URL("/login.html", request.url);
+  location.searchParams.set("oauth_error", code);
+  return new Response(null, {
+    status: 303,
+    headers: securityHeaders({
+      Location: location.toString(),
+      "Cache-Control": "no-store",
+      "Set-Cookie": `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
+    })
+  });
+}
+
+function normalizedEmail(claims) {
+  const email = String(claims.email || "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+async function resolveOAuthUser(env, claims) {
+  const db = getDB(env);
+  const issuer = String(claims.iss);
+  const subject = String(claims.sub);
+  let user = await db.prepare(`
+    SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,r.id role_id,r.name role
+    FROM users u JOIN roles r ON r.id=u.role_id
+    WHERE u.oauth_issuer=? AND u.oauth_subject=? LIMIT 1
+  `).bind(issuer, subject).first();
+  if (user) return user;
+
+  const email = normalizedEmail(claims);
+  const emailVerified = claims.email_verified === true || claims.email_verified === "true";
+  const domains = String(env.OAUTH_ALLOWED_DOMAINS || "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean);
+  if (domains.length) {
+    const domain = email.split("@")[1] || "";
+    if (!emailVerified || !domains.includes(domain)) throw new Error("OAUTH_DOMAIN_NOT_ALLOWED");
+  }
+
+  if (email && emailVerified) {
+    const matches = (await db.prepare(`
+      SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,u.oauth_issuer,u.oauth_subject,
+             r.id role_id,r.name role
+      FROM users u JOIN roles r ON r.id=u.role_id WHERE lower(u.email)=? LIMIT 2
+    `).bind(email).all()).results || [];
+    if (matches.length > 1) throw new Error("OAUTH_EMAIL_CONFLICT");
+    user = matches[0] || null;
+  }
+
+  if (!user && env.OAUTH_ALLOW_USERNAME_LINK === "true") {
+    const candidate = String(claims.preferred_username || (email ? email.split("@")[0] : "")).trim();
+    if (candidate) {
+      user = await db.prepare(`
+        SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,u.oauth_issuer,u.oauth_subject,
+               r.id role_id,r.name role
+        FROM users u JOIN roles r ON r.id=u.role_id WHERE lower(u.username)=lower(?) LIMIT 1
+      `).bind(candidate).first();
+    }
+  }
+
+  if (!user && env.OAUTH_AUTO_PROVISION === "true") {
+    if (!email || !emailVerified) throw new Error("OAUTH_VERIFIED_EMAIL_REQUIRED");
+    const roleName = String(env.OAUTH_DEFAULT_ROLE || "atendimento");
+    const role = await db.prepare(`SELECT id,name FROM roles WHERE name=?`).bind(roleName).first();
+    if (!role) throw new Error("OAUTH_DEFAULT_ROLE_INVALID");
+    const base = String(claims.preferred_username || email.split("@")[0]).toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 40) || "oauth";
+    const username = `${base}-${randomBase64Url(4).toLowerCase()}`;
+    const displayName = String(claims.name || email).trim().slice(0, 120);
+    const result = await db.prepare(`
+      INSERT INTO users(username,display_name,email,oauth_issuer,oauth_subject,password_hash,role_id,active,must_change_password)
+      VALUES (?,?,?,?,?,?,?,1,0)
+    `).bind(username, displayName, email, issuer, subject, await hashPassword(randomBase64Url(48)), role.id).run();
+    user = { id: result.meta.last_row_id, username, display_name: displayName, active: 1, must_change_password: 0, role_id: role.id, role: role.name };
+  }
+
+  if (!user) throw new Error("OAUTH_ACCESS_NOT_PROVISIONED");
+  if (user.oauth_subject && (user.oauth_subject !== subject || user.oauth_issuer !== issuer)) {
+    throw new Error("OAUTH_IDENTITY_CONFLICT");
+  }
+  await db.prepare(`
+    UPDATE users SET email=COALESCE(email,?),oauth_issuer=?,oauth_subject=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(email || null, issuer, subject, user.id).run();
+  return user;
+}
+
+async function handleOAuthCallback(env, request) {
+  if (!oauthEnabled(env)) return oauthFailure(request, "not_configured");
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state") || "";
+  const cookieState = parseCookies(request)[OAUTH_STATE_COOKIE] || "";
+  if (!state || !cookieState || !(await constantTimeEqual(state, cookieState))) return oauthFailure(request, "invalid_state");
+  const stateHash = await oauthSha256Base64Url(state);
+  const saved = await getDB(env).prepare(`
+    DELETE FROM oauth_states WHERE state_hash=? AND expires_at>CURRENT_TIMESTAMP
+    RETURNING code_verifier,nonce,return_to
+  `).bind(stateHash).first();
+  if (!saved) return oauthFailure(request, "expired_state");
+  if (url.searchParams.get("error")) return oauthFailure(request, "provider_denied");
+  const code = url.searchParams.get("code");
+  if (!code || code.length > 4096) return oauthFailure(request, "invalid_code");
+
+  try {
+    const claims = await exchangeAuthorizationCode(env, code, oauthRedirectUri(env, request), saved.code_verifier, saved.nonce);
+    const user = await resolveOAuthUser(env, claims);
+    if (!user.active) return oauthFailure(request, "inactive_user");
+    await getDB(env).prepare(`UPDATE users SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(user.id).run();
+    const session = await createSession(env, request, user, "oidc");
+    const headers = securityHeaders(new Headers({
+      Location: new URL(safeReturnPath(saved.return_to), request.url).toString(),
+      "Cache-Control": "no-store"
+    }));
+    headers.append("Set-Cookie", session.cookie);
+    headers.append("Set-Cookie", `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+    return new Response(null, {
+      status: 303,
+      headers
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ message: "OAuth callback failed", error: error instanceof Error ? error.message : String(error) }));
+    return oauthFailure(request, "login_failed");
+  }
 }
 
 async function handleMe(env, request) {
@@ -890,8 +1190,7 @@ async function handleHealth(env) {
   return json({
     ok: row?.ok === 1,
     service: "topologia-noc",
-    database: "D1",
-    binding: env.bd ? "bd" : "DB"
+    dependencies: { database: row?.ok === 1 ? "ok" : "unavailable" }
   });
 }
 
@@ -935,6 +1234,10 @@ async function grafanaRequest(env, path, init = {}) {
 }
 
 async function handleGrafana(request, env, url) {
+  const permission = request.method === "POST" ? "grafana.query" : "grafana.view";
+  const gate = await requirePermission(env, request, permission);
+  if (gate.response) return gate.response;
+
   // GET /api/grafana/health
   if (request.method === "GET" && url.pathname === "/api/grafana/health") {
     try {
@@ -945,10 +1248,10 @@ async function handleGrafana(request, env, url) {
         data: result.body
       }, result.response.ok ? 200 : 502);
     } catch (error) {
+      console.error(JSON.stringify({message:"Grafana health failed", error:error instanceof Error?error.message:String(error)}));
       return json({
         ok: false,
-        error: error.message,
-        hint: "Configure GRAFANA_URL e GRAFANA_TOKEN nos Secrets/Variables do Worker."
+        error: "GRAFANA_UNAVAILABLE"
       }, 500);
     }
   }
@@ -958,7 +1261,7 @@ async function handleGrafana(request, env, url) {
   // O frontend envia somente a consulta; a credencial fica no Worker.
   if (request.method === "POST" && url.pathname === "/api/grafana/query") {
     try {
-      const payload = await request.json();
+      const payload = await readJson(request, 262144);
       const result = await grafanaRequest(env, "/api/ds/query", {
         method: "POST",
         body: JSON.stringify(payload)
@@ -966,7 +1269,8 @@ async function handleGrafana(request, env, url) {
 
       return json(result.body, result.response.status);
     } catch (error) {
-      return json({ ok: false, error: error.message }, 400);
+      console.error(JSON.stringify({message:"Grafana query failed", error:error instanceof Error?error.message:String(error)}));
+      return json({ ok: false, error: "GRAFANA_QUERY_FAILED" }, 400);
     }
   }
 
@@ -982,7 +1286,8 @@ async function handleGrafana(request, env, url) {
       );
       return json(result.body, result.response.status);
     } catch (error) {
-      return json({ ok: false, error: error.message }, 500);
+      console.error(JSON.stringify({message:"Grafana dashboard failed", error:error instanceof Error?error.message:String(error)}));
+      return json({ ok: false, error: "GRAFANA_UNAVAILABLE" }, 502);
     }
   }
 
@@ -1073,7 +1378,7 @@ async function handleZabbixHostLink(env, request, hostid) {
   if (!before) return json({ error: "HOST_NAO_ENCONTRADO" }, 404);
 
   let body = {};
-  try { body = await request.json(); } catch {}
+  try { body = await readJson(request, 16384); } catch {}
 
   // null/"" desfaz o vínculo e devolve o host ao match automático.
   const equipamentoId = body.equipamento_id ? String(body.equipamento_id).trim() : null;
@@ -1117,7 +1422,7 @@ async function handleZabbixInterfaces(env, request, url) {
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-  const limit = Math.min(Number(url.searchParams.get("limit") || 1000), 5000);
+  const limit = boundedInteger(url.searchParams.get("limit"), 1000, 1, 5000);
 
   const rows = (await getDB(env).prepare(`
     SELECT
@@ -1226,7 +1531,7 @@ async function handleZabbixApplyTopology(env, request) {
   }
 
   let body = {};
-  try { body = await request.json(); } catch {}
+  try { body = await readJson(request, 262144); } catch {}
   const aplicar = body.aplicar === true;
 
   const db = getDB(env);
@@ -1311,7 +1616,8 @@ async function handleZabbix(request, env, url) {
 function safeUserRow(u) {
   if (!u) return null;
   return {
-    id:u.id, username:u.username, display_name:u.display_name,
+    id:u.id, username:u.username, display_name:u.display_name, email:u.email || null,
+    oauth_linked:Boolean(u.oauth_subject),
     role:u.role, active:!!u.active, must_change_password:!!u.must_change_password,
     created_at:u.created_at, updated_at:u.updated_at, last_login_at:u.last_login_at
   };
@@ -1375,7 +1681,7 @@ async function handlePlatformRoles(env, request) {
 
 async function handlePlatformRoleCreate(env,request) {
   const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
-  const db=getDB(env); let body={}; try{body=await request.json()}catch{}
+  const db=getDB(env); let body={}; try{body=await readJson(request,16384)}catch{}
   const name=normalizaNomePerfil(body.name);
   const description=String(body.description||"").trim();
   if(!NOME_PERFIL.test(name))return json({error:"NOME_PERFIL_INVALIDO"},400);
@@ -1392,7 +1698,7 @@ async function handlePlatformRoleUpdate(env,request,id) {
   const db=getDB(env);
   const before=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   if(!before)return json({error:"PERFIL_NAO_ENCONTRADO"},404);
-  let body={};try{body=await request.json()}catch{}
+  let body={};try{body=await readJson(request,16384)}catch{}
 
   const description=body.description===undefined?before.description:String(body.description).trim();
   let name=before.name;
@@ -1432,7 +1738,7 @@ async function handlePlatformRoleAccess(env,request,id) {
   const gate=await requirePermission(env,request,"roles.manage"); if(gate.response)return gate.response;
   const db=getDB(env); const role=await db.prepare(`SELECT id,name,description FROM roles WHERE id=?`).bind(id).first();
   if(!role)return json({error:"PERFIL_NAO_ENCONTRADO"},404);
-  let body={};try{body=await request.json()}catch{}
+  let body={};try{body=await readJson(request,65536)}catch{}
   let permissionIds=Array.isArray(body.permissionIds)?body.permissionIds.map(Number).filter(Number.isInteger):[];
   let screenIds=Array.isArray(body.screenIds)?body.screenIds.map(Number).filter(Number.isInteger):[];
 
@@ -1463,7 +1769,7 @@ async function handlePlatformScreen(env,request,id) {
   const db=getDB(env);
   const before=await db.prepare(`SELECT id,code,name,description,route,active,icon,sort,nav FROM screens WHERE id=?`).bind(id).first();
   if(!before)return json({error:"TELA_NAO_ENCONTRADA"},404);
-  let body={};try{body=await request.json()}catch{}
+  let body={};try{body=await readJson(request,16384)}catch{}
   const active=body.active===undefined?before.active:(body.active?1:0);
   // Desligar a tela de plataforma trancaria a porta com a chave dentro.
   if(before.code==="platform" && !active)return json({error:"NAO_DESATIVE_A_PLATAFORMA"},400);
@@ -1477,7 +1783,7 @@ async function handleUsers(env,request) {
   const gate=await requirePermission(env,request,"users.view"); if(gate.response)return gate.response;
   const db=getDB(env);
   const rows=(await db.prepare(`
-    SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,u.created_at,u.updated_at,u.last_login_at,r.name role
+    SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,u.created_at,u.updated_at,u.last_login_at,r.name role
     FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.username
   `).all()).results;
   return json(rows.map(safeUserRow));
@@ -1485,22 +1791,26 @@ async function handleUsers(env,request) {
 
 async function handleUserCreate(env,request) {
   const gate=await requirePermission(env,request,"users.manage"); if(gate.response)return gate.response;
-  const db=getDB(env); let b={};try{b=await request.json()}catch{}
+  const db=getDB(env); let b={};try{b=await readJson(request,16384)}catch{}
   const username=String(b.username||"").trim().toLowerCase();
   const displayName=String(b.display_name||username).trim();
+  const email=String(b.email||"").trim().toLowerCase();
   const password=String(b.password||"");
   const role=String(b.role||"atendimento");
   if(!/^[a-z0-9._-]{3,50}$/.test(username))return json({error:"USUARIO_INVALIDO"},400);
+  if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({error:"EMAIL_INVALIDO"},400);
+  if(email && await db.prepare(`SELECT 1 FROM users WHERE lower(email)=? LIMIT 1`).bind(email).first())
+    return json({error:"EMAIL_JA_CADASTRADO"},409);
   if(password.length<8)return json({error:"SENHA_DEVE_TER_8_CARACTERES"},400);
   const rr=await db.prepare(`SELECT id,name FROM roles WHERE name=?`).bind(role).first();
   if(!rr)return json({error:"ROLE_INVALIDA"},400);
   try{
     const result=await db.prepare(`
-      INSERT INTO users(username,display_name,password_hash,role_id,active,must_change_password)
-      VALUES(?,?,?,?,1,1)
-    `).bind(username,displayName,await hashPassword(password),rr.id).run();
+      INSERT INTO users(username,display_name,email,password_hash,role_id,active,must_change_password)
+      VALUES(?,?,?,?,?,1,1)
+    `).bind(username,displayName,email||null,await hashPassword(password),rr.id).run();
     const after=await db.prepare(`
-      SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,r.name role
+      SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,r.name role
       FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?
     `).bind(result.meta.last_row_id).first();
     await audit(env,request,gate.user,"CREATE","user",after.id,null,safeUserRow(after));
@@ -1512,31 +1822,60 @@ async function handleUserUpdate(env,request,id) {
   const gate=await requirePermission(env,request,"users.manage"); if(gate.response)return gate.response;
   const db=getDB(env);
   const before=await db.prepare(`
-    SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,r.name role
+    SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,r.name role
     FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?
   `).bind(id).first();
   if(!before)return json({error:"USUARIO_NAO_ENCONTRADO"},404);
-  let b={};try{b=await request.json()}catch{}
+  let b={};try{b=await readJson(request,16384)}catch{}
   if(id===gate.user.id && b.active===false)return json({error:"NAO_DESATIVE_SEU_PROPRIO_USUARIO"},400);
-  const fields=[],values=[];
-  if(b.display_name!==undefined){fields.push("display_name=?");values.push(String(b.display_name).trim())}
-  if(b.active!==undefined){fields.push("active=?");values.push(b.active?1:0)}
-  if(b.role!==undefined){
+  const hasDisplay=b.display_name!==undefined;
+  const displayName=hasDisplay?String(b.display_name).trim():null;
+  const hasEmail=b.email!==undefined;
+  const email=hasEmail?String(b.email||"").trim().toLowerCase():null;
+  if(hasEmail){
+    if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({error:"EMAIL_INVALIDO"},400);
+    if(email && await db.prepare(`SELECT 1 FROM users WHERE lower(email)=? AND id<>? LIMIT 1`).bind(email,id).first())
+      return json({error:"EMAIL_JA_CADASTRADO"},409);
+  }
+  const hasActive=b.active!==undefined;
+  const active=hasActive?(b.active?1:0):null;
+  const hasRole=b.role!==undefined;
+  let roleId=null;
+  if(hasRole){
     const rr=await db.prepare(`SELECT id FROM roles WHERE name=?`).bind(String(b.role)).first();
     if(!rr)return json({error:"ROLE_INVALIDA"},400);
-    fields.push("role_id=?");values.push(rr.id);
+    roleId=rr.id;
   }
-  if(b.password!==undefined){
+  const hasPassword=b.password!==undefined;
+  let passwordHash=null;
+  if(hasPassword){
     if(!(await hasPermission(env,gate.user,"users.password")))
       return json({error:"FORBIDDEN",permission:"users.password"},403);
     if(String(b.password).length<8)return json({error:"SENHA_DEVE_TER_8_CARACTERES"},400);
-    fields.push("password_hash=?","must_change_password=1");values.push(await hashPassword(String(b.password)));
+    passwordHash=await hashPassword(String(b.password));
   }
-  if(!fields.length)return json(safeUserRow(before));
-  fields.push("updated_at=CURRENT_TIMESTAMP");
-  await db.prepare(`UPDATE users SET ${fields.join(",")} WHERE id=?`).bind(...values,id).run();
+  if(!hasDisplay&&!hasEmail&&!hasActive&&!hasRole&&!hasPassword)return json(safeUserRow(before));
+  await db.prepare(`
+    UPDATE users SET
+      display_name=CASE WHEN ?=1 THEN ? ELSE display_name END,
+      email=CASE WHEN ?=1 THEN ? ELSE email END,
+      active=CASE WHEN ?=1 THEN ? ELSE active END,
+      role_id=CASE WHEN ?=1 THEN ? ELSE role_id END,
+      password_hash=CASE WHEN ?=1 THEN ? ELSE password_hash END,
+      must_change_password=CASE WHEN ?=1 THEN 1 ELSE must_change_password END,
+      updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(
+    hasDisplay?1:0,displayName,
+    hasEmail?1:0,email||null,
+    hasActive?1:0,active,
+    hasRole?1:0,roleId,
+    hasPassword?1:0,passwordHash,
+    hasPassword?1:0,id
+  ).run();
+  if(hasPassword) await db.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(id).run();
   const after=await db.prepare(`
-    SELECT u.id,u.username,u.display_name,u.active,u.must_change_password,r.name role
+    SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,r.name role
     FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?
   `).bind(id).first();
   await audit(env,request,gate.user,"UPDATE","user",id,safeUserRow(before),safeUserRow(after));
@@ -1547,7 +1886,7 @@ async function handleAudit(env,request) {
   const gate=await requirePermission(env,request,"audit.view"); if(gate.response)return gate.response;
   const db=getDB(env);
   const url=new URL(request.url);
-  const limit=Math.min(Number(url.searchParams.get("limit")||200),1000);
+  const limit=boundedInteger(url.searchParams.get("limit"),200,1,1000);
   const rows=(await db.prepare(`
     SELECT id,created_at,user_id,username,action,resource_type,resource_id,method,path,ip,user_agent,before_json,after_json,details_json
     FROM audit_logs ORDER BY id DESC LIMIT ?
@@ -1645,7 +1984,7 @@ async function handleTopology(env,request) {
   if(method==="GET"){
     return json({...before,version:row.version,updated_at:row.updated_at,updated_by:row.updated_by});
   }
-  let body;try{body=await request.json()}catch{return json({error:"JSON_INVALIDO"},400)}
+  let body;try{body=await readJson(request)}catch{return json({error:"JSON_INVALIDO"},400)}
   const incoming=body?.topology??body;
   if(!incoming||!Array.isArray(incoming.equipamentos)||!Array.isArray(incoming.conexoes)||!Array.isArray(incoming.pops))
     return json({error:"TOPOLOGIA_INVALIDA"},400);
@@ -1673,14 +2012,198 @@ async function handleTopology(env,request) {
     return json({error:"FORBIDDEN",permission:faltando[0],permissions:faltando},403);
   }
   const nextVersion=Number(row.version||0)+1;
-  await db.prepare(`
-    UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
-  `).bind(JSON.stringify(after),nextVersion,gate.user.id).run();
+  // A atualização e a limpeza das credenciais órfãs formam uma única operação
+  // atômica no D1: ou tudo é gravado, ou nada é alterado.
+  const topologyWrites = [
+    db.prepare(`
+      UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
+    `).bind(JSON.stringify(after),nextVersion,gate.user.id),
+    ...diff.equipamentos.removed.flatMap(id => [
+      db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
+      db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id)
+    ])
+  ];
+  await db.batch(topologyWrites);
   await audit(env,request,gate.user,"TOPOLOGY_UPDATE","topology","1",before,after,{
     version_before:row.version,version_after:nextVersion,diff,
     before_summary:topologySummary(before),after_summary:topologySummary(after)
   });
   return json({ok:true,version:nextVersion,updated_at:new Date().toISOString(),topology:after,diff});
+}
+
+function normalizeManagementIp(value) {
+  const ip = String(value || "").trim().replace(/^\[|\]$/g, "");
+  if (!ip || ip.length > 45) return null;
+  const parts = ip.split(".");
+  if (parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return ip;
+  if (ip.includes(":") && /^[0-9a-f:.]+$/i.test(ip)) {
+    try {
+      const parsed = new URL(`http://[${ip}]/`);
+      return parsed.hostname.slice(1, -1);
+    } catch {}
+  }
+  return null;
+}
+
+async function topologyHasDevice(env, request, deviceId) {
+  const row = await ensureTopologyState(env, request);
+  try {
+    const topology = JSON.parse(row.data_json);
+    return (topology.equipamentos || []).some(e => String(e?.id) === deviceId);
+  } catch {
+    return false;
+  }
+}
+
+async function credentialEncryptionKey(env) {
+  const secret = String(env.DEVICE_CREDENTIALS_KEY || "");
+  if (secret.length < 32) throw new Error("DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return crypto.subtle.importKey("raw", digest, {name:"AES-GCM"}, false, ["encrypt","decrypt"]);
+}
+
+function credentialAdditionalData(userId, deviceId) {
+  return new TextEncoder().encode(`topologia-noc\n${userId}\n${deviceId}`);
+}
+
+async function encryptDevicePassword(env, password, userId, deviceId) {
+  const iv = randomBytes(12);
+  const ciphertext = await crypto.subtle.encrypt({
+    name:"AES-GCM", iv, additionalData:credentialAdditionalData(userId,deviceId)
+  }, await credentialEncryptionKey(env), new TextEncoder().encode(password));
+  return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(new Uint8Array(ciphertext))}`;
+}
+
+async function decryptDevicePassword(env, encoded, userId, deviceId) {
+  const [version, ivText, cipherText] = String(encoded || "").split(".");
+  if (version !== "v1" || !ivText || !cipherText) throw new Error("CREDENTIAL_FORMAT_INVALID");
+  const plaintext = await crypto.subtle.decrypt({
+    name:"AES-GCM",
+    iv:base64UrlToBytes(ivText),
+    additionalData:credentialAdditionalData(userId,deviceId)
+  }, await credentialEncryptionKey(env), base64UrlToBytes(cipherText));
+  return new TextDecoder().decode(plaintext);
+}
+
+function publicCredential(row) {
+  return row ? {
+    username:row.login_username,
+    has_password:Boolean(row.password_ciphertext),
+    updated_at:row.updated_at
+  } : null;
+}
+
+async function handleDeviceConnection(env, request, deviceId) {
+  const gate = await requirePermission(env, request,
+    request.method === "GET" ? "topology.connection.use" : "topology.connection.configure");
+  if (gate.response) return gate.response;
+  if (!(await topologyHasDevice(env, request, deviceId))) return json({error:"EQUIPAMENTO_NAO_ENCONTRADO"},404);
+  const db = getDB(env);
+
+  if (request.method === "GET") {
+    const [connection, credential] = await Promise.all([
+      db.prepare(`SELECT management_ip,protocol,port,updated_at FROM device_connections WHERE device_id=?`).bind(deviceId).first(),
+      db.prepare(`SELECT login_username,password_ciphertext,updated_at FROM device_credentials WHERE device_id=? AND user_id=?`)
+        .bind(deviceId,gate.user.id).first()
+    ]);
+    return json({
+      connection:connection ? {
+        ip:connection.management_ip,
+        protocol:connection.protocol,
+        port:Number(connection.port),
+        updated_at:connection.updated_at
+      } : null,
+      credentials:publicCredential(credential)
+    });
+  }
+
+  if (request.method === "DELETE") {
+    const before = await db.prepare(`SELECT management_ip,protocol,port FROM device_connections WHERE device_id=?`).bind(deviceId).first();
+    await db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(deviceId).run();
+    await audit(env,request,gate.user,"DEVICE_CONNECTION_DELETE","device_connection",deviceId,before,null);
+    return json({ok:true});
+  }
+
+  let body;
+  try { body = await readJson(request, 8192); }
+  catch { return json({error:"JSON_INVALIDO"},400); }
+  const ip = normalizeManagementIp(body.ip);
+  const protocol = String(body.protocol || "").toLowerCase();
+  const port = Number(body.port);
+  if (!ip) return json({error:"IP_DE_GERENCIA_INVALIDO"},400);
+  if (!['ssh','telnet'].includes(protocol)) return json({error:"PROTOCOLO_INVALIDO"},400);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return json({error:"PORTA_INVALIDA"},400);
+
+  const before = await db.prepare(`SELECT management_ip,protocol,port FROM device_connections WHERE device_id=?`).bind(deviceId).first();
+  await db.prepare(`
+    INSERT INTO device_connections(device_id,management_ip,protocol,port,updated_by,updated_at)
+    VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(device_id) DO UPDATE SET
+      management_ip=excluded.management_ip,protocol=excluded.protocol,port=excluded.port,
+      updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP
+  `).bind(deviceId,ip,protocol,port,gate.user.id).run();
+  const after = {management_ip:ip,protocol,port};
+  await audit(env,request,gate.user,"DEVICE_CONNECTION_UPDATE","device_connection",deviceId,before,after);
+  return json({ok:true,connection:{ip,protocol,port}});
+}
+
+async function handleDeviceCredentials(env, request, deviceId, reveal = false) {
+  const gate = await requirePermission(env, request,"topology.connection.use");
+  if (gate.response) return gate.response;
+  if (!(await topologyHasDevice(env, request, deviceId))) return json({error:"EQUIPAMENTO_NAO_ENCONTRADO"},404);
+  const db = getDB(env);
+  const before = await db.prepare(`
+    SELECT login_username,password_ciphertext,updated_at FROM device_credentials WHERE device_id=? AND user_id=?
+  `).bind(deviceId,gate.user.id).first();
+
+  if (reveal) {
+    if (!before?.password_ciphertext) return json({error:"CREDENCIAL_SEM_SENHA"},404);
+    let password;
+    try { password = await decryptDevicePassword(env,before.password_ciphertext,gate.user.id,deviceId); }
+    catch (error) {
+      if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+        return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
+      return json({error:"NAO_FOI_POSSIVEL_DECIFRAR_A_CREDENCIAL"},500);
+    }
+    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_REVEAL","device_credential",deviceId,null,null,{username:before.login_username});
+    return json({password});
+  }
+
+  if (request.method === "DELETE") {
+    await db.prepare(`DELETE FROM device_credentials WHERE device_id=? AND user_id=?`).bind(deviceId,gate.user.id).run();
+    await audit(env,request,gate.user,"DEVICE_CREDENTIAL_DELETE","device_credential",deviceId,
+      before ? {username:before.login_username,has_password:Boolean(before.password_ciphertext)} : null,null);
+    return json({ok:true});
+  }
+
+  let body;
+  try { body = await readJson(request, 8192); }
+  catch { return json({error:"JSON_INVALIDO"},400); }
+  const username = String(body.username || "").trim();
+  const passwordProvided = Object.hasOwn(body,"password") && String(body.password).length > 0;
+  if (!username || username.length > 128) return json({error:"USUARIO_DE_ACESSO_INVALIDO"},400);
+  if (!before && !passwordProvided) return json({error:"SENHA_DE_ACESSO_OBRIGATORIA"},400);
+  if (passwordProvided && String(body.password).length > 512) return json({error:"SENHA_DE_ACESSO_MUITO_LONGA"},400);
+
+  let ciphertext = before?.password_ciphertext || null;
+  if (passwordProvided) {
+    try { ciphertext = await encryptDevicePassword(env,String(body.password),gate.user.id,deviceId); }
+    catch (error) {
+      if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+        return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
+      throw error;
+    }
+  }
+  await db.prepare(`
+    INSERT INTO device_credentials(device_id,user_id,login_username,password_ciphertext,updated_at)
+    VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(device_id,user_id) DO UPDATE SET
+      login_username=excluded.login_username,password_ciphertext=excluded.password_ciphertext,updated_at=CURRENT_TIMESTAMP
+  `).bind(deviceId,gate.user.id,username,ciphertext).run();
+  const after = {username,has_password:Boolean(ciphertext)};
+  await audit(env,request,gate.user,"DEVICE_CREDENTIAL_UPDATE","device_credential",deviceId,
+    before ? {username:before.login_username,has_password:Boolean(before.password_ciphertext)} : null,after);
+  return json({ok:true,credentials:after});
 }
 
 async function handleTopologyPermissions(env,request){
@@ -1690,6 +2213,66 @@ async function handleTopologyPermissions(env,request){
     SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=?
   `).bind(user.role_id).all()).results.map(x=>x.code);
   return json({permissions});
+}
+
+const PUBLIC_ASSET_PATHS = new Set([
+  "/login",
+  "/login.html",
+  "/js/noc-ui.js",
+  "/favicon.ico",
+  "/assets/brand/updown-logo.png",
+  "/assets/brand/updown-symbol.png",
+  "/assets/brand/updown-logo-dark.png",
+  "/assets/brand/updown-symbol-dark.png"
+]);
+
+function isPublicAsset(pathname) {
+  return PUBLIC_ASSET_PATHS.has(pathname) || pathname.startsWith("/css/noc/");
+}
+
+function normalizedRoute(pathname) {
+  return pathname === "/index.html" ? "/" : pathname;
+}
+
+async function serveAsset(request, env) {
+  if (!env.ASSETS) return new Response("Assets binding ASSETS não encontrado.", {status:500});
+  const url = new URL(request.url);
+  const publicAsset = isPublicAsset(url.pathname);
+  let user = null;
+
+  if (!publicAsset) {
+    await ensureDatabase(env);
+    user = await getCurrentUser(env, request);
+    if (!user) {
+      const acceptsHtml = request.headers.get("Accept")?.includes("text/html")
+        || url.pathname === "/" || url.pathname.endsWith(".html");
+      if (acceptsHtml && (request.method === "GET" || request.method === "HEAD")) {
+        const login = new URL("/login.html", url.origin);
+        login.searchParams.set("return_to", safeReturnPath(`${url.pathname}${url.search}`));
+        return new Response(null, {status:303, headers:securityHeaders({Location:login.toString(),"Cache-Control":"no-store"})});
+      }
+      return json({error:"AUTH_REQUIRED"},401);
+    }
+
+    if (url.pathname === "/" || url.pathname.endsWith(".html")) {
+      const route = normalizedRoute(url.pathname);
+      const screen = await getDB(env).prepare(`SELECT id,active FROM screens WHERE route=? LIMIT 1`).bind(route).first();
+      if (screen) {
+        const allowed = await getDB(env).prepare(`
+          SELECT 1 FROM role_screens WHERE role_id=? AND screen_id=? LIMIT 1
+        `).bind(user.role_id, screen.id).first();
+        if (!screen.active || !allowed) return new Response("Acesso negado.", {status:403,headers:securityHeaders({"Cache-Control":"no-store"})});
+      }
+    }
+  }
+
+  const asset = await env.ASSETS.fetch(request);
+  const headers = securityHeaders(asset.headers);
+  if (!publicAsset) {
+    headers.set("Cache-Control", "private, no-store");
+    headers.append("Vary", "Cookie");
+  }
+  return new Response(asset.body, {status:asset.status,headers});
 }
 
 export default {
@@ -1702,12 +2285,27 @@ export default {
         return handleHealth(env);
       }
 
-      if (url.pathname.startsWith("/api/grafana/")) {
-        return await handleGrafana(request, env, url);
-      }
-
       if (url.pathname.startsWith("/api/")) {
         await ensureDatabase(env);
+        const csrf = csrfFailure(request);
+        if (csrf) return csrf;
+
+        if (url.pathname === "/api/auth/config" && request.method === "GET") {
+          return json({
+            oauthEnabled: oauthEnabled(env),
+            oauthButtonLabel: oauthEnabled(env) ? oauthConfig(env).buttonLabel : null,
+            passwordLoginEnabled: env.PASSWORD_LOGIN_ENABLED !== "false"
+          });
+        }
+
+        if (url.pathname === "/api/auth/oauth/start" && request.method === "GET")
+          return await handleOAuthStart(env, request);
+
+        if (url.pathname === "/api/auth/oauth/callback" && request.method === "GET")
+          return await handleOAuthCallback(env, request);
+
+        if (url.pathname.startsWith("/api/grafana/"))
+          return await handleGrafana(request, env, url);
 
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
@@ -1725,14 +2323,16 @@ export default {
         if (url.pathname === "/api/auth/change-password" && request.method === "POST") {
           const user=await getCurrentUser(env,request);
           if(!user)return json({error:"AUTH_REQUIRED"},401);
-          let b={};try{b=await request.json()}catch{}
+          let b={};try{b=await readJson(request,16384)}catch{}
           // getCurrentUser não traz o hash; busca aqui para não expô-lo nas demais rotas.
           const cred=await getDB(env).prepare(`SELECT password_hash FROM users WHERE id=?`).bind(user.id).first();
           if(!cred||!(await verifyPassword(String(b.oldPassword||""),cred.password_hash)))
             return json({error:"SENHA_ATUAL_INVALIDA"},400);
           if(String(b.newPassword||"").length<8)return json({error:"SENHA_FRACA"},400);
-          await env.bd.prepare(`UPDATE users SET password_hash=?,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+          await getDB(env).prepare(`UPDATE users SET password_hash=?,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
             .bind(await hashPassword(String(b.newPassword)),user.id).run();
+          const currentHash = await sha256Base64Url(parseCookies(request)[COOKIE_NAME] || "");
+          await getDB(env).prepare(`DELETE FROM sessions WHERE user_id=? AND token_hash<>?`).bind(user.id,currentHash).run();
           await audit(env,request,user,"PASSWORD_CHANGED","user",user.id);
           return json({ok:true});
         }
@@ -1745,6 +2345,18 @@ export default {
 
         if (url.pathname === "/api/topology" && (request.method === "GET" || request.method === "PUT"))
           return await handleTopology(env,request);
+
+        const connectionMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)$/);
+        if (connectionMatch && ["GET","PUT","DELETE"].includes(request.method))
+          return await handleDeviceConnection(env,request,decodeURIComponent(connectionMatch[1]));
+
+        const credentialMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/credentials$/);
+        if (credentialMatch && ["PUT","DELETE"].includes(request.method))
+          return await handleDeviceCredentials(env,request,decodeURIComponent(credentialMatch[1]));
+
+        const revealMatch = url.pathname.match(/^\/api\/equipment-connections\/([^/]+)\/credentials\/reveal$/);
+        if (revealMatch && request.method === "POST")
+          return await handleDeviceCredentials(env,request,decodeURIComponent(revealMatch[1]),true);
 
         if (url.pathname === "/api/users" && request.method === "GET")
           return await handleUsers(env,request);
@@ -1799,15 +2411,11 @@ export default {
         return new Response(null, {status:303, headers:{Location:limpa.toString(), "Referrer-Policy":"no-referrer"}});
       }
 
-      if (env.ASSETS) {
-        const asset = await env.ASSETS.fetch(request);
-        return new Response(asset.body, {status:asset.status, headers:securityHeaders(asset.headers)});
-      }
-      return new Response("Assets binding ASSETS não encontrado.",{status:500});
+      return await serveAsset(request, env);
     } catch(error) {
       // O detalhe do erro fica no log do Worker; a resposta não expõe
       // mensagem de banco, esquema ou stack para o cliente.
-      console.error(error);
+      console.error(JSON.stringify({message:"Unhandled Worker error",error:error instanceof Error?error.message:String(error),path:new URL(request.url).pathname}));
       return json({ok:false,error:"Erro interno do Worker."},500);
     }
   }

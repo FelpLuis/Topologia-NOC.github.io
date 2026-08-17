@@ -392,7 +392,7 @@
       if (state.userFilter === "ativos" && !u.active) return false;
       if (state.userFilter === "inativos" && u.active) return false;
       if (!q) return true;
-      return `${u.display_name} ${u.username} ${u.role}`.toLowerCase().includes(q);
+      return `${u.display_name} ${u.username} ${u.email || ""} ${u.role}`.toLowerCase().includes(q);
     });
   }
 
@@ -404,7 +404,7 @@
         <td>
           <div class="row" style="gap:var(--s-3)">
             <span class="avatar">${esc(UI.initials(u.display_name || u.username))}</span>
-            <span><b>${esc(u.display_name || u.username)}</b><br><small class="dim">${esc(u.username)}</small></span>
+            <span><b>${esc(u.display_name || u.username)}</b><br><small class="dim">${esc(u.username)}${u.email ? " · " + esc(u.email) : ""}</small></span>
           </div>
         </td>
         <td>
@@ -417,6 +417,7 @@
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
           <div class="row" style="gap:6px;justify-content:flex-end">
+            <button class="btn btn-sm" type="button" data-email="${u.id}" ${can("manageUsers") ? "" : "disabled"}>E-mail OAuth</button>
             <button class="btn btn-sm" type="button" data-reset="${u.id}" ${can("resetPassword") ? "" : "disabled"}>Redefinir senha</button>
             <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
           </div>
@@ -477,6 +478,46 @@
       const u = state.users.find((x) => x.id === +b.dataset.reset);
       openReset(u);
     }));
+
+    $$("[data-email]").forEach((b) => (b.onclick = () => {
+      const u = state.users.find((x) => x.id === +b.dataset.email);
+      openOAuthEmail(u);
+    }));
+  }
+
+  function openOAuthEmail(u) {
+    modal({
+      labelledBy: "oeTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${esc(u.username)}</span><h2 id="oeTitle" style="margin-top:6px">E-mail corporativo</h2>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:4px">Deve ser igual ao e-mail verificado enviado pelo provedor OAuth/OIDC.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="field"><label for="oauthEmail">E-mail</label>
+            <input class="input" id="oauthEmail" type="email" value="${esc(u.email || "")}" autocomplete="off"></div>
+          <span class="field-error" id="oeErr" hidden></span>
+        </div>
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button>
+          <button class="btn btn-primary" data-go type="button">Salvar</button></span></div>`,
+      onMount: (host, close) => {
+        $("[data-go]", host).onclick = async () => {
+          const email = $("#oauthEmail", host).value.trim();
+          const err = $("#oeErr", host);
+          try {
+            const updated = await NOC.api(`/api/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ email }) });
+            u.email = updated.email;
+            close();
+            renderUsers();
+            toast("E-mail corporativo atualizado", { type: "ok" });
+          } catch (e2) {
+            err.hidden = false;
+            err.innerHTML = icon("alert") + " " + esc(e2.message);
+          }
+        };
+      },
+    });
   }
 
   /* A senha é digitada pelo administrador e enviada para a API — o
@@ -535,6 +576,9 @@
             <div class="field grow"><label for="uNome">Nome completo</label><input class="input" id="uNome"></div>
             <div class="field grow"><label for="uUser">Usuário de acesso</label><input class="input" id="uUser" autocomplete="off"></div>
           </div>
+          <div class="field"><label for="uEmail">E-mail corporativo</label>
+            <input class="input" id="uEmail" type="email" autocomplete="off" placeholder="usuario@empresa.com.br">
+            <span class="field-hint">Usado para vincular a identidade OAuth/OIDC verificada.</span></div>
           <div class="field"><label for="uPass">Senha inicial (mínimo 8 caracteres)</label>
             <input class="input" id="uPass" type="password" minlength="8" autocomplete="new-password"></div>
           <div class="field"><label for="uRole">Perfil</label>
@@ -562,6 +606,7 @@
           const payload = {
             display_name: $("#uNome", host).value.trim(),
             username: $("#uUser", host).value.trim(),
+            email: $("#uEmail", host).value.trim(),
             password: $("#uPass", host).value,
             role: sel.value,
           };

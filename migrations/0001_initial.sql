@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
+  email TEXT,
+  oauth_issuer TEXT,
+  oauth_subject TEXT,
   password_hash TEXT NOT NULL,
   role_id INTEGER NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
@@ -31,6 +34,26 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  code_verifier TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  return_to TEXT NOT NULL DEFAULT '/',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  attempt_key TEXT NOT NULL,
+  attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+  ON users(oauth_issuer,oauth_subject)
+  WHERE oauth_issuer IS NOT NULL AND oauth_subject IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_key_time ON login_attempts(attempt_key,attempted_at);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

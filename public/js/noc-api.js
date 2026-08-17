@@ -31,6 +31,18 @@ window.NOC = (() => {
   function mensagemDeErro(data, status) {
     if (data?.error === "FORBIDDEN") return `Seu perfil não tem a permissão necessária (${data.permission || "acesso"}).`;
     if (data?.error === "TOPOLOGIA_INVALIDA") return "A topologia enviada está incompleta.";
+    const connectionErrors = {
+      IP_DE_GERENCIA_INVALIDO: "Informe um endereço IPv4 ou IPv6 válido.",
+      PROTOCOLO_INVALIDO: "Escolha SSH ou TELNET.",
+      PORTA_INVALIDA: "Informe uma porta entre 1 e 65535.",
+      USUARIO_DE_ACESSO_INVALIDO: "Informe o usuário usado para entrar no aparelho.",
+      SENHA_DE_ACESSO_OBRIGATORIA: "Informe a senha desse usuário no aparelho.",
+      CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA: "A proteção de credenciais ainda não foi configurada no servidor.",
+      NAO_FOI_POSSIVEL_DECIFRAR_A_CREDENCIAL: "A senha salva não pôde ser aberta. Cadastre-a novamente.",
+      CREDENCIAL_SEM_SENHA: "Nenhuma senha foi cadastrada para este aparelho.",
+      EQUIPAMENTO_NAO_ENCONTRADO: "O equipamento não existe mais na topologia.",
+    };
+    if (connectionErrors[data?.error]) return connectionErrors[data.error];
     if (data?.error) return String(data.error);
     return `Falha na requisição (HTTP ${status}).`;
   }
@@ -239,6 +251,20 @@ window.NOC = (() => {
       : i?.oper_status === 2 ? { dot: "dot-danger", label: "Down", badge: "badge-danger" }
         : { dot: "", label: "Sem dado", badge: "" };
 
+  /* ---------------- acesso remoto aos equipamentos ---------------- */
+  const deviceConnection = {
+    get: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`),
+    save: (deviceId, connection) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`, {
+      method: "PUT", body: JSON.stringify(connection),
+    }),
+    remove: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}`, { method: "DELETE" }),
+    saveCredentials: (deviceId, credentials) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials`, {
+      method: "PUT", body: JSON.stringify(credentials),
+    }),
+    removeCredentials: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials`, { method: "DELETE" }),
+    revealPassword: (deviceId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/credentials/reveal`, { method: "POST" }),
+  };
+
   /* speed_bps e in_bps/out_bps vêm em bits/s. */
   function formatBps(bps) {
     const n = Number(bps);
@@ -274,6 +300,6 @@ window.NOC = (() => {
     pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, grafanaHealth, skeleton, errorState,
-    zabbix, interfaceStatus, formatBps,
+    zabbix, interfaceStatus, formatBps, deviceConnection,
   };
 })();

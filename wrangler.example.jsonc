@@ -2,12 +2,20 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "topologia-noc",
   "main": "src/worker.js",
-  "compatibility_date": "2026-08-14",
+  "compatibility_date": "2026-08-17",
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "run_worker_first": true
   },
   "vars": {
-    "GRAFANA_URL": "https://dashboard.lv.network"
+    "GRAFANA_URL": "https://dashboard.lv.network",
+    "OAUTH_ISSUER": "https://login.exemplo.com/tenant/v2.0",
+    "OAUTH_CLIENT_ID": "SEU_CLIENT_ID",
+    "OAUTH_ALLOWED_DOMAINS": "updown.com.br",
+    "OAUTH_ALLOW_USERNAME_LINK": "false",
+    "OAUTH_AUTO_PROVISION": "false",
+    "PASSWORD_LOGIN_ENABLED": "true"
   }
 }

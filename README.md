@@ -63,6 +63,16 @@ O token deve ser Secret. Nunca coloque o token em `public/js`, `data`, GitHub ou
 
 ## 2. Deploy
 
+Antes do primeiro uso da aba **Conexão**, cadastre a chave que protege as
+senhas individuais de acesso aos aparelhos:
+
+```bash
+npx wrangler secret put DEVICE_CREDENTIALS_KEY
+```
+
+Informe uma chave aleatória com pelo menos 32 caracteres. Não troque essa
+chave sem antes planejar o recadastro das senhas já salvas.
+
 O comando de deploy passa a ser:
 
 ```bash
@@ -267,6 +277,15 @@ O navegador conversa apenas com:
 
 e o Worker conversa com o Grafana.
 
+O Worker é executado antes dos assets (`run_worker_first`): páginas internas,
+scripts operacionais e arquivos de `public/data` exigem sessão, e as páginas do
+catálogo também são verificadas contra `role_screens` no servidor. As rotas do
+Grafana exigem `grafana.view` ou `grafana.query`.
+
+No D1, dados de requisições nunca são concatenados em SQL. Valores usam
+prepared statements com `.bind()`; identificadores usados pelas rotinas de
+migração são validados por lista/formato seguro antes de entrar no comando.
+
 ## GitHub
 
 Suba todos os arquivos deste projeto para o repositório.
@@ -293,12 +312,33 @@ O projeto agora possui backend Node.js + SQLite.
 
 ### Primeiro acesso
 
-```text
-Usuário: admin
-Senha:   admin
+Não existe mais credencial padrão. Para uma instalação nova, defina uma senha
+temporária forte em `BOOTSTRAP_ADMIN_PASSWORD` usando um Cloudflare Secret. O
+Worker cria a conta somente se ela ainda não existir e exige a troca da senha.
+Depois do primeiro acesso, remova o Secret de bootstrap.
+
+```bash
+npx wrangler secret put BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-**A senha é temporária.** No primeiro login o sistema força a troca para uma senha forte.
+### OAuth 2.0 / OpenID Connect
+
+O login corporativo usa Authorization Code, PKCE (`S256`), `state`, `nonce` e
+validação da assinatura RS256 do ID Token. Configure `OAUTH_ISSUER` e
+`OAUTH_CLIENT_ID` como variáveis e o segredo do cliente separadamente:
+
+```bash
+npx wrangler secret put OAUTH_CLIENT_SECRET
+```
+
+Cadastre no provedor a callback
+`https://SEU-DOMINIO/api/auth/oauth/callback`. Para limitar o vínculo de contas,
+configure `OAUTH_ALLOWED_DOMAINS`. Por padrão não há provisionamento automático;
+uma identidade precisa corresponder ao e-mail verificado de um usuário existente.
+`OAUTH_ALLOW_USERNAME_LINK=true` permite também o vínculo por
+`preferred_username` e deve ser usado somente com um issuer corporativo confiável.
+Depois de validar o acesso corporativo, `PASSWORD_LOGIN_ENABLED=false` desativa o
+login por senha local.
 
 ### Perfis RBAC
 
@@ -314,7 +354,7 @@ Os perfis oficiais do sistema são:
 
 Os nomes exibidos na interface são **Administrador, Analista, Atendimento, Técnico e Logística**.
 
-O usuário inicial `admin` recebe automaticamente o perfil `administrador`.
+Quando criado pelo Secret de bootstrap, o usuário inicial recebe o perfil `administrador`.
 
 Perfis antigos da primeira versão (`admin`, `editor`, `viewer`) são migrados automaticamente para `administrador`, `analista` e `atendimento`, respectivamente, quando o script de inicialização é executado.
 
@@ -722,6 +762,7 @@ coloca em Perfis, no menu e sob controle de acesso, sem lista fixa no front.
 | --- | --- |
 | Topologia (`network`) | `topology.view`, `topology.edit`, `topology.delete`, `topology.equipment.create`, `topology.equipment.edit`, `topology.equipment.delete`, `topology.port.edit`, `topology.link.create`, `topology.link.delete`, `topology.pop.link`, `topology.layout`, `topology.config` |
 | Monitoramento (`network`) | `zabbix.view`, `zabbix.sync`, `zabbix.link` |
+| Grafana (`dashboard`) | `grafana.view`, `grafana.query` |
 | POPs e anel (`pops`) | `pops.create`, `pops.edit`, `pops.delete`, `pops.order`, `pops.routes`, `pops.ring.layout` |
 | Plataforma (`platform`) | `roles.view`, `roles.manage`, `screens.manage`, `users.view`, `users.manage`, `users.password`, `audit.view`, `audit.export`, `settings.manage` |
 
