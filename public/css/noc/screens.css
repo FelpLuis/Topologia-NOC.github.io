@@ -352,6 +352,44 @@
 }
 .topo-legend .row { gap: var(--s-2); }
 
+/* Barra de edição do layout do mapa (posição dos POPs) */
+.topo-layout-bar {
+  left: var(--s-4);
+  right: auto;
+  bottom: var(--s-4);
+  flex-wrap: wrap;
+  max-width: calc(100% - var(--s-6) * 2);
+  padding: var(--s-2) var(--s-3);
+}
+
+/* Modo de edição: o cabeçalho do POP vira alça de arrasto */
+.topo-stage.is-editing-layout .site-head { cursor: grab; }
+.topo-stage.is-editing-layout .site-head[disabled] { opacity: 1; cursor: grab; }
+.topo-site.is-dragging {
+  cursor: grabbing;
+  z-index: 6;
+  box-shadow: 0 0 0 2px var(--cyan-400), var(--shadow-2);
+  transition: none;
+}
+.topo-site.is-placed { border-style: dashed; }
+.site-grip {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 /* Porta física — grade que espelha a face do equipamento */
 .port-grid {
   display: grid;

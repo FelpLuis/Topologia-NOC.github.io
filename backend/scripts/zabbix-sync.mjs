@@ -136,13 +136,22 @@ if (!apply) {
 const target = local ? "--local" : "--remote";
 console.log(`\nAplicando no D1 (${target})...`);
 
+// No Windows o executável é npx.cmd e, desde o Node 20, o spawn de um .cmd
+// exige shell — sem isso o erro é EINVAL. Com shell, o comando vai como string
+// única: passar `args` junto com `shell:true` é depreciado, porque o Node
+// concatena sem escapar. Aqui não há entrada externa, os nomes são fixos.
+const isWindows = process.platform === "win32";
+
 for (const file of ["migrations/0004_zabbix.sql", "backend/data/zabbix-sync.sql"]) {
   console.log(`  ${file}`);
-  execFileSync(
-    process.platform === "win32" ? "npx.cmd" : "npx",
-    ["wrangler", "d1", "execute", "bd", target, "--file", file, "--yes"],
-    { cwd: ROOT, stdio: "inherit" }
-  );
+
+  const args = ["wrangler", "d1", "execute", "bd", target, "--file", file, "--yes"];
+
+  if (isWindows) {
+    execFileSync(`npx.cmd ${args.join(" ")}`, { cwd: ROOT, stdio: "inherit", shell: true });
+  } else {
+    execFileSync("npx", args, { cwd: ROOT, stdio: "inherit" });
+  }
 }
 
 console.log("\nBanco atualizado.");

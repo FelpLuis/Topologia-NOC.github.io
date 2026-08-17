@@ -8,12 +8,17 @@
   const { $, $$, esc, icon, toast, drawer, modal, confirm: askConfirm } = UI;
 
   const SEM_POP = "__sem-pop__";
+  const GRID = 8; // arrasto encaixa nesta malha, para o mapa não ficar torto
   const state = {
     query: "", cats: new Set(), selected: null,
     expanded: new Set(),
     scale: 1, tx: 0, ty: 0, flow: true, view: "mapa",
     boxes: {}, nodes: {}, world: { w: 1, h: 1, fit: 1 },
+    /* layout: posições manuais dos POPs, gravadas em config.layout e válidas
+       para todos os usuários. Vazio = posicionamento automático. */
+    editLayout: false, layout: {}, layoutDirty: false, dragEndAt: 0,
   };
+  let repaintDevice = null; // repinta a gaveta aberta depois de editar uma porta
 
   const device = (id) => (NOC.data()?.equipamentos || []).find((e) => e.id === id);
   const sites = () => [
@@ -171,6 +176,22 @@
     };
   }
 
+  /* Reposiciona os equipamentos de um POP a partir da caixa dele. Usado no
+     cálculo geral e a cada quadro do arrasto, para as linhas acompanharem. */
+  function placeNodes(siteId, nodes = state.nodes) {
+    const b = state.boxes[siteId];
+    const list = devicesOf(siteId);
+    if (!b || !state.expanded.has(siteId) || !list.length) return;
+    const cols = Math.min(3, list.length);
+    list.forEach((e, i) => {
+      nodes[e.id] = {
+        x: b.x + PAD + (i % cols) * (DEV_W + GAP),
+        y: b.y + HEAD + Math.floor(i / cols) * (DEV_H + GAP),
+        w: DEV_W, h: DEV_H,
+      };
+    });
+  }
+
   function layout() {
     const st = stage().getBoundingClientRect();
     const sizes = visibleSites().map((s) => ({ site: s, ...siteSize(s) }));
@@ -179,33 +200,28 @@
     const targetW = Math.max(900, Math.min(totalW, Math.max(st.width, 900) * 1.25));
 
     const boxes = {};
-    let x = 0, y = 0, rowH = 0, maxW = 0;
+    let x = 0, y = 0, rowH = 0;
     sizes.forEach((s) => {
+      // POP com posição gravada sai do fluxo automático e fica onde o admin deixou.
+      const fixo = state.layout[s.site.id];
+      if (fixo) {
+        boxes[s.site.id] = { x: Math.max(0, +fixo.x || 0), y: Math.max(0, +fixo.y || 0), w: s.w, h: s.h, fixo: true };
+        return;
+      }
       if (x > 0 && x + s.w > targetW) { x = 0; y += rowH + SITE_GAP; rowH = 0; }
       boxes[s.site.id] = { x, y, w: s.w, h: s.h };
       rowH = Math.max(rowH, s.h);
       x += s.w + SITE_GAP;
-      maxW = Math.max(maxW, x - SITE_GAP);
     });
-    const worldH = y + rowH;
 
-    const nodes = {};
-    visibleSites().forEach((s) => {
-      const b = boxes[s.id];
-      const list = devicesOf(s.id);
-      if (!state.expanded.has(s.id) || !list.length) return;
-      const cols = Math.min(3, list.length);
-      list.forEach((e, i) => {
-        nodes[e.id] = {
-          x: b.x + PAD + (i % cols) * (DEV_W + GAP),
-          y: b.y + HEAD + Math.floor(i / cols) * (DEV_H + GAP),
-          w: DEV_W, h: DEV_H,
-        };
-      });
-    });
+    const cantos = Object.values(boxes);
+    const maxW = Math.max(...cantos.map((b) => b.x + b.w));
+    const worldH = Math.max(...cantos.map((b) => b.y + b.h));
 
     state.boxes = boxes;
-    state.nodes = nodes;
+    state.nodes = {};
+    visibleSites().forEach((s) => placeNodes(s.id));
+
     state.world = {
       w: maxW, h: worldH,
       fit: Math.min((st.width - 110) / maxW, (st.height - 110) / worldH, 1.1),
@@ -342,10 +358,13 @@
         </button>`;
       }).join("") : "";
 
-      return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""}"
-                style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
+      const posicionado = !!state.layout[s.id];
+      return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""}"
+                data-box="${esc(s.id)}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
+        ${state.editLayout ? `<span class="site-grip">${icon("sort")} arraste</span>` : ""}
         <button class="site-head" type="button" data-site="${esc(s.id)}" aria-expanded="${aberto}"
-                ${temEquip ? "" : 'disabled title="Nenhum equipamento vinculado a este POP"'}>
+                ${temEquip ? "" : 'data-empty="1"'}
+                ${temEquip || state.editLayout ? "" : 'disabled title="Nenhum equipamento vinculado a este POP"'}>
           <span class="site-chevron">${icon(aberto ? "chevronDown" : "chevronRight")}</span>
           <span class="grow" style="min-width:0">
             <span class="row" style="gap:6px">
@@ -367,12 +386,140 @@
       </section>`;
     }).join("");
 
-    $$("[data-site]", host).forEach((b) => (b.onclick = () => toggleSite(b.dataset.site)));
+    $$("[data-site]", host).forEach((b) => (b.onclick = () => {
+      if (performance.now() - state.dragEndAt < 300) return; // clique que veio do arrasto
+      if (b.dataset.empty) return;
+      toggleSite(b.dataset.site);
+    }));
     $$(".topo-device", host).forEach((b) => (b.onclick = () => {
+      if (state.editLayout) return; // no modo layout o clique não abre a gaveta
       state.selected = b.dataset.id;
       renderAll();
       openDevice(b.dataset.id);
     }));
+    if (state.editLayout) $$("[data-box]", host).forEach((el) => bindSiteDrag(el, el.dataset.box));
+  }
+
+  /* ---------------- arrastar POPs (edição de layout) ---------------- */
+  function bindSiteDrag(el, siteId) {
+    const handle = $(".site-head", el) || el;
+    let arrastando = false, movido = false, sx = 0, sy = 0, ox = 0, oy = 0, quadro = null;
+
+    handle.addEventListener("pointerdown", (ev) => {
+      if (!state.editLayout || ev.button !== 0) return;
+      const b = state.boxes[siteId];
+      if (!b) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      arrastando = true; movido = false;
+      sx = ev.clientX; sy = ev.clientY; ox = b.x; oy = b.y;
+      try { handle.setPointerCapture(ev.pointerId); } catch (e) { /* navegador antigo */ }
+      el.classList.add("is-dragging");
+    });
+
+    handle.addEventListener("pointermove", (ev) => {
+      if (!arrastando) return;
+      const b = state.boxes[siteId];
+      if (!b) return;
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) movido = true;
+      // o mundo está escalado: o deslocamento da tela vira deslocamento do mapa
+      b.x = Math.max(0, Math.round((ox + (ev.clientX - sx) / state.scale) / GRID) * GRID);
+      b.y = Math.max(0, Math.round((oy + (ev.clientY - sy) / state.scale) / GRID) * GRID);
+      el.style.left = b.x + "px";
+      el.style.top = b.y + "px";
+      placeNodes(siteId);
+      if (!quadro) quadro = requestAnimationFrame(() => { quadro = null; renderEdges(); });
+    });
+
+    const soltar = () => {
+      if (!arrastando) return;
+      arrastando = false;
+      el.classList.remove("is-dragging");
+      if (!movido) return;
+      const b = state.boxes[siteId];
+      state.layout[siteId] = { x: b.x, y: b.y };
+      state.layoutDirty = true;
+      state.dragEndAt = performance.now();
+      layout();
+      renderAll();
+      renderLayoutBar();
+    };
+    handle.addEventListener("pointerup", soltar);
+    handle.addEventListener("pointercancel", soltar);
+  }
+
+  function renderLayoutBar() {
+    const bar = $("#layoutBar");
+    if (!bar) return;
+    bar.hidden = !state.editLayout;
+    const n = Object.keys(state.layout).length;
+    $("#layoutStatus").textContent = state.layoutDirty
+      ? "alterações ainda não salvas"
+      : n ? `${n} POP(s) com posição própria` : "arraste os POPs para posicionar";
+    $("#layoutSave").disabled = !state.layoutDirty;
+    $("#layoutDiscard").disabled = !state.layoutDirty;
+    $("#layoutAuto").disabled = !n;
+    const b = $("#btnLayout");
+    b.setAttribute("aria-pressed", String(state.editLayout));
+    b.textContent = state.editLayout ? "Sair do layout" : "Editar layout";
+    stage().classList.toggle("is-editing-layout", state.editLayout);
+  }
+
+  function setLayoutEdit(on) {
+    state.editLayout = on;
+    if (!on) state.selected = null;
+    renderLayoutBar();
+    layout();
+    renderAll();
+  }
+
+  function toggleLayoutEdit() {
+    if (state.editLayout && state.layoutDirty) {
+      askConfirm({
+        title: "Sair sem salvar as posições?",
+        text: "Os POPs voltam para onde estavam na última gravação.",
+        confirmLabel: "Descartar alterações",
+        danger: true,
+        onConfirm: () => { discardLayout(); setLayoutEdit(false); },
+      });
+      return;
+    }
+    setLayoutEdit(!state.editLayout);
+    if (state.editLayout) toast("Modo de layout ativo", {
+      text: "Arraste a caixa de cada POP e depois clique em “Salvar posições”.",
+      type: "info",
+    });
+  }
+
+  function discardLayout() {
+    state.layout = { ...(NOC.data()?.config?.layout || {}) };
+    state.layoutDirty = false;
+    layout();
+    renderAll();
+    renderLayoutBar();
+    fit();
+  }
+
+  async function saveLayout() {
+    const antes = { ...(NOC.data()?.config?.layout || {}) };
+    const depois = { ...state.layout };
+    const gravar = async (posicoes) => {
+      const t = NOC.data();
+      t.config = { ...(t.config || {}), layout: posicoes };
+      state.layout = { ...posicoes };
+      state.layoutDirty = false;
+    };
+    await gravar(depois);
+    const ok = await persist(
+      "TOPOLOGY_LAYOUT",
+      { titulo: "Layout do mapa salvo", texto: "As posições valem para todos os usuários da topologia." },
+      async () => {
+        await gravar(antes);
+        await persist("TOPOLOGY_LAYOUT", { titulo: "Layout anterior restaurado", tipo: "info" });
+      }
+    );
+    if (!ok) state.layoutDirty = true;
+    renderLayoutBar();
   }
 
   const isNeighbor = (id) => {
@@ -534,11 +681,13 @@
           $$(".tab", host).forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
           body.innerHTML = tab === "portas" ? portsTab(e) : tab === "conexoes" ? connTab(e) : sheetTab(e);
           if (tab === "portas") wirePorts(e, body);
-          if (tab === "conexoes") wireConn(body, close);
+          if (tab === "conexoes") wireConn(e, body, close);
           if (tab === "ficha") wireSheet(e, body);
         };
         $$(".tab", host).forEach((t) => (t.onclick = () => { tab = t.dataset.tab; paint(); }));
         $("[data-edit]", host).onclick = () => { tab = "ficha"; paint(); setTimeout(() => $("[data-editmode]", body)?.click(), 0); };
+        // Editar uma porta muda contagens e enlaces: a gaveta se repinta sozinha.
+        repaintDevice = () => { if (document.body.contains(body)) paint(); };
         paint();
       },
     });
@@ -556,7 +705,7 @@
 
       <div class="row-between" style="margin-bottom:var(--s-3)">
         <h3 style="font-size:var(--fs-13)">Face do equipamento</h3>
-        <span class="dim" style="font-size:var(--fs-11)">Clique numa porta para ver o enlace</span>
+        <span class="dim" style="font-size:var(--fs-11)">Clique numa porta para ver ou editar o enlace</span>
       </div>
       <div class="port-grid" id="portGrid">
         ${e.portas.map((p) => {
@@ -576,7 +725,7 @@
       </div>
       <div class="table-wrap" style="max-height:340px">
         <table class="table">
-          <thead><tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conexão</th></tr></thead>
+          <thead><tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conexão</th><th></th></tr></thead>
           <tbody id="portRows"></tbody>
         </table>
       </div>
@@ -603,9 +752,13 @@
           <td class="dim">${esc(p.tipo || "—")}</td>
           <td>${c ? '<span class="badge badge-ok"><i class="dot dot-ok"></i>Em uso</span>' : '<span class="badge">Livre</span>'}</td>
           <td>${remoto ? `<button class="btn btn-ghost btn-sm" data-goto="${esc(remoto.id)}">${esc(remoto.nome)} • porta ${remotaPorta}</button>` : '<span class="dim">—</span>'}</td>
+          <td><button class="btn btn-ghost btn-sm btn-icon" data-editport="${p.numero}" type="button"
+                aria-label="Editar a porta ${p.numero}" title="Editar porta e conexão"
+                ${NOC.can("topology.edit") ? "" : "disabled"}>${icon("edit")}</button></td>
         </tr>`;
-      }).join("") : `<tr><td colspan="5"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
+      }).join("") : `<tr><td colspan="6"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
       $$("#portRows [data-goto]", root).forEach((b) => (b.onclick = () => openDevice(b.dataset.goto)));
+      $$("#portRows [data-editport]", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.editport, { edit: true })));
     };
     $$("[data-pf]", root).forEach((b) => (b.onclick = () => {
       filter = b.dataset.pf;
@@ -616,12 +769,21 @@
     rows();
   }
 
-  function openPort(e, numero) {
+  /* Portas do equipamento remoto que podem receber o enlace: as livres mais a
+     que já está nesta ligação (senão o admin não conseguiria reeditá-la). */
+  const portasDisponiveis = (destId, manter) => {
+    const d = device(destId);
+    if (!d) return [];
+    return (d.portas || []).filter((x) => !NOC.portaEmUso(destId, x.numero) || Number(x.numero) === Number(manter));
+  };
+
+  const STATUS_PORTA = [["livre", "Livre"], ["conectada", "Conectada"], ["reservada", "Reservada"], ["manutencao", "Manutenção"]];
+
+  function openPort(e, numero, opts = {}) {
     const p = e.portas.find((x) => +x.numero === numero);
     if (!p) return;
-    const c = NOC.portConnection(e.id, numero);
-    const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
-    const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
+    const canEdit = NOC.can("topology.edit");
+    const canDelete = NOC.can("topology.delete");
 
     modal({
       labelledBy: "portTitle",
@@ -629,36 +791,215 @@
         <div class="modal-head">
           <div><span class="kicker">${esc(e.nome)}</span>
             <h2 id="portTitle" style="margin-top:6px">Porta ${String(numero).padStart(2, "0")}</h2>
-            <p class="muted" style="font-size:var(--fs-13);margin-top:4px">${esc(p.tipo || "—")} • ${esc(p.capacidade || "A confirmar")}</p></div>
+            <p class="muted" style="font-size:var(--fs-13);margin-top:4px" id="portSub"></p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
-        <div class="modal-body stack">
-          ${remoto ? `
-            <div class="card" style="padding:var(--s-4)">
-              <span class="kicker">${icon("link")} Enlace documentado</span>
-              <div class="row-between" style="margin-top:var(--s-3)">
-                <div><b>${esc(e.nome)}</b><br><small class="dim">porta ${numero}</small></div>
-                ${icon("arrowRight")}
-                <div style="text-align:right"><b>${esc(remoto.nome)}</b><br><small class="dim">porta ${remotaPorta}</small></div>
-              </div>
-              <div class="row" style="gap:6px;margin-top:var(--s-3)">
-                <span class="badge badge-info">${esc(c.tipo || "Enlace")}</span>
-                <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
-              </div>
-            </div>` : `
-            <div class="alert alert-info" style="animation:none">${icon("info")}
-              <span>Porta livre e disponível para novo cliente ou expansão do anel.</span></div>`}
-        </div>
-        <div class="modal-foot">
-          <span class="dim" style="font-size:var(--fs-11)">Edição de portas: editor clássico.</span>
-          <span class="row">
-            <button class="btn" data-close type="button">Fechar</button>
-            ${remoto ? `<button class="btn btn-primary" data-goto="${esc(remoto.id)}" type="button">Abrir ${esc(remoto.nome)}</button>` : ""}
-          </span>
-        </div>`,
+        <div class="modal-body stack" id="portBody"></div>
+        <div class="modal-foot" id="portFoot"></div>`,
       onMount: (host, close) => {
-        const g = $("[data-goto]", host);
-        if (g) g.onclick = () => { close(); openDevice(g.dataset.goto); };
+        let editando = !!opts.edit && canEdit;
+        const body = $("#portBody", host);
+        const foot = $("#portFoot", host);
+
+        const paint = () => {
+          const c = NOC.portConnection(e.id, numero);
+          const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
+          const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
+          // Alterar ou apagar um enlace existente conta como remoção na API.
+          const travado = !!c && !canDelete;
+
+          $("#portSub", host).textContent = `${p.tipo || "—"} • ${p.capacidade || "A confirmar"}`;
+
+          if (!editando) {
+            body.innerHTML = `
+              ${remoto ? `
+                <div class="card" style="padding:var(--s-4)">
+                  <span class="kicker">${icon("link")} Enlace documentado</span>
+                  <div class="row-between" style="margin-top:var(--s-3)">
+                    <div><b>${esc(e.nome)}</b><br><small class="dim">porta ${numero}</small></div>
+                    ${icon("arrowRight")}
+                    <div style="text-align:right"><b>${esc(remoto.nome)}</b><br><small class="dim">porta ${remotaPorta}</small></div>
+                  </div>
+                  <div class="row" style="gap:6px;margin-top:var(--s-3)">
+                    <span class="badge badge-info">${esc(c.tipo || "Enlace")}</span>
+                    <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
+                  </div>
+                </div>` : `
+                <div class="alert alert-info" style="animation:none">${icon("info")}
+                  <span>Porta livre e disponível para novo cliente ou expansão do anel.</span></div>`}
+              <div class="kv">
+                <div><label>Status</label><strong style="font-size:var(--fs-14)">${esc(p.status || (c ? "conectada" : "livre"))}</strong></div>
+                <div><label>Capacidade</label><strong style="font-size:var(--fs-14)">${esc(p.capacidade || "A confirmar")}</strong></div>
+              </div>
+              ${p.observacao ? `<p class="muted" style="font-size:var(--fs-13)">${esc(p.observacao)}</p>` : ""}`;
+
+            foot.innerHTML = `
+              <span class="dim" style="font-size:var(--fs-11)">${canEdit ? "Alterações são auditadas com usuário, IP e data/hora." : "Seu perfil tem acesso somente de leitura."}</span>
+              <span class="row">
+                <button class="btn" data-close type="button">Fechar</button>
+                ${remoto ? `<button class="btn" data-goto="${esc(remoto.id)}" type="button">Abrir ${esc(remoto.nome)}</button>` : ""}
+                <button class="btn btn-primary" data-edit type="button" ${canEdit ? "" : "disabled title='Requer a permissão topology.edit'"}>${icon("edit")} Editar porta</button>
+              </span>`;
+            $$("[data-close]", foot).forEach((b) => (b.onclick = close));
+            const g = $("[data-goto]", foot);
+            if (g) g.onclick = () => { close(); openDevice(g.dataset.goto); };
+            $("[data-edit]", foot).onclick = () => { editando = true; paint(); };
+            return;
+          }
+
+          /* -------- modo de edição -------- */
+          const destinoAtual = remoto?.id || "";
+          const outros = (NOC.data()?.equipamentos || []).filter((x) => x.id !== e.id);
+          body.innerHTML = `
+            <form class="stack" id="portForm">
+              <div class="row" style="gap:var(--s-3);align-items:flex-start">
+                <div class="field grow"><label for="pCap">Capacidade da porta</label>
+                  <input class="input" id="pCap" value="${esc(p.capacidade || "")}" placeholder="Ex.: 10 Gbps"></div>
+                <div class="field grow"><label for="pTipo">Tipo da porta</label>
+                  <input class="input" id="pTipo" value="${esc(p.tipo || "")}" placeholder="Ex.: GE / 10GE"></div>
+                <div class="field" style="width:170px"><label for="pStatus">Status</label>
+                  <select class="select" id="pStatus">
+                    ${STATUS_PORTA.map(([v, l]) => `<option value="${v}" ${(p.status || "livre") === v ? "selected" : ""}>${l}</option>`).join("")}
+                  </select></div>
+              </div>
+              <div class="field"><label for="pObs">Observação da porta</label>
+                <input class="input" id="pObs" value="${esc(p.observacao || "")}" placeholder="Cliente, circuito, ordem de serviço…"></div>
+
+              <hr>
+              <div class="row-between">
+                <h3 style="font-size:var(--fs-13)">${icon("link")} O que está conectado nesta porta</h3>
+                ${c ? `<button class="btn btn-danger btn-sm" type="button" data-unlink ${canDelete ? "" : "disabled title='Requer a permissão topology.delete'"}>${icon("trash")} Remover enlace</button>` : ""}
+              </div>
+              ${travado ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
+                <span>Esta porta já tem enlace. Alterar ou remover um enlace existente exige a permissão <b>topology.delete</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
+              <div class="row" style="gap:var(--s-3);align-items:flex-start">
+                <div class="field grow"><label for="pDest">Equipamento conectado</label>
+                  <select class="select" id="pDest" ${travado ? "disabled" : ""}>
+                    <option value="">— Nenhum (porta livre) —</option>
+                    ${outros.map((x) => `<option value="${esc(x.id)}" ${destinoAtual === x.id ? "selected" : ""}>${esc(x.nome)}${x.modelo ? ` — ${esc(x.modelo)}` : ""}</option>`).join("")}
+                  </select>
+                  <span class="field-hint">Só aparecem as portas livres do equipamento escolhido.</span>
+                </div>
+                <div class="field" style="width:210px"><label for="pDestPorta">Porta do outro lado</label>
+                  <select class="select" id="pDestPorta" ${travado ? "disabled" : ""}></select></div>
+              </div>
+              <div class="row" style="gap:var(--s-3);align-items:flex-start">
+                <div class="field grow"><label for="pLinkTipo">Tipo do enlace</label>
+                  <input class="input" id="pLinkTipo" value="${esc(c?.tipo || "")}" placeholder="Ex.: Uplink, Transporte" ${travado ? "disabled" : ""}></div>
+                <div class="field grow"><label for="pLinkCap">Capacidade do enlace</label>
+                  <input class="input" id="pLinkCap" value="${esc(c?.capacidade || "")}" placeholder="Ex.: 10 Gbps" ${travado ? "disabled" : ""}></div>
+              </div>
+            </form>`;
+
+          foot.innerHTML = `
+            <span class="dim" style="font-size:var(--fs-11)">A alteração vai para a auditoria com estado anterior e posterior.</span>
+            <span class="row">
+              <button class="btn" type="button" data-cancelar>Cancelar</button>
+              <button class="btn btn-primary" type="button" data-salvar>Salvar porta</button>
+            </span>`;
+
+          const form = $("#portForm", body);
+          const selDest = $("#pDest", form);
+          const selPorta = $("#pDestPorta", form);
+
+          const pintarPortas = (selecionada) => {
+            // a porta do enlace atual só continua ofertada no próprio equipamento remoto
+            const manter = selDest.value === (remoto?.id || "") ? remotaPorta : null;
+            const lista = portasDisponiveis(selDest.value, manter);
+            selPorta.innerHTML = lista.length
+              ? lista.map((x) => `<option value="${x.numero}" ${Number(selecionada) === Number(x.numero) ? "selected" : ""}>Porta ${String(x.numero).padStart(2, "0")}${x.capacidade ? ` — ${esc(x.capacidade)}` : ""}</option>`).join("")
+              : `<option value="">Sem portas livres</option>`;
+            selPorta.disabled = travado || !selDest.value || !lista.length;
+          };
+          pintarPortas(remotaPorta);
+          selDest.onchange = () => pintarPortas(null);
+
+          const desfazer = $("[data-unlink]", form);
+          if (desfazer) desfazer.onclick = () => askConfirm({
+            title: "Remover este enlace?",
+            text: `A ligação entre ${e.nome} (porta ${numero}) e ${remoto?.nome || "o outro equipamento"} deixa de existir na topologia. As duas portas voltam a ficar livres.`,
+            confirmLabel: "Remover enlace",
+            danger: true,
+            onConfirm: async () => { if (await salvar({ remover: true })) { editando = false; paint(); } },
+          });
+
+          $("[data-cancelar]", foot).onclick = () => { editando = false; paint(); };
+          $("[data-salvar]", foot).onclick = async () => { if (await salvar({})) { editando = false; paint(); } };
+
+          async function salvar({ remover }) {
+            const t = NOC.data();
+            const destinoId = remover ? "" : selDest.value;
+            const destinoPorta = remover ? null : Number(selPorta.value) || null;
+
+            if (destinoId && !destinoPorta) {
+              toast("Escolha a porta do outro lado", { text: "O equipamento selecionado não tem porta livre disponível.", type: "warn" });
+              return false;
+            }
+            if (destinoId === e.id) {
+              toast("Destino inválido", { text: "Um equipamento não pode ser ligado a si mesmo.", type: "warn" });
+              return false;
+            }
+            const ocupada = destinoId && NOC.portConnection(destinoId, destinoPorta);
+            if (ocupada && ocupada !== c) {
+              toast("Porta de destino já ocupada", { text: "Escolha outra porta ou remova o enlace existente antes.", type: "warn" });
+              return false;
+            }
+
+            const antesPorta = { ...p };
+            const antesConexoes = (t.conexoes || []).map((x) => ({ ...x }));
+
+            if (!travado) {
+              t.conexoes = (t.conexoes || []).filter((x) => x !== c);
+              if (destinoId && destinoPorta) {
+                t.conexoes.push({
+                  origem: e.id,
+                  portaOrigem: Number(numero),
+                  destino: destinoId,
+                  portaDestino: destinoPorta,
+                  capacidade: $("#pLinkCap", form).value.trim() || "A confirmar",
+                  tipo: $("#pLinkTipo", form).value.trim() || "Enlace",
+                });
+              }
+            }
+
+            p.capacidade = $("#pCap", form).value.trim();
+            p.tipo = $("#pTipo", form).value.trim();
+            p.observacao = $("#pObs", form).value.trim();
+            const escolhido = $("#pStatus", form).value;
+            const temEnlace = !!NOC.portConnection(e.id, numero);
+            p.status = temEnlace ? "conectada" : (escolhido === "conectada" ? "livre" : escolhido);
+
+            const ok = await persist(
+              remover ? "TOPOLOGY_DELETE_CONEXAO" : "TOPOLOGY_UPDATE_PORTA",
+              {
+                titulo: remover ? "Enlace removido" : `Porta ${String(numero).padStart(2, "0")} atualizada`,
+                texto: remover
+                  ? "As duas portas voltaram a ficar livres."
+                  : destinoId
+                    ? `Conectada a ${device(destinoId)?.nome || destinoId}, porta ${destinoPorta}.`
+                    : "Dados da porta gravados.",
+                tipo: remover ? "warn" : "ok",
+              },
+              async () => {
+                Object.assign(p, antesPorta);
+                NOC.data().conexoes = antesConexoes;
+                await persist("TOPOLOGY_UPDATE_PORTA", { titulo: "Alteração desfeita", tipo: "info" });
+                if (repaintDevice) repaintDevice();
+              }
+            );
+            if (!ok) {
+              Object.assign(p, antesPorta);
+              NOC.data().conexoes = antesConexoes;
+              layout();
+              renderAll();
+              return false;
+            }
+            if (repaintDevice) repaintDevice();
+            return true;
+          }
+        };
+
+        paint();
       },
     });
   }
@@ -682,12 +1023,15 @@
           <div class="row">
             <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
             <button class="btn btn-sm" type="button" data-focus="${esc(remoto?.id || "")}">Ver no mapa</button>
+            <button class="btn btn-sm" type="button" data-editlink="${saida ? c.portaOrigem : c.portaDestino}"
+              ${NOC.can("topology.edit") ? "" : "disabled title='Requer a permissão topology.edit'"}>Editar</button>
           </div>
         </div>
       </div>`;
     }).join("")}</div>`;
   }
-  function wireConn(root, close) {
+  function wireConn(e, root, close) {
+    $$("[data-editlink]", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.editlink, { edit: true })));
     $$("[data-focus]", root).forEach((b) => (b.onclick = () => {
       if (!b.dataset.focus) return;
       close();
@@ -971,15 +1315,17 @@
               </table></div>
             </div>`,
           enlaces: () => `
-            <div class="table-wrap"><table class="table">
-              <thead><tr><th>Origem</th><th>Destino</th><th>Tipo</th><th>Capacidade</th></tr></thead>
-              <tbody>${NOC.data().conexoes.map((c) => `<tr>
+            <div class="table-wrap" style="max-height:420px"><table class="table">
+              <thead><tr><th>Origem</th><th>Destino</th><th>Tipo</th><th>Capacidade</th><th></th></tr></thead>
+              <tbody>${NOC.data().conexoes.map((c, i) => `<tr>
                 <td><b>${esc(device(c.origem)?.nome || c.origem)}</b> <span class="dim mono">porta ${c.portaOrigem}</span></td>
                 <td><b>${esc(device(c.destino)?.nome || c.destino)}</b> <span class="dim mono">porta ${c.portaDestino}</span></td>
-                <td>${esc(c.tipo || "—")}</td><td>${esc(c.capacidade || "A confirmar")}</td></tr>`).join("")}</tbody>
+                <td>${esc(c.tipo || "—")}</td><td>${esc(c.capacidade || "A confirmar")}</td>
+                <td><button class="btn btn-sm" type="button" data-editconn="${i}" ${canEdit && device(c.origem) ? "" : "disabled"}>Editar</button></td></tr>`).join("")}</tbody>
             </table></div>
             <p class="dim" style="font-size:var(--fs-11);margin-top:var(--s-3)">
-              ${icon("info")} A criação e a edição de enlaces e de portas continuam no editor clássico.</p>`,
+              ${icon("info")} Um enlace é editado pela porta de origem: escolha o equipamento e a porta do outro lado.
+              Para criar um enlace novo, abra o equipamento, clique numa porta livre e use “Editar porta”.</p>`,
         };
 
         let cur = "vinculo";
@@ -994,6 +1340,13 @@
           $$("[data-unlink]", body).forEach((b) => (b.onclick = async () => {
             await vincular(b.dataset.unlink, null);
             paint();
+          }));
+          $$("[data-editconn]", body).forEach((b) => (b.onclick = () => {
+            const c = NOC.data().conexoes[+b.dataset.editconn];
+            const origem = c && device(c.origem);
+            if (!origem) return;
+            close();
+            openPort(origem, Number(c.portaOrigem), { edit: true });
           }));
 
           const aplicar = $("[data-apply-sug]", body);
@@ -1108,10 +1461,12 @@
 
     const t = NOC.data();
     if (t.config?.coreTitle) $("#topoKicker").textContent = t.config.coreTitle;
+    state.layout = { ...(t.config?.layout || {}) };
     if (!NOC.can("topology.edit")) {
-      const b = $("#btnManage");
-      b.disabled = true;
-      b.title = "Requer a permissão topology.edit";
+      [$("#btnManage"), $("#btnLayout")].forEach((b) => {
+        b.disabled = true;
+        b.title = "Requer a permissão topology.edit";
+      });
     }
 
     renderFilters();
@@ -1156,6 +1511,23 @@
       renderList();
     };
     $("#btnManage").onclick = openManage;
+    $("#btnLayout").onclick = toggleLayoutEdit;
+    $("#layoutSave").onclick = saveLayout;
+    $("#layoutDiscard").onclick = discardLayout;
+    $("#layoutAuto").onclick = () => askConfirm({
+      title: "Voltar ao layout automático?",
+      text: "As posições manuais de todos os POPs são descartadas e o mapa volta a se organizar sozinho.",
+      confirmLabel: "Usar layout automático",
+      onConfirm: () => {
+        state.layout = {};
+        state.layoutDirty = true;
+        layout();
+        renderAll();
+        renderLayoutBar();
+        fit();
+      },
+    });
+    renderLayoutBar();
 
     $$("[data-view]").forEach((b) => (b.onclick = () => {
       state.view = b.dataset.view;

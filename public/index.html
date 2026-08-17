@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UPDOWN • Topologia de Rede</title>
-<link rel="icon" href="/assets/brand/updown-symbol.png">
+<link rel="icon" href="/assets/brand/updown-symbol-dark.png">
 <link rel="preconnect" href="/api" crossorigin>
 <link rel="stylesheet" href="/css/noc/tokens.css">
 <link rel="stylesheet" href="/css/noc/base.css">
@@ -38,6 +38,7 @@
           </div>
           <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
           <button class="btn btn-sm" id="btnFlow" type="button" aria-pressed="true">Tráfego</button>
+          <button class="btn btn-sm" id="btnLayout" type="button" aria-pressed="false">Editar layout</button>
           <button class="btn btn-sm btn-primary" id="btnManage" type="button">Gerenciar rede</button>
         </div>
       </div>
@@ -72,6 +73,17 @@
           <div class="topo-world" id="world">
             <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-hud topo-layout-bar" id="layoutBar" hidden>
+            <span class="row" style="gap:6px">
+              <b style="font-size:var(--fs-12)">Editando o layout</b>
+              <span class="dim" id="layoutStatus" style="font-size:var(--fs-11)"></span>
+            </span>
+            <span style="width:1px;height:20px;background:var(--line)"></span>
+            <button class="btn btn-sm" id="layoutAuto" type="button" title="Volta todos os POPs para o posicionamento automático">Layout automático</button>
+            <button class="btn btn-sm" id="layoutDiscard" type="button">Descartar</button>
+            <button class="btn btn-sm btn-primary" id="layoutSave" type="button">Salvar posições</button>
           </div>
 
           <div class="panel topo-hud">

@@ -65,10 +65,14 @@ window.NOC = (() => {
     const t = state.topology;
     const payload = { equipamentos: t.equipamentos, conexoes: t.conexoes, pops: t.pops, config: t.config };
     const r = await api("/api/topology", { method: "PUT", body: JSON.stringify({ topology: payload, reason }) });
-    if (r.topology) {
-      state.topology = { ...r.topology, version: r.version };
-      state.version = r.version;
-    }
+    /* O Worker devolve exatamente o que foi enviado (só completa o config com os
+       padrões). Mantemos os objetos locais para que as telas não fiquem com
+       referências órfãs entre uma gravação e outra — só o config e a versão
+       vêm da resposta. */
+    if (r.topology?.config) t.config = r.topology.config;
+    t.version = r.version;
+    t.updated_at = r.updated_at;
+    state.version = r.version;
     return state.topology;
   }
 
