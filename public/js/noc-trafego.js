@@ -27,15 +27,31 @@
      carregado, que é como a operação enxerga saturação de enlace. */
   const carga = (i) => Math.max(Number(i.in_bps) || 0, Number(i.out_bps) || 0);
 
+  /* Tráfego acima da capacidade nominal é fisicamente impossível: indica falha
+     de coleta, não saturação. As portas GPON da OLT C300 chegam a reportar
+     1,8 Tbps numa porta de 2,488 Gbps. Leitura assim fica fora dos totais e é
+     marcada na tabela, em vez de inflar os agregados em vários Tbps. */
+  const TOLERANCIA = 1.05;
+
+  function leituraValida(i) {
+    const cap = Number(i.speed_bps) || 0;
+    if (!cap) return true;                 // sem capacidade nominal, nada a checar
+    return carga(i) <= cap * TOLERANCIA;
+  }
+
   function utilizacao(i) {
     const cap = Number(i.speed_bps) || 0;
     if (!cap) return null;
+    if (!leituraValida(i)) return null;
     return Math.min((carga(i) / cap) * 100, 100);
   }
 
   const classeUtil = (u) => (u === null ? "" : u > 85 ? "is-danger" : u > 70 ? "is-warn" : "");
 
-  function medidor(u) {
+  function medidor(u, invalida = false) {
+    if (invalida) {
+      return `<span class="badge badge-warn" title="Tráfego informado acima da capacidade da porta: falha de coleta no Zabbix.">inconsistente</span>`;
+    }
     if (u === null) return '<small class="dim">—</small>';
     return `<span class="row" style="gap:8px;align-items:center">
       <span class="meter meter-sm ${classeUtil(u)}" style="width:70px"><span style="width:${u.toFixed(1)}%"></span></span>
@@ -130,10 +146,13 @@
   function renderKpis() {
     const ifs = state.interfaces;
     const up = ifs.filter((i) => i.oper_status === 1);
-    const entrada = ifs.reduce((a, i) => a + (Number(i.in_bps) || 0), 0);
-    const saida = ifs.reduce((a, i) => a + (Number(i.out_bps) || 0), 0);
+    const validas = ifs.filter(leituraValida);
+    const invalidas = ifs.length - validas.length;
+
+    const entrada = validas.reduce((a, i) => a + (Number(i.in_bps) || 0), 0);
+    const saida = validas.reduce((a, i) => a + (Number(i.out_bps) || 0), 0);
     const erros = ifs.reduce((a, i) => a + (Number(i.in_errors) || 0) + (Number(i.out_errors) || 0), 0);
-    const saturadas = ifs.filter((i) => {
+    const saturadas = validas.filter((i) => {
       const u = utilizacao(i);
       return u !== null && u > 70;
     }).length;
@@ -147,9 +166,12 @@
       <div><label>Enlaces confirmados</label><strong>${state.links.length}</strong></div>`;
 
     const run = state.status?.last_run;
-    $("#syncInfo").textContent = run
+    const quando = run
       ? `Última sincronização: ${new Date((run.finished_at || run.started_at).replace(" ", "T") + "Z").toLocaleString("pt-BR")} • ${run.hosts_count} hosts, ${run.interfaces_count} interfaces.`
       : "Nenhuma sincronização registrada ainda.";
+    $("#syncInfo").textContent = invalidas
+      ? `${quando} ${invalidas} interface(s) reportaram tráfego acima da capacidade da porta e ficaram fora dos totais.`
+      : quando;
   }
 
   /* ---------------- enlaces ---------------- */
@@ -359,15 +381,16 @@
       const u = utilizacao(i);
       const st = NOC.interfaceStatus(i);
       const erros = (Number(i.in_errors) || 0) + (Number(i.out_errors) || 0);
+      const invalida = !leituraValida(i);
       return `<tr>
         <td>${esc(i.equipamento_id || i.host_name || "—")}</td>
         <td class="mono">${esc(i.if_name)}</td>
         <td>${i.if_alias ? esc(i.if_alias) : '<small class="dim">sem descrição</small>'}</td>
         <td><span class="row" style="gap:6px;align-items:center"><span class="dot ${st.dot}"></span>${esc(st.label)}</span></td>
         <td class="mono">${esc(bps(i.speed_bps))}</td>
-        <td class="mono">${esc(bps(i.in_bps))}</td>
-        <td class="mono">${esc(bps(i.out_bps))}</td>
-        <td>${medidor(u)}</td>
+        <td class="mono${invalida ? " dim" : ""}">${esc(bps(i.in_bps))}</td>
+        <td class="mono${invalida ? " dim" : ""}">${esc(bps(i.out_bps))}</td>
+        <td>${medidor(u, invalida)}</td>
         <td class="mono ${erros ? "" : "dim"}">${erros.toLocaleString("pt-BR")}</td>
       </tr>`;
     };

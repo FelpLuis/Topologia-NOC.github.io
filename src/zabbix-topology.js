@@ -32,12 +32,17 @@ import {
 const EXTERNAL_PEERS = [
   {
     // "DWDM-NOKIA-PRAIAGRANDE-PORT1" / "DWDM-NOKIA-PORT02"
-    // O Nokia fica no mesmo POP do switch que o descreve.
+    //
+    // O DWDM fica no mesmo POP do switch: quem manda é a localidade do host, e
+    // não a cidade citada no alias. Nesses circuitos o alias nomeia a ponta
+    // distante — "DWDM-DATACOM-PRAIAGRANDE" dito pelo switch de Ascenty é a
+    // porta do DWDM de Ascenty que sai para Praia Grande (foi assim que o
+    // Datacom, que é monitorado, se confirmou nos dois lados).
     nome: "dwdm-nokia",
     resolve(alias, host) {
       const m = String(alias).toUpperCase().match(/DWDM[-_ ]?NOKIA.*?PORT0*(\d+)/);
       if (!m) return null;
-      const local = localsInAlias(alias)[0] || hostLocal(host);
+      const local = hostLocal(host);
       const equipamentoId = local === "ASCENTY" ? "nokia1"
         : local === "PRAIA_GRANDE" ? "nokia2" : null;
       if (!equipamentoId) return null;
@@ -98,7 +103,7 @@ export function applyZabbixToTopology(topology, inventory, links) {
   const reconstruidos = new Set();
   const relatorio = {
     portas: [],
-    conexoes: { derivadas: [], externas: [], preservadas: [], descartadas: [] }
+    conexoes: { derivadas: [], externas: [], preservadas: [], descartadas: [], conflitos: [] }
   };
 
   for (const equipamento of topology.equipamentos || []) {
@@ -163,10 +168,17 @@ export function applyZabbixToTopology(topology, inventory, links) {
   const conexoes = [];
   const ocupadas = new Set();          // "equipId|numero"
 
+  /* Uma porta física só tem um enlace. Registrar sem checar ocupação deixaria a
+     mesma porta em duas conexões, e as telas resolvem enlace por porta com um
+     find(): a segunda ficaria invisível. Devolve false quando recusa. */
   const registra = (c) => {
+    const chaveA = `${c.origem}|${c.portaOrigem}`;
+    const chaveB = `${c.destino}|${c.portaDestino}`;
+    if (ocupadas.has(chaveA) || ocupadas.has(chaveB)) return false;
     conexoes.push(c);
-    ocupadas.add(`${c.origem}|${c.portaOrigem}`);
-    ocupadas.add(`${c.destino}|${c.portaDestino}`);
+    ocupadas.add(chaveA);
+    ocupadas.add(chaveB);
+    return true;
   };
 
   // --- conexões derivadas: as duas pontas monitoradas ---
@@ -187,9 +199,34 @@ export function applyZabbixToTopology(topology, inventory, links) {
       confianca: link.confidence,
       descricao: link.a.if_alias || link.b.if_alias || ""
     };
-    registra(conexao);
-    relatorio.conexoes.derivadas.push(
-      `${origem} ${link.a.if_name} <-> ${destino} ${link.b.if_name} (${link.confidence})`);
+    const rotulo = `${origem} ${link.a.if_name} <-> ${destino} ${link.b.if_name} (${link.confidence})`;
+    if (registra(conexao)) relatorio.conexoes.derivadas.push(rotulo);
+    else relatorio.conexoes.conflitos.push(`${rotulo} — porta já ocupada por outro enlace`);
+  }
+
+  /* --- conexões antigas que seguem válidas ---
+     Vem antes da inferência por texto: enlace entre equipamentos que o Zabbix
+     não monitora (o trunk entre os dois DWDM Nokia, por exemplo) só existe no
+     cadastro manual, e não deve ser derrubado por um palpite de alias.
+     Só sobrevive a conexão que não envolve equipamento reconstruído: nos
+     reconstruídos a numeração mudou, e o número antigo não aponta mais para a
+     mesma porta física. */
+  for (const antiga of topology.conexoes || []) {
+    const mexeu = reconstruidos.has(antiga.origem) || reconstruidos.has(antiga.destino);
+    const descricao = `${antiga.origem} p${antiga.portaOrigem} -> ${antiga.destino} p${antiga.portaDestino}`;
+
+    if (!mexeu) {
+      if (registra({ ...antiga })) relatorio.conexoes.preservadas.push(descricao);
+      else relatorio.conexoes.conflitos.push(`${descricao} — porta já ocupada`);
+      continue;
+    }
+
+    const jaCoberta = conexoes.some(c =>
+      (c.origem === antiga.origem && c.destino === antiga.destino) ||
+      (c.origem === antiga.destino && c.destino === antiga.origem));
+
+    relatorio.conexoes.descartadas.push(
+      `${descricao}${jaCoberta ? " (substituída por enlace do Zabbix)" : " (sem confirmação no Zabbix)"}`);
   }
 
   // --- enlaces até equipamento não monitorado, pelo alias do lado monitorado ---
@@ -226,28 +263,6 @@ export function applyZabbixToTopology(topology, inventory, links) {
         break;
       }
     }
-  }
-
-  // --- conexões antigas ---
-  // Só sobrevive a que não envolve equipamento reconstruído: nos reconstruídos a
-  // numeração de portas mudou, então o número antigo não aponta mais para a
-  // mesma porta física.
-  for (const antiga of topology.conexoes || []) {
-    const mexeu = reconstruidos.has(antiga.origem) || reconstruidos.has(antiga.destino);
-    const descricao = `${antiga.origem} p${antiga.portaOrigem} -> ${antiga.destino} p${antiga.portaDestino}`;
-
-    if (!mexeu) {
-      registra({ ...antiga });
-      relatorio.conexoes.preservadas.push(descricao);
-      continue;
-    }
-
-    const jaCoberta = conexoes.some(c =>
-      (c.origem === antiga.origem && c.destino === antiga.destino) ||
-      (c.origem === antiga.destino && c.destino === antiga.origem));
-
-    relatorio.conexoes.descartadas.push(
-      `${descricao}${jaCoberta ? " (substituída por enlace do Zabbix)" : " (sem confirmação no Zabbix)"}`);
   }
 
   // --- status das portas, agora que as conexões existem ---

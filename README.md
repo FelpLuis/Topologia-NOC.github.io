@@ -792,3 +792,57 @@ Os acessos padrão dos perfis são semeados **uma única vez** (registrado em
 `platform_meta`): o que o administrador desmarcar não volta em um novo deploy.
 Perfis criados fora do catálogo recebem as ações novas equivalentes ao que já
 podiam fazer (`ACTION_EQUIVALENCE`), também uma única vez.
+
+### Enlaces derivados e projeção na topologia
+
+As descrições de interface (`ifAlias`) documentam a ponta remota de cada enlace.
+`src/zabbix-links.js` lê essas descrições e deriva os enlaces físicos em dois
+níveis de confiança:
+
+- **alta** — as duas pontas citam a interface da outra (confirmação mútua);
+- **media** — só um lado cita, e a interface remota é única e compatível.
+
+Referência ambígua, ou que aponta para uma localidade onde nenhum candidato
+existe, é descartada: a ponta remota provavelmente não é monitorada. A derivação
+exige a mesma família de velocidade nas duas pontas — sem isso um `100GE0/0/2`
+casaria com um `XGigabitEthernet0/0/2` só porque ambos citam "0/0/2".
+
+`src/zabbix-topology.js` projeta esse resultado na topologia editável:
+
+- as portas dos equipamentos monitorados passam a ter o **nome real da
+  interface**, a velocidade e a descrição vindas do SNMP. O `numero` continua
+  sendo a chave das telas e das conexões, e as portas livres já cadastradas são
+  mantidas — sem isso a ocupação de todo equipamento passaria a marcar 100%;
+- os enlaces entre equipamentos monitorados vêm da derivação;
+- equipamento que o Zabbix não monitora (o DWDM Nokia e o concentrador de
+  Cubatão) **não é tocado**: as portas dele e as conexões que só envolvem ele
+  são preservadas, e os enlaces até ele são reconstruídos a partir do que o
+  alias do lado monitorado declara (`EXTERNAL_PEERS`);
+- uma porta nunca fica em duas conexões: o registro recusa a segunda e a
+  reporta em `relatorio.conexoes.conflitos`.
+
+A ordem de precedência é: enlace derivado do monitoramento, depois conexão
+manual entre equipamentos não monitorados, e por último a inferência por texto —
+a inferência mais fraca não derruba o que foi documentado à mão.
+
+```bash
+node backend/scripts/zabbix-apply-topology.mjs
+```
+
+Sem `--apply` é só ensaio: mostra portas, enlaces derivados, preservados,
+substituídos e conflitos, sem gravar. Com `--apply` grava e registra em
+`audit_logs` com o estado anterior em `before_json` (é o ponto de reversão).
+Pela aplicação, o mesmo está em `POST /api/zabbix/topology/apply`, que exige
+`topology.link.create` e `topology.port.edit` — e `topology.link.delete` quando
+a projeção substitui enlaces já documentados.
+
+### Tela de Tráfego
+
+`/trafego.html` (tela `trafego`, ação `zabbix.view`) mostra tráfego, utilização,
+erros e status por interface, além dos enlaces confirmados. A utilização usa o
+sentido mais carregado, que é como a operação enxerga saturação.
+
+Leitura acima da capacidade nominal da porta é **descartada dos totais** e
+marcada como inconsistente: é falha de coleta, não saturação. As portas GPON da
+OLT C300 chegam a reportar 1,8 Tbps numa porta de 2,488 Gbps — 18 interfaces
+assim inflavam o total em 17 Tbps.

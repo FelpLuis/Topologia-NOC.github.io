@@ -725,8 +725,14 @@
       <div class="port-grid" id="portGrid">
         ${e.portas.map((p) => {
           const on = NOC.portaEmUso(e.id, p.numero);
+          /* Portas vindas do Zabbix trazem o nome real da interface (p.nome) e a
+             descrição do enlace. Vão no title/aria-label: é o identificador que
+             o operador usa no equipamento, e o número é só o índice do cadastro. */
+          const identidade = [p.nome, p.capacidade, p.descricao].filter(Boolean).join(" • ");
+          const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${identidade ? `, ${identidade}` : ""}`;
           return `<button class="port ${on ? "is-used" : ""}" type="button" data-port="${p.numero}"
-                    aria-label="Porta ${p.numero}, ${on ? "em uso" : "livre"}, ${esc(p.capacidade || "")}">${String(p.numero).padStart(2, "0")}</button>`;
+                    title="${esc(identidade || `Porta ${p.numero}`)}"
+                    aria-label="${esc(rotulo)}">${String(p.numero).padStart(2, "0")}</button>`;
         }).join("")}
       </div>
 
@@ -848,7 +854,10 @@
               <div class="kv">
                 <div><label>Status</label><strong style="font-size:var(--fs-14)">${esc(p.status || (c ? "conectada" : "livre"))}</strong></div>
                 <div><label>Capacidade</label><strong style="font-size:var(--fs-14)">${esc(p.capacidade || "A confirmar")}</strong></div>
+                ${p.nome ? `<div><label>Interface</label><strong class="mono" style="font-size:var(--fs-13)">${esc(p.nome)}</strong></div>` : ""}
               </div>
+              ${p.descricao ? `<p class="muted mono" style="font-size:var(--fs-12)">
+                Descrição no equipamento: ${esc(p.descricao)}</p>` : ""}
               ${p.observacao ? `<p class="muted" style="font-size:var(--fs-13)">${esc(p.observacao)}</p>` : ""}`;
 
             foot.innerHTML = `
