@@ -291,7 +291,7 @@ window.UI = (() => {
       side.className = "sidebar";
       side.innerHTML = `
         <nav class="nav" aria-label="Navegação principal">
-          <span class="nav-label">Operação</span>
+          <span class="nav-label">NOC</span>
           ${operacao.map(item).join("")}
           ${ferramentas.length ? `<span class="nav-label">Ferramentas</span>${ferramentas.map(item).join("")}` : ""}
         </nav>
