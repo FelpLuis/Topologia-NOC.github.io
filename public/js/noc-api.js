@@ -191,23 +191,18 @@ window.NOC = (() => {
     return { portas, emUso, livres: portas - emUso, ocup: portas ? Math.round((emUso / portas) * 100) : 0 };
   }
 
-  /* Status vem do monitoramento quando a integração com o Grafana estiver
-     ligada. Sem dado, o protótipo do sistema NÃO inventa: mostra "aguardando". */
+  /* O status vem das interfaces sincronizadas do Zabbix que foram projetadas
+     na topologia. Sem inventário aplicado, a tela informa que aguarda o Zabbix. */
   function statusInfo(e) {
-    const s = e?.monitoramento?.status;
-    if (s === "online") return { dot: "dot-ok", label: "Online", badge: "badge-ok" };
-    if (s === "offline") return { dot: "dot-danger", label: "Offline", badge: "badge-danger" };
-    if (s === "degradado") return { dot: "dot-warn", label: "Degradado", badge: "badge-warn" };
-    return { dot: "", label: "Aguardando Grafana", badge: "" };
-  }
-
-  async function grafanaHealth() {
-    try {
-      const r = await fetch("/api/grafana/health", { cache: "no-store" });
-      return r.ok ? await r.json() : null;
-    } catch (e) {
-      return null;
-    }
+    const monitoradas = (e?.portas || []).filter((p) =>
+      p?.zabbix?.operStatus !== null && p?.zabbix?.operStatus !== undefined &&
+      Number.isFinite(Number(p.zabbix.operStatus))
+    );
+    if (!monitoradas.length) return { dot: "", label: "Aguardando Zabbix", badge: "" };
+    const up = monitoradas.filter((p) => Number(p.zabbix.operStatus) === 1).length;
+    if (up === monitoradas.length) return { dot: "dot-ok", label: "Online", badge: "badge-ok" };
+    if (up === 0) return { dot: "dot-danger", label: "Offline", badge: "badge-danger" };
+    return { dot: "dot-warn", label: "Degradado", badge: "badge-warn" };
   }
 
   /* ---------------- Zabbix ---------------- */
@@ -299,7 +294,7 @@ window.NOC = (() => {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
     pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
-    usedPorts, occupancy, occClass, statsOf, statusInfo, grafanaHealth, skeleton, errorState,
+    usedPorts, occupancy, occClass, statsOf, statusInfo, skeleton, errorState,
     zabbix, interfaceStatus, formatBps, deviceConnection,
   };
 })();

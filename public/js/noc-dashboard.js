@@ -6,7 +6,7 @@
 (() => {
   "use strict";
   const { $, $$, esc, icon, toast } = UI;
-  const state = { sort: "nome", grafana: null };
+  const state = { sort: "nome", zabbix: null };
 
   const devicesOfPop = (id) => NOC.devicesOfPop(id);
 
@@ -55,8 +55,9 @@
 
   /* ---------------- origem dos dados ---------------- */
   function renderIntegration() {
-    const g = state.grafana;
-    const ok = g && g.ok;
+    const z = state.zabbix;
+    const run = z?.last_run;
+    const ok = Boolean(run?.ok);
     $("#integration").innerHTML = `
       <div class="row-between">
         <div><b style="font-size:var(--fs-13)">Topologia (D1)</b>
@@ -65,13 +66,13 @@
       </div>
       <hr>
       <div class="row-between">
-        <div><b style="font-size:var(--fs-13)">Grafana</b>
-          <p class="dim" style="font-size:var(--fs-11)">${ok ? "Conectado — status e tráfego por interface" : "Não configurado — status e tráfego ficam em branco"}</p></div>
-        <span class="badge ${ok ? "badge-ok" : "badge-warn"}"><i class="dot ${ok ? "dot-ok" : "dot-warn"}"></i>${ok ? "conectado" : "pendente"}</span>
+        <div><b style="font-size:var(--fs-13)">Zabbix</b>
+          <p class="dim" style="font-size:var(--fs-11)">${ok ? `${esc(String(z.totals?.interfaces || 0))} interfaces sincronizadas` : "Sem sincronização concluída"}</p></div>
+        <span class="badge ${ok ? "badge-ok" : "badge-warn"}"><i class="dot ${ok ? "dot-ok" : "dot-warn"}"></i>${ok ? "sincronizado" : "pendente"}</span>
       </div>
       <p class="dim" style="font-size:var(--fs-11)">
-        ${icon("info")} Enquanto a consulta do Grafana não estiver definida, o painel mostra somente o que está documentado
-        na topologia — sem inventar status nem consumo.
+        ${icon("info")} Portas, estados e enlaces monitorados vêm do inventário do Zabbix aplicado à topologia.
+        Equipamentos sem monitoramento mantêm os vínculos cadastrados manualmente.
       </p>`;
   }
 
@@ -186,7 +187,7 @@
 
     try {
       await NOC.load();
-      state.grafana = await NOC.grafanaHealth();
+      state.zabbix = await NOC.zabbix.status().catch(() => null);
     } catch (err) {
       NOC.errorState($("#popGrid"), err, () => location.reload());
       return;
@@ -198,7 +199,7 @@
       b.classList.add("is-loading");
       try {
         await NOC.load();
-        state.grafana = await NOC.grafanaHealth();
+        state.zabbix = await NOC.zabbix.status().catch(() => null);
         renderAll();
         toast("Dados atualizados", { type: "ok", timeout: 2200 });
       } catch (err) {
@@ -229,7 +230,7 @@
     setInterval(async () => {
       try {
         await NOC.load();
-        state.grafana = await NOC.grafanaHealth();
+        state.zabbix = await NOC.zabbix.status().catch(() => null);
         renderAll();
       } catch (e) { /* mantém a última leitura boa na tela */ }
     }, 60000);

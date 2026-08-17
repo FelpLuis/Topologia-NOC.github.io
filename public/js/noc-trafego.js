@@ -221,6 +221,52 @@
     }
   }
 
+  /* A projeção substitui as portas genéricas e os enlaces documentados dos
+     equipamentos monitorados pelos dados derivados do inventário Zabbix.
+     Primeiro fazemos um ensaio para que nenhuma remoção seja aplicada sem o
+     operador conhecer o impacto. */
+  async function aplicarNaTopologia() {
+    const btn = $("#btnApplyTopology");
+    btn.disabled = true;
+    btn.textContent = "Analisando…";
+    try {
+      const previa = await NOC.zabbix.aplicarTopologia(false);
+      const r = previa.resumo || {};
+      const detalhes = [
+        `${r.derivadas || 0} enlace(s) confirmado(s) pelo Zabbix`,
+        `${r.externas || 0} enlace(s) até equipamento não monitorado`,
+        `${r.descartadas || 0} vínculo(s) atual(is) substituído(s)`,
+      ].join("; ");
+
+      UI.confirm({
+        title: "Usar enlaces do Zabbix?",
+        text: `${detalhes}. As portas dos equipamentos monitorados também serão atualizadas.`,
+        confirmLabel: "Aplicar na topologia",
+        danger: (r.descartadas || 0) > 0,
+        onConfirm: async () => {
+          btn.disabled = true;
+          btn.textContent = "Aplicando…";
+          try {
+            const aplicado = await NOC.zabbix.aplicarTopologia(true);
+            toast(`Topologia atualizada: ${aplicado.resumo?.conexoes_depois || 0} enlaces ativos.`, "ok");
+          } catch (err) {
+            toast(err.message, "danger");
+          } finally {
+            btn.disabled = false;
+            btn.textContent = "Usar enlaces na topologia";
+            NOC.applyActions(document);
+          }
+        },
+      });
+    } catch (err) {
+      toast(err.message, "danger");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Usar enlaces na topologia";
+      NOC.applyActions(document);
+    }
+  }
+
   async function boot() {
     UI.mountShell({ active: "trafego" });
     NOC.skeleton($("#tabela"), 6);
@@ -238,6 +284,7 @@
     render();
 
     $("#btnSync").onclick = sincronizar;
+    $("#btnApplyTopology").onclick = aplicarNaTopologia;
     $("#fEquip").onchange = (e) => { state.filtro.equipamento = e.target.value; renderTabela(); };
     $("#fBusca").oninput = (e) => { state.filtro.busca = e.target.value; renderTabela(); };
     $("#autoRefresh").onchange = agendar;

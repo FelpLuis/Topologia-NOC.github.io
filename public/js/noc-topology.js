@@ -745,8 +745,8 @@
         </table>
       </div>
       <p class="dim" style="font-size:var(--fs-11);margin-top:var(--s-3)">
-        ${icon("info")} RX, TX e status em tempo real aparecem aqui quando a integração com o Grafana estiver ligada.
-        Enquanto isso, o sistema mostra apenas o que está documentado.
+        ${icon("info")} Status, capacidade e descrição vêm do inventário do Zabbix aplicado à topologia.
+        RX e TX atualizados ficam disponíveis na tela Tráfego.
       </p>`;
   }
 
