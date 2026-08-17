@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -157,6 +158,7 @@ CREATE TABLE IF NOT EXISTS zabbix_sync_runs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_role_screens_role ON role_screens(role_id);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_hostid ON zabbix_interfaces(hostid);
@@ -529,24 +531,53 @@ async function ensureDatabaseImpl(env) {
   const db = getDB(env);
   if (!db) throw new Error('Binding D1 "bd" não encontrado.');
 
-  const statements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE INDEX)/)
-    .map(x => x.trim()).filter(Boolean)
+  const schemaStatements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE INDEX)/)
+    .map(x => x.trim()).filter(Boolean);
+
+  // Índices que usam colunas adicionadas por migração só podem ser criados
+  // depois dos ALTER TABLE. Isso mantém compatibilidade com bancos antigos.
+  const tableStatements = schemaStatements
+    .filter(x => !/^CREATE (?:UNIQUE )?INDEX\b/i.test(x))
     .map(x => db.prepare(x));
-  await db.batch(statements);
+  await db.batch(tableStatements);
 
   // Bancos criados por versões anteriores não recebem colunas novas pelo
   // CREATE TABLE IF NOT EXISTS: os ALTER TABLE abaixo completam o schema.
+  await ensureColumns(db, "sessions", [
+    ["token_hash", "TEXT"],
+    ["ip", "TEXT"],
+    ["user_agent", "TEXT"]
+  ]);
+  await ensureColumns(db, "audit_logs", [
+    ["created_at", "TEXT"]
+  ]);
+  await ensureColumns(db, "screens", [
+    ["route", "TEXT NOT NULL DEFAULT '/'"],
+    ["icon", "TEXT NOT NULL DEFAULT 'topology'"],
+    ["sort", "INTEGER NOT NULL DEFAULT 0"],
+    ["nav", "INTEGER NOT NULL DEFAULT 1"]
+  ]);
   await ensureColumns(db, "permissions", [
     ["name", "TEXT NOT NULL DEFAULT ''"],
     ["module", "TEXT NOT NULL DEFAULT 'Geral'"],
     ["screen_code", "TEXT"],
     ["sort", "INTEGER NOT NULL DEFAULT 0"]
   ]);
-  await ensureColumns(db, "screens", [
-    ["icon", "TEXT NOT NULL DEFAULT 'topology'"],
-    ["sort", "INTEGER NOT NULL DEFAULT 0"],
-    ["nav", "INTEGER NOT NULL DEFAULT 1"]
-  ]);
+
+  const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
+  const auditColumns = new Set(auditInfo.map(column => column.name));
+  if (auditColumns.has("occurred_at") && auditColumns.has("created_at")) {
+    await db.prepare(`
+      UPDATE audit_logs
+      SET created_at=COALESCE(created_at, occurred_at, CURRENT_TIMESTAMP)
+      WHERE created_at IS NULL OR created_at=''
+    `).run();
+  }
+
+  const indexStatements = schemaStatements
+    .filter(x => /^CREATE (?:UNIQUE )?INDEX\b/i.test(x))
+    .map(x => db.prepare(x));
+  await db.batch(indexStatements);
 
   for (const [name, description] of ROLES) {
     await db.prepare(`
