@@ -186,6 +186,21 @@ CREATE TABLE IF NOT EXISTS zabbix_sync_runs (
   error TEXT
 );
 
+/* Histórico agregado do tráfego: uma linha por sincronização, não uma por
+   interface. É o que o painel precisa para desenhar a curva das últimas horas,
+   e mantém a escrita em 1 registro por ciclo em vez de milhares. A série por
+   interface continua sendo do Zabbix — aqui só vive o total da rede. */
+CREATE TABLE IF NOT EXISTS zabbix_traffic_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  taken_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  in_bps INTEGER NOT NULL DEFAULT 0,
+  out_bps INTEGER NOT NULL DEFAULT 0,
+  interfaces_total INTEGER NOT NULL DEFAULT 0,
+  interfaces_up INTEGER NOT NULL DEFAULT 0,
+  interfaces_saturadas INTEGER NOT NULL DEFAULT 0,
+  erros INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS device_connections (
   device_id TEXT PRIMARY KEY,
   management_ip TEXT NOT NULL,
@@ -218,6 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_zbx_if_hostid ON zabbix_interfaces(hostid);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_alias ON zabbix_interfaces(if_alias);
 CREATE INDEX IF NOT EXISTS idx_zbx_if_oper ON zabbix_interfaces(oper_status);
 CREATE INDEX IF NOT EXISTS idx_zbx_hosts_equip ON zabbix_hosts(equipamento_id);
+CREATE INDEX IF NOT EXISTS idx_zbx_snapshots_taken ON zabbix_traffic_snapshots(taken_at);
 CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(user_id);
 `;
 
@@ -267,6 +283,8 @@ const ACTIONS = [
   ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
   ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
 
+  ["trafego.settings", "Configurar o painel de tráfego", "Limites de utilização, atualização, apelidos de interface e painéis do modo TV", "trafego", "Tráfego", 10],
+
 
   ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
   ["pops.edit", "Editar POP", "Alterar nome e dados do POP", "pops", "POPs e anel", 20],
@@ -312,13 +330,13 @@ const TOPOLOGY_ACTIONS = ALL_ACTION_CODES.filter(c => c.startsWith("topology.") 
 const ROLE_PERMISSIONS = {
   administrador: ALL_ACTION_CODES,
   gerente: [
-    ...TOPOLOGY_ACTIONS,
+    ...TOPOLOGY_ACTIONS, "trafego.settings",
     "roles.view","users.view","users.manage","users.password","audit.view","audit.export","settings.manage"
   ],
   analista: [
     "topology.view","topology.edit","topology.delete","topology.equipment.create","topology.equipment.edit",
     "topology.equipment.delete","topology.port.edit","topology.link.create","topology.link.delete",
-    "topology.pop.link","topology.layout","zabbix.view","zabbix.sync",
+    "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
     "audit.view"
   ],
@@ -326,7 +344,7 @@ const ROLE_PERMISSIONS = {
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
-    "zabbix.view","zabbix.sync","zabbix.link",
+    "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout"
   ],
   logistica: [
@@ -352,7 +370,7 @@ const ACTION_EQUIVALENCE = [
   ["topology.edit", [
     "topology.equipment.create","topology.equipment.edit","topology.port.edit","topology.link.create",
     "topology.pop.link","topology.layout","topology.config","zabbix.sync","zabbix.link",
-    "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout"
+    "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout","trafego.settings"
   ]],
   ["topology.equipment.edit", ["topology.connection.configure"]],
   ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete"]],
@@ -851,6 +869,20 @@ async function ensureDatabaseImpl(env) {
     await runGrants(grants);
   });
 
+  /* O painel de tráfego ganhou ajustes próprios (limites, período, apelidos de
+     interface e rotação do telão) depois de `seed.role_access.v2` já ter
+     rodado, então os perfis existentes nunca receberiam a ação nova por ali.
+     Quem já podia alterar a topologia passa a poder configurar o painel — é o
+     mesmo grau de responsabilidade. Roda uma vez: depois disso vale o que o
+     administrador marcar na tela de Perfis. */
+  await seedOnce(db, "seed.trafego_settings.v1", async () => {
+    if (!permMap["topology.edit"] || !permMap["trafego.settings"]) return;
+    const perfis = ((await db.prepare(`
+      SELECT role_id FROM role_permissions WHERE permission_id=?
+    `).bind(permMap["topology.edit"]).all()).results || []).map(x => x.role_id);
+    await runGrants(perfis.map(roleId => grantPermission(roleId, "trafego.settings")));
+  });
+
   // O administrador nunca fica sem acesso: é a garantia de reabrir o sistema.
   if (roleMap.administrador) {
     await runGrants([
@@ -1295,15 +1327,54 @@ async function handleZabbixHealth(env, request) {
   }
 }
 
-// POST /api/zabbix/sync — importa hosts e interfaces do Zabbix para o D1.
-async function handleZabbixSync(env, request) {
-  const gate = await requirePermission(env, request, "zabbix.sync");
-  if (gate.response) return gate.response;
+/* Uma linha por ciclo com o total da rede. O snapshot é calculado no próprio
+   D1 logo depois da gravação do inventário: a leitura já está lá, e assim o
+   histórico do painel não depende de nenhum cliente estar aberto.
 
+   `valida` repete no SQL a mesma regra da tela: tráfego acima da capacidade
+   nominal é falha de coleta, não saturação, e fica fora dos totais. */
+const HISTORICO_DIAS = 7;
+
+async function recordTrafficSnapshot(db, { atencao = 70, tolerancia = 1.05 } = {}) {
+  await db.batch([
+    db.prepare(`
+      INSERT INTO zabbix_traffic_snapshots
+        (in_bps, out_bps, interfaces_total, interfaces_up, interfaces_saturadas, erros)
+      SELECT
+        SUM(CASE WHEN valida=1 THEN ib ELSE 0 END),
+        SUM(CASE WHEN valida=1 THEN ob ELSE 0 END),
+        COUNT(*),
+        SUM(CASE WHEN oper_status=1 THEN 1 ELSE 0 END),
+        SUM(CASE WHEN valida=1 AND cap>0 AND (MAX(ib,ob)*100.0)/cap > ? THEN 1 ELSE 0 END),
+        SUM(err)
+      FROM (
+        SELECT
+          COALESCE(in_bps,0) AS ib,
+          COALESCE(out_bps,0) AS ob,
+          COALESCE(speed_bps,0) AS cap,
+          COALESCE(in_errors,0)+COALESCE(out_errors,0) AS err,
+          oper_status,
+          CASE WHEN COALESCE(speed_bps,0) > 0
+                 AND MAX(COALESCE(in_bps,0),COALESCE(out_bps,0)) > COALESCE(speed_bps,0)*?
+               THEN 0 ELSE 1 END AS valida
+        FROM zabbix_interfaces
+      )
+    `).bind(atencao, tolerancia),
+    db.prepare(`
+      DELETE FROM zabbix_traffic_snapshots
+      WHERE taken_at < datetime('now', ?)
+    `).bind(`-${HISTORICO_DIAS} days`)
+  ]);
+}
+
+/* Corpo da sincronização, sem HTTP: é o mesmo caminho para o botão da tela e
+   para o gatilho automático (cron), e os dois deixam registro em
+   zabbix_sync_runs com a origem correta. */
+async function runZabbixSync(env, { userId = null, source = "api" } = {}) {
   const db = getDB(env);
   const run = await db.prepare(`
-    INSERT INTO zabbix_sync_runs (triggered_by, source) VALUES (?, 'api')
-  `).bind(gate.user.id).run();
+    INSERT INTO zabbix_sync_runs (triggered_by, source) VALUES (?, ?)
+  `).bind(userId, source).run();
   const runId = run.meta.last_row_id;
 
   try {
@@ -1316,16 +1387,34 @@ async function handleZabbixSync(env, request) {
       WHERE id=?
     `).bind(counts.hosts, counts.interfaces, runId).run();
 
-    await audit(env, request, gate.user, "ZABBIX_SYNC", "zabbix", String(runId), null, counts);
+    const settings = await loadTrafegoSettings(db);
+    await recordTrafficSnapshot(db, {
+      atencao: settings.limiteAtencao,
+      tolerancia: settings.toleranciaLeitura
+    });
 
-    return json({ ok: true, run_id: runId, ...counts });
+    return { ok: true, run_id: runId, ...counts };
   } catch (error) {
     await db.prepare(`
       UPDATE zabbix_sync_runs SET finished_at=CURRENT_TIMESTAMP, ok=0, error=? WHERE id=?
     `).bind(String(error.message), runId).run();
 
-    return json({ ok: false, run_id: runId, error: error.message }, 502);
+    return { ok: false, run_id: runId, error: error.message };
   }
+}
+
+// POST /api/zabbix/sync — importa hosts e interfaces do Zabbix para o D1.
+async function handleZabbixSync(env, request) {
+  const gate = await requirePermission(env, request, "zabbix.sync");
+  if (gate.response) return gate.response;
+
+  const resultado = await runZabbixSync(env, { userId: gate.user.id, source: "api" });
+  if (!resultado.ok) return json(resultado, 502);
+
+  await audit(env, request, gate.user, "ZABBIX_SYNC", "zabbix", String(resultado.run_id), null, {
+    hosts: resultado.hosts, interfaces: resultado.interfaces
+  });
+  return json(resultado);
 }
 
 // GET /api/zabbix/hosts — hosts sincronizados, com contagem de interfaces.
@@ -1457,12 +1546,10 @@ async function loadInventoryFromDb(db) {
   return { hosts, interfaces };
 }
 
-// GET /api/zabbix/links — enlaces físicos derivados das descrições de interface.
-async function handleZabbixLinks(env, request) {
-  const gate = await requirePermission(env, request, "zabbix.view");
-  if (gate.response) return gate.response;
-
-  const inventory = await loadInventoryFromDb(getDB(env));
+/* Enlaces em formato de resposta, a partir de um inventário já carregado. A
+   visão geral do painel monta enlaces e interfaces na mesma leitura do D1, em
+   vez de varrer zabbix_interfaces duas vezes por atualização de tela. */
+function buildLinksPayload(inventory) {
   const equipOf = new Map(inventory.hosts.map(h => [String(h.hostid), h.equipamento_id]));
   const nameOf = new Map(inventory.hosts.map(h => [String(h.hostid), h.name]));
 
@@ -1487,11 +1574,210 @@ async function handleZabbixLinks(env, request) {
     }
   }));
 
-  return json({
+  return {
     total: links.length,
     alta: links.filter(l => l.confianca === "alta").length,
     media: links.filter(l => l.confianca === "media").length,
     links
+  };
+}
+
+// GET /api/zabbix/links — enlaces físicos derivados das descrições de interface.
+async function handleZabbixLinks(env, request) {
+  const gate = await requirePermission(env, request, "zabbix.view");
+  if (gate.response) return gate.response;
+
+  return json(buildLinksPayload(await loadInventoryFromDb(getDB(env))));
+}
+
+// ---------------------------------------------------------------------------
+// Painel de tráfego
+// ---------------------------------------------------------------------------
+
+/* Ajustes do painel. Ficam em platform_meta porque são configuração de tela —
+   não fazem parte da topologia e não têm por que arrastar os ~50 KB dela a
+   cada gravação. Quem lê precisa de zabbix.view; quem grava, de
+   trafego.settings. */
+const TRAFEGO_SETTINGS_KEY = "trafego.settings";
+
+const DEFAULT_TRAFEGO_SETTINGS = {
+  titulo: "Tráfego da rede",
+  limiteAtencao: 70,
+  limiteCritico: 85,
+  intervaloSegundos: 60,
+  toleranciaLeitura: 1.05,
+  topN: 10,
+  historicoHoras: 6,
+  tvPaineis: ["kpis", "fluxo", "top", "alertas"],
+  tvRotacaoSegundos: 20,
+  // Percentual aplicado à tipografia do modo TV. 100 é calibrado para 55" a
+  // ~4 m; telas maiores, mais distantes ou em 4K pedem ajuste sem tocar no CSS.
+  tvZoom: 100,
+  interfaces: {}
+};
+
+const TV_PAINEIS_VALIDOS = ["kpis", "fluxo", "top", "alertas", "enlaces", "equipamentos"];
+
+const limitaNumero = (valor, minimo, maximo, padrao) => {
+  const n = Number(valor);
+  return Number.isFinite(n) ? Math.min(Math.max(n, minimo), maximo) : padrao;
+};
+
+const textoCurto = (valor, maximo) => String(valor ?? "").trim().slice(0, maximo);
+
+/* O servidor nunca confia no que o cliente manda: cada campo volta normalizado
+   dentro de um intervalo que faz sentido operacional. Limite crítico abaixo do
+   de atenção inverteria as cores do painel, então ele é empurrado para cima. */
+function normalizeTrafegoSettings(entrada = {}) {
+  const base = { ...DEFAULT_TRAFEGO_SETTINGS };
+  const atencao = limitaNumero(entrada.limiteAtencao, 1, 99, base.limiteAtencao);
+  const critico = Math.max(atencao + 1, limitaNumero(entrada.limiteCritico, 2, 100, base.limiteCritico));
+
+  const paineis = Array.isArray(entrada.tvPaineis)
+    ? [...new Set(entrada.tvPaineis.filter(p => TV_PAINEIS_VALIDOS.includes(p)))]
+    : base.tvPaineis;
+
+  const interfaces = {};
+  const entradas = Object.entries(entrada.interfaces || {}).slice(0, 2000);
+  for (const [chave, valor] of entradas) {
+    if (!/^\d+:\d+$/.test(chave) || !valor || typeof valor !== "object") continue;
+    const apelido = textoCurto(valor.apelido, 80);
+    const nota = textoCurto(valor.nota, 200);
+    const critica = valor.critica === true;
+    const ignorar = valor.ignorar === true;
+    // Entrada sem nenhum dado útil não ocupa espaço no registro.
+    if (!apelido && !nota && !critica && !ignorar) continue;
+    interfaces[chave] = { apelido, nota, critica, ignorar };
+  }
+
+  return {
+    titulo: textoCurto(entrada.titulo, 60) || base.titulo,
+    limiteAtencao: atencao,
+    limiteCritico: critico,
+    intervaloSegundos: limitaNumero(entrada.intervaloSegundos, 15, 900, base.intervaloSegundos),
+    toleranciaLeitura: limitaNumero(entrada.toleranciaLeitura, 1, 5, base.toleranciaLeitura),
+    topN: limitaNumero(entrada.topN, 3, 50, base.topN),
+    historicoHoras: limitaNumero(entrada.historicoHoras, 1, 168, base.historicoHoras),
+    tvPaineis: paineis.length ? paineis : base.tvPaineis,
+    tvRotacaoSegundos: limitaNumero(entrada.tvRotacaoSegundos, 0, 300, base.tvRotacaoSegundos),
+    tvZoom: limitaNumero(entrada.tvZoom, 60, 220, base.tvZoom),
+    interfaces
+  };
+}
+
+async function loadTrafegoSettings(db) {
+  try {
+    const row = await db.prepare(`SELECT value FROM platform_meta WHERE key=?`)
+      .bind(TRAFEGO_SETTINGS_KEY).first();
+    if (!row?.value) return { ...DEFAULT_TRAFEGO_SETTINGS };
+    return normalizeTrafegoSettings(JSON.parse(row.value));
+  } catch {
+    // Registro ausente ou corrompido não pode derrubar o painel.
+    return { ...DEFAULT_TRAFEGO_SETTINGS };
+  }
+}
+
+async function handleTrafegoSettings(env, request) {
+  if (request.method === "GET") {
+    const gate = await requirePermission(env, request, "zabbix.view");
+    if (gate.response) return gate.response;
+    const settings = await loadTrafegoSettings(getDB(env));
+    const permissoes = await permissionsOf(env, gate.user);
+    return json({ settings, podeEditar: permissoes.has("trafego.settings"), padrao: DEFAULT_TRAFEGO_SETTINGS });
+  }
+
+  const gate = await requirePermission(env, request, "trafego.settings");
+  if (gate.response) return gate.response;
+
+  let body;
+  try { body = await readJson(request, 262144); } catch { return json({ error: "JSON_INVALIDO" }, 400); }
+
+  const db = getDB(env);
+  const antes = await loadTrafegoSettings(db);
+  const depois = normalizeTrafegoSettings(body?.settings ?? body);
+
+  await db.prepare(`
+    INSERT OR REPLACE INTO platform_meta(key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+  `).bind(TRAFEGO_SETTINGS_KEY, JSON.stringify(depois)).run();
+
+  await audit(env, request, gate.user, "TRAFEGO_SETTINGS_UPDATE", "trafego", "settings", antes, depois);
+  return json({ ok: true, settings: depois, podeEditar: true });
+}
+
+// GET /api/zabbix/history — série agregada do tráfego (uma amostra por ciclo).
+async function handleZabbixHistory(env, request, url) {
+  const gate = await requirePermission(env, request, "zabbix.view");
+  if (gate.response) return gate.response;
+
+  const horas = boundedInteger(url.searchParams.get("horas"), 6, 1, 168);
+  const amostras = (await getDB(env).prepare(`
+    SELECT taken_at, in_bps, out_bps, interfaces_total, interfaces_up, interfaces_saturadas, erros
+    FROM zabbix_traffic_snapshots
+    WHERE taken_at >= datetime('now', ?)
+    ORDER BY taken_at
+    LIMIT 2000
+  `).bind(`-${horas} hours`).all()).results || [];
+
+  return json({ horas, amostras });
+}
+
+/**
+ * GET /api/zabbix/overview — tudo o que o painel de tráfego precisa para o
+ * primeiro desenho, em uma requisição só.
+ *
+ * Antes a tela abria com três chamadas (interfaces, links, status) e cada uma
+ * relia zabbix_interfaces inteira; a de enlaces relia mais uma vez do lado do
+ * servidor. Aqui a leitura acontece uma vez e alimenta os dois recortes, o que
+ * tira dois RTTs e duas varreduras do caminho crítico da abertura da tela.
+ */
+async function handleZabbixOverview(env, request, url) {
+  const gate = await requirePermission(env, request, "zabbix.view");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const settings = await loadTrafegoSettings(db);
+  const horas = boundedInteger(url.searchParams.get("horas"), settings.historicoHoras, 1, 168);
+
+  const [inventory, lastRun, historico, permissoes] = await Promise.all([
+    loadInventoryFromDb(db),
+    db.prepare(`SELECT * FROM zabbix_sync_runs ORDER BY id DESC LIMIT 1`).first(),
+    db.prepare(`
+      SELECT taken_at, in_bps, out_bps, interfaces_total, interfaces_up, interfaces_saturadas, erros
+      FROM zabbix_traffic_snapshots
+      WHERE taken_at >= datetime('now', ?)
+      ORDER BY taken_at
+      LIMIT 2000
+    `).bind(`-${horas} hours`).all(),
+    permissionsOf(env, gate.user)
+  ]);
+
+  const hostById = new Map(inventory.hosts.map(h => [String(h.hostid), h]));
+  const interfaces = inventory.interfaces.map(i => {
+    const host = hostById.get(String(i.hostid));
+    return { ...i, hostid: String(i.hostid), host_name: host?.name || null, equipamento_id: host?.equipamento_id || null };
+  });
+
+  return json({
+    settings,
+    podeEditarSettings: permissoes.has("trafego.settings"),
+    status: {
+      last_run: lastRun || null,
+      totals: {
+        hosts: inventory.hosts.length,
+        hosts_vinculados: inventory.hosts.filter(h => h.equipamento_id).length,
+        interfaces: interfaces.length,
+        interfaces_up: interfaces.filter(i => i.oper_status === 1).length,
+        interfaces_documentadas: interfaces.filter(i => i.if_alias).length
+      }
+    },
+    hosts: inventory.hosts.map(h => ({
+      hostid: String(h.hostid), host: h.host, name: h.name,
+      equipamento_id: h.equipamento_id, match_source: h.match_source,
+      status: h.status, available: h.available
+    })),
+    interfaces,
+    enlaces: buildLinksPayload(inventory),
+    historico: { horas, amostras: historico.results || [] }
   });
 }
 
@@ -1586,6 +1872,12 @@ async function handleZabbix(request, env, url) {
 
   if (url.pathname === "/api/zabbix/topology/apply" && request.method === "POST")
     return handleZabbixApplyTopology(env, request);
+
+  if (url.pathname === "/api/zabbix/overview" && request.method === "GET")
+    return handleZabbixOverview(env, request, url);
+
+  if (url.pathname === "/api/zabbix/history" && request.method === "GET")
+    return handleZabbixHistory(env, request, url);
 
   return json({ error: "Endpoint Zabbix não encontrado." }, 404);
 }
@@ -2354,6 +2646,9 @@ export default {
         if (url.pathname === "/api/topology/permissions" && request.method === "GET")
           return await handleTopologyPermissions(env,request);
 
+        if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
+          return await handleTrafegoSettings(env,request);
+
         if (url.pathname === "/api/topology" && (request.method === "GET" || request.method === "PUT"))
           return await handleTopology(env,request);
 
@@ -2429,5 +2724,25 @@ export default {
       console.error(JSON.stringify({message:"Unhandled Worker error",error:error instanceof Error?error.message:String(error),path:new URL(request.url).pathname}));
       return json({ok:false,error:"Erro interno do Worker."},500);
     }
+  },
+
+  /* Sincronização automática. Um painel de NOC em telão precisa estar certo
+     sozinho: sem isto, o número na parede só mudava quando alguém clicava em
+     "Sincronizar agora". A execução fica registrada em zabbix_sync_runs com
+     source='cron', e sem ZABBIX_URL/ZABBIX_TOKEN configurados ela não roda —
+     nada de encher o log de erro em instalação que ainda não integrou. */
+  async scheduled(event, env, ctx) {
+    if (!env.ZABBIX_URL || !env.ZABBIX_TOKEN) return;
+    ctx.waitUntil((async () => {
+      try {
+        await ensureDatabase(env);
+        const resultado = await runZabbixSync(env, { source: "cron" });
+        if (!resultado.ok) {
+          console.error(JSON.stringify({message:"Zabbix cron sync falhou",error:resultado.error,cron:event.cron}));
+        }
+      } catch (error) {
+        console.error(JSON.stringify({message:"Zabbix cron sync falhou",error:error instanceof Error?error.message:String(error)}));
+      }
+    })());
   }
 };

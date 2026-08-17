@@ -9,6 +9,12 @@
     "binding": "ASSETS",
     "run_worker_first": true
   },
+  // Sincronização automática do Zabbix: alimenta o painel de tráfego e o
+  // histórico agregado sem depender de alguém clicar em "Sincronizar agora".
+  // Só roda quando ZABBIX_URL e ZABBIX_TOKEN estão configurados.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
   "vars": {
     // Zabbix: ZABBIX_URL e ZABBIX_TOKEN são Secrets, não vars.
     //   npx wrangler secret put ZABBIX_URL

@@ -35,10 +35,26 @@
   if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", bindLogout, {once:true});
   else bindLogout();
 
+  /* Sessão e acesso saem juntos, não em fila.
+     `/api/access` já exige sessão válida no servidor e responde 401 sem ela,
+     então esperar `/api/auth/me` responder antes de pedi-lo só acrescentava um
+     ida-e-volta ao caminho crítico de toda navegação entre telas.
+
+     A Promise fica em UPDOWN_ACCESS_PROMISE para que noc-api.js reaproveite
+     esta resposta em vez de pedir /api/access uma segunda vez. */
+  const pedidoSessao=fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"})
+    .then(r=>r.json());
+  const pedidoAcesso=fetch("/api/access",{cache:"no-store",credentials:"same-origin"})
+    .then(r=>r.ok?r.json():Promise.reject(new Error("ACESSO_INDISPONIVEL")));
+
+  window.UPDOWN_ACCESS_PROMISE=pedidoAcesso;
+  // Sem este catch, uma falha aqui vira "unhandled rejection" antes de alguém
+  // consumir a Promise. O erro real continua sendo tratado no fluxo abaixo.
+  pedidoAcesso.catch(()=>{});
+
   (async function(){
   try{
-    const authResponse=await fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"});
-    const authData=await authResponse.json();
+    const authData=await pedidoSessao;
 
     if(!authData.authenticated){
       location.href="/login.html";
@@ -52,9 +68,7 @@
 
     document.documentElement.dataset.role=authData.user.role;
 
-    // Access control is loaded immediately after authentication.
-    const accessResponse=await fetch("/api/access",{cache:"no-store",credentials:"same-origin"});
-    const access=await accessResponse.json();
+    const access=await pedidoAcesso;
     window.UPDOWN_ACCESS=access;
 
     const screens=Array.isArray(access.screens)?access.screens:[];

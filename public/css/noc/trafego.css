@@ -1,0 +1,398 @@
+/* ============================================================
+   UPDOWN NOC — Painel de tráfego
+   Só esta tela usa este arquivo. Os tokens, os botões, as tabelas
+   e os estados vêm do design system (tokens/base/components);
+   aqui ficam o painel, os gráficos e a escala do modo telão.
+
+   Regra do arquivo: nada de tamanho fixo em px para texto. O modo
+   TV multiplica uma única variável (--traf-zoom) e a tela inteira
+   acompanha — é o que permite calibrar um 55" sem tocar no CSS.
+   ============================================================ */
+
+/* ---------------- cabeçalho e estado ---------------- */
+.traf-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-4);
+}
+
+.traf-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+
+/* Faixa de estado: fica acima das guias de propósito. Saturação e enlace caído
+   não podem depender de a pessoa estar na guia certa para aparecer. */
+.traf-pulse {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin-bottom: var(--s-4);
+}
+
+.pulse-item {
+  display: grid;
+  gap: 4px;
+  padding: var(--s-4) var(--s-5);
+  background: var(--surface-1);
+  min-width: 0;
+}
+
+.pulse-item > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-10);
+  font-weight: 800;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.pulse-item > strong {
+  font-size: var(--fs-24);
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.pulse-item > small { font-size: var(--fs-11); color: var(--text-3); }
+.pulse-item.is-warn > strong { color: var(--warn-text); }
+.pulse-item.is-danger > strong { color: var(--danger-text); }
+.pulse-item.is-ok > strong { color: var(--ok-text); }
+
+/* ---------------- guias ---------------- */
+/* As guias grudam no topo: em 2 000 interfaces a tabela é longa, e voltar ao
+   topo só para trocar de guia era o passo mais repetido da tela. */
+.traf-tabs {
+  position: sticky;
+  top: calc(var(--appbar-h) + var(--s-2));
+  z-index: 5;
+  display: flex;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  margin-bottom: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-glass);
+  backdrop-filter: blur(14px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.traf-tabs::-webkit-scrollbar { display: none; }
+
+.traf-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-4);
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-13);
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+
+.traf-tab:hover { background: var(--surface-2); color: var(--text-1); }
+.traf-tab[aria-selected="true"] {
+  background: var(--grad-brand);
+  color: var(--text-on-brand);
+  box-shadow: var(--shadow-brand);
+}
+.traf-tab:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
+.traf-tab .traf-tab-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.traf-tab[aria-selected="true"] .traf-tab-count { background: rgba(255, 255, 255, .22); color: inherit; }
+.traf-tab .traf-tab-count.is-danger { background: var(--danger-bg); color: var(--danger-text); }
+.traf-tab[aria-selected="true"] .traf-tab-count.is-danger { background: rgba(255, 255, 255, .28); color: inherit; }
+
+.traf-panel[hidden] { display: none; }
+
+/* ---------------- grade do painel ---------------- */
+.traf-grid { display: grid; gap: var(--s-4); }
+.traf-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); }
+.traf-grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+.traf-span-2 { grid-column: span 2; }
+@media (max-width: 1100px) { .traf-span-2 { grid-column: span 1; } }
+
+/* ---------------- indicadores ---------------- */
+.traf-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: var(--s-4); }
+
+.traf-kpi {
+  position: relative;
+  display: grid;
+  gap: var(--s-1);
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.traf-kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--grad-brand);
+  opacity: .8;
+}
+.traf-kpi.is-warn::before { background: linear-gradient(90deg, #ffb020, #ff8a3d); }
+.traf-kpi.is-danger::before { background: linear-gradient(90deg, #ff5f74, #ff3d68); }
+.traf-kpi.is-ok::before { background: linear-gradient(90deg, #2fd6a0, #1dc9ff); }
+
+.traf-kpi label {
+  font-size: var(--fs-10);
+  font-weight: 800;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.traf-kpi .traf-value {
+  font-size: var(--fs-32);
+  letter-spacing: -.035em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.traf-kpi .traf-value .unit { font-size: .48em; color: var(--text-3); font-weight: 600; letter-spacing: 0; margin-left: .25em; }
+.traf-kpi .traf-foot { display: flex; align-items: center; gap: 6px; font-size: var(--fs-11); color: var(--text-3); }
+.traf-kpi .traf-spark { margin-top: var(--s-2); }
+
+/* ---------------- gráficos ---------------- */
+.traf-chart { display: block; width: 100%; height: auto; overflow: visible; }
+.chart-grid { stroke: var(--line); stroke-width: 1; }
+.chart-axis { fill: var(--text-3); font: 600 10px var(--font-mono); }
+.chart-in { fill: none; stroke: var(--cyan-400); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-out { fill: none; stroke: var(--purple-400); stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-in-area { fill: url(#trafIn); }
+.chart-out-area { fill: url(#trafOut); }
+.chart-cursor { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-dot { fill: var(--surface-1); stroke-width: 2.5; }
+
+.chart-legend { display: flex; gap: var(--s-4); flex-wrap: wrap; font-size: var(--fs-11); color: var(--text-2); }
+.chart-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: 6px; vertical-align: -1px; }
+.chart-legend .in { background: var(--cyan-400); }
+.chart-legend .out { background: var(--purple-400); }
+
+.traf-spark { display: block; width: 100%; height: 34px; overflow: visible; }
+.spark-path { fill: none; stroke: var(--cyan-400); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.spark-fill { fill: currentColor; opacity: .12; }
+
+/* ---------------- maiores consumidores ---------------- */
+.top-list { display: grid; gap: var(--s-3); }
+
+.top-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-1) var(--s-3);
+  align-items: center;
+  padding: var(--s-2) 0;
+}
+
+.top-row .top-name { min-width: 0; font-size: var(--fs-13); font-weight: 650; }
+.top-row .top-name small { display: block; font-weight: 500; font-size: var(--fs-11); color: var(--text-3); }
+.top-row .top-figure { text-align: right; font-family: var(--font-mono); font-size: var(--fs-13); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.top-row .top-figure small { display: block; font-size: var(--fs-11); color: var(--text-3); }
+.top-row .top-track { grid-column: 1 / -1; }
+
+.top-track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.top-track > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-full);
+  background: var(--grad-brand);
+  transition: width var(--dur-3) var(--ease-out);
+}
+.top-track > i.is-warn { background: linear-gradient(90deg, #ffb020, #ff8a3d); }
+.top-track > i.is-danger { background: linear-gradient(90deg, #ff5f74, #ff3d68); }
+
+/* ---------------- medidor circular ---------------- */
+.gauge-wrap { display: grid; place-items: center; gap: var(--s-2); }
+.gauge { width: min(220px, 100%); height: auto; }
+.gauge-track { fill: none; stroke: var(--surface-3); stroke-linecap: round; }
+.gauge-value { fill: none; stroke: var(--cyan-400); stroke-linecap: round; transition: stroke-dashoffset var(--dur-3) var(--ease-out); }
+.gauge-value.is-warn { stroke: var(--warn-500); }
+.gauge-value.is-danger { stroke: var(--danger-500); }
+.gauge-label { fill: var(--text-1); font: 800 22px var(--font-sans); text-anchor: middle; font-variant-numeric: tabular-nums; }
+.gauge-sub { fill: var(--text-3); font: 600 9px var(--font-sans); text-anchor: middle; text-transform: uppercase; letter-spacing: .1em; }
+
+/* ---------------- alertas ---------------- */
+.traf-alerts { display: grid; gap: var(--s-2); }
+
+.traf-alert {
+  display: grid;
+  grid-template-columns: 4px auto minmax(0, 1fr) auto;
+  gap: var(--s-3);
+  align-items: center;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+
+.traf-alert > i.mark { align-self: stretch; border-radius: var(--r-full); background: var(--text-3); }
+.traf-alert.is-critico { border-color: var(--danger-line); background: var(--danger-bg); }
+.traf-alert.is-critico > i.mark { background: var(--danger-500); }
+.traf-alert.is-atencao { border-color: var(--warn-line); background: var(--warn-bg); }
+.traf-alert.is-atencao > i.mark { background: var(--warn-500); }
+.traf-alert.is-info > i.mark { background: var(--cyan-400); }
+.traf-alert b { font-size: var(--fs-13); }
+.traf-alert p { font-size: var(--fs-12); color: var(--text-2); margin-top: 2px; }
+.traf-alert .alert-figure { font-family: var(--font-mono); font-size: var(--fs-13); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------------- equipamentos ---------------- */
+.eq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--s-4); }
+
+.eq-card { display: grid; gap: var(--s-3); padding: var(--s-5); }
+.eq-card .eq-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-3); }
+.eq-card h3 { font-size: var(--fs-14); }
+.eq-card .eq-sub { font-size: var(--fs-11); color: var(--text-3); }
+.eq-card .eq-figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-2); }
+.eq-card .eq-figures > div { padding: var(--s-2); border-radius: var(--r-sm); background: var(--surface-2); text-align: center; }
+.eq-card .eq-figures span { display: block; font-size: var(--fs-10); text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+.eq-card .eq-figures strong { font-size: var(--fs-14); font-variant-numeric: tabular-nums; }
+
+/* ---------------- tabela densa ---------------- */
+/* Densidade é escolha do operador: quem investiga quer 60 linhas na tela,
+   quem acompanha quer respiro. A preferência fica no corpo da tela. */
+.is-compact .table td { padding-top: 6px; padding-bottom: 6px; }
+.is-compact .table th { padding-top: 8px; padding-bottom: 8px; }
+
+.if-name { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.if-name .mono { font-size: var(--fs-12); }
+.if-tag {
+  font-size: var(--fs-10);
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+.if-tag.is-muted { border-color: var(--line); background: var(--surface-3); color: var(--text-3); }
+
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* ---------------- ajustes ---------------- */
+.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: var(--s-4); }
+.set-group { display: grid; gap: var(--s-3); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.set-group h3 { font-size: var(--fs-13); padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); }
+.set-panels { display: grid; gap: var(--s-2); }
+
+/* ---------------- atualização viva ---------------- */
+/* O ponto pulsa enquanto a leitura está fresca. Quem olha de longe percebe
+   que o painel está vivo sem precisar ler o relógio. */
+.live-dot { position: relative; width: 8px; height: 8px; border-radius: var(--r-full); background: var(--ok-500); flex: none; }
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--ok-500);
+  animation: traf-ping 2.4s var(--ease-out) infinite;
+}
+.live-dot.is-stale { background: var(--warn-500); }
+.live-dot.is-stale::after { border-color: var(--warn-500); animation: none; }
+
+@keyframes traf-ping {
+  0% { transform: scale(.6); opacity: .9; }
+  70%, 100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* Valor que acabou de mudar acende por um instante: em um telão sem cursor,
+   é o único aviso de que aquele número é novo. */
+.is-bumped { animation: traf-bump var(--dur-3) var(--ease-out); }
+@keyframes traf-bump {
+  from { color: var(--cyan-400); transform: translateY(-2px); }
+  to { color: inherit; transform: none; }
+}
+
+/* ---------------- modo telão (55") ---------------- */
+/* Um 55" a ~4 m pede o triplo do corpo de texto de uma mesa. Em vez de um
+   segundo layout, a escala inteira sai de --traf-zoom, que a tela de Ajustes
+   grava por perfil de instalação. */
+body.tv-mode {
+  --traf-zoom: 1;
+  --fs-10: calc(.82rem * var(--traf-zoom));
+  --fs-11: calc(.92rem * var(--traf-zoom));
+  --fs-12: calc(1rem * var(--traf-zoom));
+  --fs-13: calc(1.08rem * var(--traf-zoom));
+  --fs-14: calc(1.2rem * var(--traf-zoom));
+  --fs-16: calc(1.45rem * var(--traf-zoom));
+  --fs-20: calc(1.9rem * var(--traf-zoom));
+  --fs-24: calc(2.4rem * var(--traf-zoom));
+  --fs-32: calc(3.6rem * var(--traf-zoom));
+  --fs-44: calc(5rem * var(--traf-zoom));
+}
+
+body.tv-mode .traf-tabs,
+body.tv-mode .traf-actions,
+body.tv-mode .page-sub,
+body.tv-mode [data-tv-hide] { display: none !important; }
+
+body.tv-mode .content { padding: var(--s-5) var(--s-6); max-width: none; }
+body.tv-mode .traf-pulse { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+body.tv-mode .traf-kpi .traf-value { font-size: var(--fs-44); }
+body.tv-mode .gauge { width: min(340px, 100%); }
+body.tv-mode .gauge-label { font-size: 30px; }
+body.tv-mode .table td, body.tv-mode .table th { padding: var(--s-3) var(--s-4); }
+
+/* Contraste maior: a sala do NOC costuma ter luz forte e o telão fica longe. */
+body.tv-mode { --text-2: #c8dcea; --text-3: #9ab6c9; --line: rgba(122, 190, 240, .22); }
+
+.tv-head {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding-bottom: var(--s-4);
+  margin-bottom: var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+body.tv-mode .tv-head { display: flex; }
+.tv-head .tv-title { font-size: var(--fs-24); letter-spacing: -.03em; }
+.tv-head .tv-sub { font-size: var(--fs-12); color: var(--text-3); display: flex; align-items: center; gap: var(--s-2); }
+.tv-head .tv-clock { text-align: right; }
+.tv-head .tv-clock strong { display: block; font-size: var(--fs-32); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.tv-head .tv-clock small { color: var(--text-3); font-size: var(--fs-11); text-transform: uppercase; letter-spacing: .08em; }
+
+/* Trilho da rotação: mostra em que painel o telão está e quanto falta para o
+   próximo. Sem ele, quem entra na sala não sabe se a tela travou. */
+.tv-rail { display: none; gap: var(--s-2); margin-top: var(--s-4); }
+body.tv-mode .tv-rail { display: flex; }
+.tv-rail > i { height: 4px; flex: 1; border-radius: var(--r-full); background: var(--surface-3); overflow: hidden; }
+.tv-rail > i.is-done { background: var(--line-strong); }
+.tv-rail > i.is-now { background: var(--grad-brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after, .is-bumped { animation: none; }
+  .top-track > i, .gauge-value { transition: none; }
+}

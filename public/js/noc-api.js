@@ -53,9 +53,18 @@ window.NOC = (() => {
   const state = { topology: null, permissions: new Set(), screens: [], version: null };
   let accessPromise = null;
 
+  /* O auth-guard já pede /api/access na abertura da página e deixa a Promise
+     em window.UPDOWN_ACCESS_PROMISE. Reaproveitá-la evita uma segunda
+     requisição idêntica — que, por acontecer depois do guardião responder,
+     entrava inteira no caminho crítico de cada tela. Se ela falhar, o pedido
+     próprio ainda é feito: nenhuma tela depende do guardião ter dado certo. */
   function loadAccess() {
     if (!accessPromise) {
-      accessPromise = api("/api/access")
+      const compartilhada = window.UPDOWN_ACCESS_PROMISE;
+      const origem = compartilhada
+        ? Promise.resolve(compartilhada).catch(() => api("/api/access"))
+        : api("/api/access");
+      accessPromise = origem
         .then((a) => {
           state.permissions = new Set(a.permissions || []);
           state.screens = Array.isArray(a.screens) ? a.screens : [];
@@ -314,6 +323,14 @@ window.NOC = (() => {
     /* Enlaces físicos derivados das descrições de interface. */
     links: () => api("/api/zabbix/links"),
 
+    /* Tudo o que o painel de tráfego desenha na abertura, em uma requisição:
+       ajustes, status, hosts, interfaces, enlaces e histórico. O servidor lê o
+       inventário uma vez só para montar os dois recortes. */
+    overview: (horas) => api(`/api/zabbix/overview${horas ? `?horas=${Number(horas)}` : ""}`),
+
+    /* Série agregada do tráfego da rede (uma amostra por sincronização). */
+    history: (horas = 6) => api(`/api/zabbix/history?horas=${Number(horas)}`),
+
     /* Projeta o inventário na topologia. Sem { aplicar: true } é só ensaio. */
     aplicarTopologia: (aplicar = false) =>
       api("/api/zabbix/topology/apply", {
@@ -336,6 +353,29 @@ window.NOC = (() => {
         body: JSON.stringify({ equipamento_id: equipamentoId }),
       }),
   };
+
+  /* Ajustes do painel de tráfego. Ficam em platform_meta no servidor: são
+     configuração de tela, não topologia, e por isso não arrastam os ~50 KB da
+     topologia a cada gravação. Ler exige zabbix.view; gravar, trafego.settings. */
+  const trafego = {
+    settings: () => api("/api/trafego/settings"),
+    saveSettings: (settings) => api("/api/trafego/settings", {
+      method: "PUT",
+      body: JSON.stringify({ settings }),
+    }),
+  };
+
+  /* A topologia só é necessária para editar a documentação dos enlaces e para
+     vincular host a equipamento. Carregá-la sob demanda tira ~50 KB e um
+     ida-e-volta do caminho crítico de abertura das telas que apenas monitoram.
+     A Promise é memorizada: várias chamadas não viram várias requisições. */
+  let topologyPromise = null;
+  function loadTopologyOnce() {
+    if (!topologyPromise) {
+      topologyPromise = load().catch((err) => { topologyPromise = null; throw err; });
+    }
+    return topologyPromise;
+  }
 
   /* 1 = up e 2 = down são os valores de ifOperStatus (SNMP). */
   const interfaceStatus = (i) =>
@@ -389,6 +429,7 @@ window.NOC = (() => {
 
   return {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
+    loadTopologyOnce, trafego,
     pops, popById, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, skeleton, errorState,

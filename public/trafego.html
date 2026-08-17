@@ -9,7 +9,25 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css">
 <link rel="stylesheet" href="/css/noc/screens.css">
-<script src="/js/auth-guard.js"></script>
+<link rel="stylesheet" href="/css/noc/trafego.css?v=20260817-1">
+<link rel="preload" as="script" href="/js/noc-ui.js">
+<link rel="preload" as="script" href="/js/noc-api.js?v=20260817-1">
+<link rel="preload" as="script" href="/js/noc-trafego.js?v=20260817-1">
+<script>
+/* O dado do painel é pedido aqui, antes de os três scripts terminarem de
+   baixar. Sem isto, o navegador só descobria a existência da requisição depois
+   de baixar e executar noc-trafego.js — o download inteiro ficava no caminho
+   crítico da abertura da tela. A tela consome esta Promise em vez de pedir de
+   novo; se ela falhar, o boot repete o pedido normalmente. */
+(function () {
+  var horas = new URLSearchParams(location.search).get("horas");
+  var url = "/api/zabbix/overview" + (horas ? "?horas=" + encodeURIComponent(horas) : "");
+  window.__TRAFEGO_PREFETCH = fetch(url, { credentials: "same-origin", cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)); });
+  window.__TRAFEGO_PREFETCH.catch(function () {});
+})();
+</script>
+<script src="/js/auth-guard.js?v=20260817-1"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Ir para o conteúdo</a>
@@ -19,80 +37,64 @@
   <aside data-sidebar></aside>
 
   <main class="content content-wide" id="main">
-    <div class="page-head">
+    <!-- Cabeçalho do modo telão: só aparece com body.tv-mode. -->
+    <div class="tv-head">
+      <div>
+        <div class="tv-title" id="tvTitle">Tráfego da rede</div>
+        <div class="tv-sub">
+          <span class="live-dot" id="tvLive"></span>
+          <span id="tvFreshness">—</span>
+          <span aria-hidden="true">•</span>
+          <span id="tvPanelName">—</span>
+        </div>
+      </div>
+      <div class="tv-clock"><strong id="tvClock">—</strong><small id="tvDate">—</small></div>
+    </div>
+
+    <div class="traf-head" data-tv-hide>
       <div>
         <span class="kicker">Monitoramento</span>
-        <h1 class="page-title">Tráfego das interfaces</h1>
+        <h1 class="page-title" id="pageTitle">Tráfego das interfaces</h1>
         <p class="page-sub">
           Leitura do inventário sincronizado do Zabbix: tráfego, utilização, erros e status
           operacional de cada interface. Os enlaces são os que a descrição das interfaces confirma.
         </p>
       </div>
-      <div class="row" style="gap:var(--s-2)">
+      <div class="traf-actions">
         <label class="row" style="gap:6px;font-size:var(--fs-12)">
           <span class="switch"><input type="checkbox" id="autoRefresh" checked><span class="switch-track"></span></span>
           Atualizar sozinho
         </label>
+        <button class="btn btn-sm" id="btnTv" type="button" title="Abrir em modo telão (atalho: V)">Modo TV</button>
         <button class="btn btn-sm btn-primary" id="btnSync" type="button" data-action="zabbix.sync">
           Sincronizar agora
-        </button>
-        <button class="btn btn-sm" id="btnApplyTopology" type="button"
-                data-action="topology.link.create topology.port.edit">
-          Usar enlaces na topologia
         </button>
       </div>
     </div>
 
-    <div class="stack" style="gap:var(--s-4)">
-      <section class="card">
-        <div class="card-body">
-          <div class="kv" id="kpis"></div>
-          <p class="dim" id="syncInfo" style="margin-top:var(--s-3);font-size:var(--fs-11)"></p>
-        </div>
-      </section>
+    <!-- Faixa de estado: fica fora das guias porque saturação e enlace caído
+         não podem depender de a pessoa estar na guia certa para aparecer. -->
+    <div class="traf-pulse" id="pulse" aria-live="polite" aria-label="Estado geral do tráfego"></div>
 
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2>Enlaces confirmados</h2>
-            <p>Pares reconhecidos pela descrição. Clique nas colunas para ordenar ou use Editar na conexão.</p>
-          </div>
-          <span class="row" style="gap:6px">
-            <span class="badge badge-ok" id="cntAlta">—</span>
-            <span class="badge badge-warn" id="cntMedia">—</span>
-          </span>
-        </div>
-        <div class="card-body" id="links"></div>
-      </section>
+    <div class="traf-tabs" role="tablist" id="tabs" aria-label="Seções do painel de tráfego"></div>
 
-      <section class="card">
-        <div class="card-head">
-          <div>
-            <h2>Interfaces</h2>
-            <p>Clique nas colunas para ordenar. Utilização acima de 70% acende alerta.</p>
-          </div>
-          <div class="row wrap" style="gap:6px">
-            <select class="select" id="fEquip" style="min-width:150px" aria-label="Filtrar por equipamento"></select>
-            <div class="segmented" id="fStatus" role="group" aria-label="Filtrar por status">
-              <button class="tab is-active" type="button" data-st="">Todas</button>
-              <button class="tab" type="button" data-st="up">Up</button>
-              <button class="tab" type="button" data-st="down">Down</button>
-            </div>
-            <span class="input-affix">
-              <input class="input" id="fBusca" type="search" placeholder="Interface ou descrição" aria-label="Buscar interface">
-            </span>
-          </div>
-        </div>
-        <div class="card-body" id="tabela"></div>
-      </section>
-    </div>
+    <section class="traf-panel" id="painel-visao" role="tabpanel" aria-labelledby="tab-visao" tabindex="0"></section>
+    <section class="traf-panel" id="painel-enlaces" role="tabpanel" aria-labelledby="tab-enlaces" tabindex="0" hidden></section>
+    <section class="traf-panel" id="painel-interfaces" role="tabpanel" aria-labelledby="tab-interfaces" tabindex="0" hidden></section>
+    <section class="traf-panel" id="painel-equipamentos" role="tabpanel" aria-labelledby="tab-equipamentos" tabindex="0" hidden></section>
+    <section class="traf-panel" id="painel-alertas" role="tabpanel" aria-labelledby="tab-alertas" tabindex="0" hidden></section>
+    <section class="traf-panel" id="painel-ajustes" role="tabpanel" aria-labelledby="tab-ajustes" tabindex="0" hidden></section>
+
+    <div class="tv-rail" id="tvRail" aria-hidden="true"></div>
+
+    <p class="dim" id="syncInfo" style="margin-top:var(--s-4);font-size:var(--fs-11)" data-tv-hide></p>
   </main>
 </div>
 
 <nav data-mobile-nav aria-label="Navegação"></nav>
 
 <script src="/js/noc-ui.js"></script>
-<script src="/js/noc-api.js"></script>
-<script src="/js/noc-trafego.js"></script>
+<script src="/js/noc-api.js?v=20260817-1"></script>
+<script src="/js/noc-trafego.js?v=20260817-1"></script>
 </body>
 </html>
