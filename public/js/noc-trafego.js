@@ -16,7 +16,7 @@
   const bps = (v) => NOC.formatBps(v);
   const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
   const inteiro = (v) => Number(v || 0).toLocaleString("pt-BR");
-  const AUTO_REFRESH_SECONDS = 10;
+  const AUTO_REFRESH_SECONDS = 1;
 
   const GUIAS = [
     { id: "visao", label: "Visão geral", icon: "dashboard" },
