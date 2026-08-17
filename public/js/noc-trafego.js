@@ -79,6 +79,11 @@
     ultimaLeitura: null,
     timer: null,
     recarregando: false,
+    /* Rascunho separado dos valores confirmados pelo servidor. A recarga do
+       painel acontece a cada segundo; sem esta separação, ela remontava o
+       formulário e recolocava o valor anterior enquanto a pessoa digitava. */
+    ajustesDraft: null,
+    salvandoAjustes: false,
     relogio: null,
     tv: { ativo: false, indice: 0, timer: null, pausado: false, inicio: 0 },
   };
@@ -1014,7 +1019,7 @@
      ============================================================ */
 
   function renderAjustes() {
-    const s = state.settings;
+    const s = state.ajustesDraft || state.settings;
     const pode = state.podeEditarSettings;
     const trava = pode ? "" : "disabled";
     const overrides = Object.entries(s.interfaces);
@@ -1122,7 +1127,7 @@
       return Number.isFinite(v) ? v : padrao;
     };
     return {
-      ...state.settings,
+      ...(state.ajustesDraft || state.settings),
       titulo: $("#setTitulo").value.trim() || AJUSTES_PADRAO.titulo,
       limiteAtencao: num("#setAtencao", state.settings.limiteAtencao),
       limiteCritico: num("#setCritico", state.settings.limiteCritico),
@@ -1139,22 +1144,28 @@
      A tela nunca mostra um ajuste que não foi gravado. */
   async function salvarAjustes(novos, motivo = "Ajustes salvos") {
     const anterior = state.settings;
+    const draftAnterior = state.ajustesDraft;
     state.settings = { ...state.settings, ...novos };
+    state.ajustesDraft = null;
+    state.salvandoAjustes = true;
     try {
       const r = await NOC.trafego.saveSettings(state.settings);
       state.settings = r.settings;
+      state.salvandoAjustes = false;
       // Salvar a janela do gráfico é o que a torna o padrão desta sessão também.
       if (state.horas !== state.settings.historicoHoras) {
         state.horas = state.settings.historicoHoras;
         state.historico = (await NOC.zabbix.history(state.horas).catch(() => null))?.amostras || state.historico;
       }
       aplicarAjustes();
-      renderTudo();
+      renderTudo({ preservarEdicao: false });
       toast(motivo, { text: "Vale para todos que abrirem esta tela.", type: "ok" });
       return true;
     } catch (err) {
       state.settings = anterior;
-      renderTudo();
+      state.ajustesDraft = draftAnterior || novos;
+      state.salvandoAjustes = false;
+      renderTudo({ preservarEdicao: false });
       toast("Não foi possível salvar os ajustes", { text: err.message, type: "danger" });
       return false;
     }
@@ -1550,7 +1561,12 @@
       : await NOC.zabbix.overview(state.horas);
 
     if (state.interfaces.length) state.totaisAnteriores = totais();
-    state.settings = { ...AJUSTES_PADRAO, ...(resposta.settings || {}) };
+    /* Ajustes e nomenclaturas são configuração do projeto, não telemetria.
+       Entram apenas na abertura da tela; as recargas automáticas seguintes
+       renovam exclusivamente os dados operacionais recebidos do Zabbix. */
+    if (primeiraLeitura) {
+      state.settings = { ...AJUSTES_PADRAO, ...(resposta.settings || {}) };
+    }
     // A janela salva só manda na primeira leitura; depois vale a escolhida aqui.
     if (primeiraLeitura) state.horas = state.settings.historicoHoras;
     primeiraLeitura = false;
@@ -1564,11 +1580,11 @@
     guardarSerie();
   }
 
-  function renderTudo() {
+  function renderTudo({ preservarEdicao = true } = {}) {
     renderPulse();
     renderTabs();
     if (state.tv.ativo) renderTv();
-    else renderGuia();
+    else if (!(preservarEdicao && state.guia === "ajustes" && (state.ajustesDraft || state.salvandoAjustes))) renderGuia();
   }
 
   function agendar() {
@@ -1759,6 +1775,10 @@
     }
 
     if (state.guia === "ajustes") {
+      const guardarRascunho = () => { state.ajustesDraft = lerAjustesDoFormulario(); };
+      painel("ajustes").oninput = guardarRascunho;
+      painel("ajustes").onchange = guardarRascunho;
+
       const salvar = $("#btnSalvarAjustes");
       if (salvar) salvar.onclick = async () => {
         salvar.disabled = true;
