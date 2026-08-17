@@ -675,7 +675,7 @@
           <div class="tabs" style="margin-top:var(--s-4)" role="tablist" aria-label="Seções do equipamento">
             <button class="tab" role="tab" aria-selected="true" data-tab="portas">Portas</button>
             <button class="tab" role="tab" aria-selected="false" data-tab="conexoes">Conexões <span class="badge">${NOC.connectionsOf(id).length}</span></button>
-            ${NOC.can("topology.connection.use") ? '<button class="tab" role="tab" aria-selected="false" data-tab="acesso">Conexão</button>' : ""}
+            ${NOC.can("topology.connection.use") ? '<button class="tab" role="tab" aria-selected="false" data-tab="acesso">Acesso</button>' : ""}
             <button class="tab" role="tab" aria-selected="false" data-tab="ficha">Ficha</button>
           </div>
         </header>
