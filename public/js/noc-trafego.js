@@ -20,6 +20,7 @@
     { id: "visao", label: "Visão geral", icon: "dashboard" },
     { id: "enlaces", label: "Enlaces", icon: "link" },
     { id: "interfaces", label: "Interfaces", icon: "port" },
+    { id: "grafico", label: "Gráfico", icon: "trafego" },
     { id: "equipamentos", label: "Equipamentos", icon: "topology" },
     { id: "alertas", label: "Alertas", icon: "alert" },
     { id: "ajustes", label: "Ajustes", icon: "platform" },
@@ -58,6 +59,7 @@
     historico: [],
     guia: "visao",
     densidade: "confortavel",
+    grafico: { equipamento: "", quantidade: 10 },
     /* Janela do gráfico em uso agora. Começa no valor salvo, mas os botões de
        período a mudam só para esta sessão — sem isto, a recarga automática
        devolvia a janela salva 60 s depois de a pessoa escolher outra. Salvar
@@ -769,6 +771,71 @@
       <p class="dim" style="margin-top:var(--s-3);font-size:var(--fs-11)">
         Exibindo ${Math.min(lista.length, teto)} de ${inteiro(lista.length)} interfaces${lista.length > teto ? " — refine os filtros para alcançar as demais" : ""}.</p>`;
     },
+
+    grafico() {
+      const equipamento = state.grafico.equipamento;
+      const quantidade = state.grafico.quantidade;
+      const candidatas = contabilizadas()
+        .filter((i) => !equipamento || rotuloEquipamento(i) === equipamento)
+        .sort((a, b) => carga(b) - carga(a));
+      const lista = candidatas.slice(0, quantidade);
+
+      if (!lista.length) {
+        return `<div class="empty">
+          <span class="empty-icon">${icon("trafego")}</span>
+          <b>Nenhum tráfego disponível</b>
+          <p>Não há interfaces com leitura consistente para o equipamento escolhido.</p>
+        </div>`;
+      }
+
+      const maximo = Math.max(...lista.map((i) => Math.max(Number(i.in_bps) || 0, Number(i.out_bps) || 0)), 1);
+      const totalEntrada = lista.reduce((a, i) => a + (Number(i.in_bps) || 0), 0);
+      const totalSaida = lista.reduce((a, i) => a + (Number(i.out_bps) || 0), 0);
+      const pico = Math.max(...lista.map((i) => utilizacao(i) || 0));
+
+      return `<div class="if-chart-summary" aria-label="Resumo das interfaces exibidas">
+        <div><span>Interfaces</span><strong>${inteiro(lista.length)}</strong></div>
+        <div><span>Entrada</span><strong>${esc(bps(totalEntrada))}</strong></div>
+        <div><span>Saída</span><strong>${esc(bps(totalSaida))}</strong></div>
+        <div><span>Pico de uso</span><strong>${pico ? `${pico.toFixed(1)}%` : "—"}</strong></div>
+      </div>
+      <div class="if-chart" role="list" aria-label="Comparação do tráfego de entrada e saída por interface">
+        <div class="if-chart-scale" aria-hidden="true">
+          <span>0</span><span>${esc(bps(maximo / 2))}</span><span>${esc(bps(maximo))}</span>
+        </div>
+        ${lista.map((i) => {
+          const entrada = Number(i.in_bps) || 0;
+          const saida = Number(i.out_bps) || 0;
+          const entradaPct = (entrada / maximo) * 100;
+          const saidaPct = (saida / maximo) * 100;
+          const u = utilizacao(i);
+          return `<article class="if-chart-row" role="listitem">
+            <div class="if-chart-label">
+              <strong title="${esc(rotuloInterface(i))}">${esc(rotuloInterface(i))}</strong>
+              <small>${esc(rotuloEquipamento(i))}${descricaoInterface(i) ? ` • ${esc(descricaoInterface(i))}` : ""}</small>
+            </div>
+            <div class="if-chart-bars">
+              <div class="if-chart-line">
+                <span class="if-chart-kind is-in">Entrada</span>
+                <span class="if-chart-track"><i class="is-in" style="width:${entradaPct.toFixed(2)}%"></i></span>
+                <strong>${esc(bps(entrada))}</strong>
+              </div>
+              <div class="if-chart-line">
+                <span class="if-chart-kind is-out">Saída</span>
+                <span class="if-chart-track"><i class="is-out" style="width:${saidaPct.toFixed(2)}%"></i></span>
+                <strong>${esc(bps(saida))}</strong>
+              </div>
+            </div>
+            <span class="if-chart-use ${nivel(u)}">${u === null ? "—" : `${u.toFixed(1)}%`}</span>
+          </article>`;
+        }).join("")}
+      </div>
+      <div class="chart-legend if-chart-legend">
+        <span><i class="in"></i>Entrada</span>
+        <span><i class="out"></i>Saída</span>
+        <span class="dim">Escala comum: ${esc(bps(maximo))}</span>
+      </div>`;
+    },
   };
 
   function filtradas() {
@@ -981,6 +1048,28 @@
             </div>
           </div>
           <div class="card-body">${blocos.interfaces()}</div>
+        </section>`;
+    }
+
+    if (state.guia === "grafico") {
+      const ids = [...new Set(state.interfaces.map(rotuloEquipamento).filter(Boolean))].sort(collator.compare);
+      painel("grafico").innerHTML = `
+        <section class="card">
+          <div class="card-head">
+            <div><h2>Tráfego por interface</h2>
+              <p>Comparação da entrada e saída da leitura mais recente, ordenada pelas interfaces com maior tráfego.</p></div>
+            <div class="row wrap" style="gap:6px">
+              <select class="select" id="gEquip" style="min-width:190px" aria-label="Filtrar gráfico por equipamento">
+                <option value="">Todos os equipamentos</option>
+                ${ids.map((id) => `<option value="${esc(id)}" ${id === state.grafico.equipamento ? "selected" : ""}>${esc(id)}</option>`).join("")}
+              </select>
+              <div class="segmented" id="gQuantidade" role="group" aria-label="Quantidade de interfaces no gráfico">
+                ${[10, 20, 50].map((n) => `<button class="tab ${state.grafico.quantidade === n ? "is-active" : ""}"
+                  type="button" data-quantidade="${n}" aria-pressed="${state.grafico.quantidade === n}">Top ${n}</button>`).join("")}
+              </div>
+            </div>
+          </div>
+          <div class="card-body">${blocos.grafico()}</div>
         </section>`;
     }
 
@@ -1766,6 +1855,17 @@
       };
       $$("#fStatus .tab").forEach((b) => (b.onclick = () => {
         state.filtro.status = b.dataset.st;
+        renderGuia();
+      }));
+    }
+
+    if (state.guia === "grafico") {
+      $("#gEquip").onchange = (e) => {
+        state.grafico.equipamento = e.target.value;
+        renderGuia();
+      };
+      $$("#gQuantidade [data-quantidade]").forEach((b) => (b.onclick = () => {
+        state.grafico.quantidade = Number(b.dataset.quantidade);
         renderGuia();
       }));
     }

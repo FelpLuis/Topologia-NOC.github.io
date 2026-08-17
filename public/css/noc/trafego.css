@@ -193,6 +193,74 @@
 .chart-legend .in { background: var(--cyan-400); }
 .chart-legend .out { background: var(--purple-400); }
 
+/* Comparação instantânea por interface. As barras usam uma única escala para
+   que uma porta pequena não pareça tão carregada quanto um uplink maior. */
+.if-chart-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.if-chart-summary > div { padding: var(--s-3) var(--s-4); background: var(--surface-2); }
+.if-chart-summary span {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  font-weight: 800;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.if-chart-summary strong { display: block; margin-top: 3px; font-size: var(--fs-16); font-variant-numeric: tabular-nums; }
+
+.if-chart { display: grid; gap: 1px; min-width: 680px; }
+.if-chart-scale {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  margin: 0 92px var(--s-2) 230px;
+  color: var(--text-3);
+  font: 600 var(--fs-10) var(--font-mono);
+}
+.if-chart-scale span:nth-child(2) { text-align: center; }
+.if-chart-scale span:last-child { text-align: right; }
+
+.if-chart-row {
+  display: grid;
+  grid-template-columns: 210px minmax(280px, 1fr) 72px;
+  gap: var(--s-4);
+  align-items: center;
+  padding: var(--s-3) var(--s-2);
+  border-top: 1px solid var(--line);
+}
+.if-chart-row:hover { background: var(--surface-2); }
+.if-chart-label { min-width: 0; }
+.if-chart-label strong, .if-chart-label small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.if-chart-label strong { font: 650 var(--fs-12) var(--font-mono); }
+.if-chart-label small { margin-top: 3px; color: var(--text-3); font-size: var(--fs-10); }
+.if-chart-bars { display: grid; gap: 7px; }
+.if-chart-line { display: grid; grid-template-columns: 48px minmax(120px, 1fr) 78px; gap: var(--s-2); align-items: center; }
+.if-chart-kind { font-size: var(--fs-10); font-weight: 700; }
+.if-chart-kind.is-in { color: var(--cyan-400); }
+.if-chart-kind.is-out { color: var(--purple-400); }
+.if-chart-track { height: 8px; border-radius: var(--r-full); background: var(--surface-3); overflow: hidden; }
+.if-chart-track i { display: block; height: 100%; min-width: 1px; border-radius: inherit; }
+.if-chart-track i.is-in { background: linear-gradient(90deg, var(--brand-500), var(--cyan-400)); }
+.if-chart-track i.is-out { background: linear-gradient(90deg, #7548d8, var(--purple-400)); }
+.if-chart-line strong { text-align: right; font: 650 var(--fs-10) var(--font-mono); white-space: nowrap; }
+.if-chart-use { text-align: right; font: 750 var(--fs-12) var(--font-mono); }
+.if-chart-use.is-warn { color: var(--warn-text); }
+.if-chart-use.is-danger { color: var(--danger-text); }
+.if-chart-legend { margin-top: var(--s-4); padding-left: 230px; }
+
+@media (max-width: 760px) {
+  .if-chart-summary { grid-template-columns: repeat(2, 1fr); }
+  .if-chart { overflow-x: auto; }
+}
+
 .traf-spark { display: block; width: 100%; height: 34px; overflow: visible; }
 .spark-path { fill: none; stroke: var(--cyan-400); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 .spark-fill { fill: currentColor; opacity: .12; }
