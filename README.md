@@ -708,6 +708,7 @@ Worker** (`SCREENS` e `ACTIONS` em `src/worker.js`) e aparecem em
 | Código | Rota | Tela |
 | --- | --- | --- |
 | `network` | `/` | Topologia |
+| `gpon` | `/gpon.html` | Topologia GPON |
 | `pops` | `/pops.html` | POPs e anel óptico |
 | `dashboard` | `/dashboard.html` | Dashboard NOC |
 | `trafego` | `/trafego.html` | Tráfego |

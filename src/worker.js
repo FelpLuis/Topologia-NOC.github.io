@@ -287,6 +287,7 @@ const ROLES = [
 // [code, name, description, route, active, icon, sort, nav]
 const SCREENS = [
   ["network", "Topologia", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
+  ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
   ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
@@ -390,11 +391,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","pops","dashboard","trafego","platform","legado"],
-  analista: ["network","pops","dashboard","trafego","legado"],
-  atendimento: ["network","pops","dashboard","trafego"],
-  tecnico: ["network","pops","dashboard","trafego","legado"],
-  logistica: ["network","pops","dashboard"]
+  gerente: ["network","gpon","pops","dashboard","trafego","platform","legado"],
+  analista: ["network","gpon","pops","dashboard","trafego","legado"],
+  atendimento: ["network","gpon","pops","dashboard","trafego"],
+  tecnico: ["network","gpon","pops","dashboard","trafego","legado"],
+  logistica: ["network","gpon","pops","dashboard"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -885,6 +886,16 @@ async function ensureDatabaseImpl(env) {
       grantScreen(roleId, "pops"),
       grantScreen(roleId, "legado")
     ]));
+  });
+
+  // A nova área GPON acompanha, na primeira implantação, os perfis que já
+  // podiam abrir a topologia principal. Depois disso, o administrador pode
+  // alterar esse acesso normalmente em Plataforma → Perfis e ações.
+  await seedOnce(db, "seed.gpon_screen.v1", async () => {
+    const comRede = ((await db.prepare(`
+      SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
+    `).all()).results || []).map(x => x.role_id);
+    await runGrants(comRede.map(roleId => grantScreen(roleId, "gpon")));
   });
 
   // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez
