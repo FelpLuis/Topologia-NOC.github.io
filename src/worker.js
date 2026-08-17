@@ -3,6 +3,8 @@ import {
   fetchNetworkInventory,
   persistInventory
 } from "./zabbix.js";
+import { deriveLinks, capacityLabel, linkKind } from "./zabbix-links.js";
+import { applyZabbixToTopology } from "./zabbix-topology.js";
 
 const COOKIE_NAME = "topologia_noc_session";
 const SESSION_DAYS = 7;
@@ -180,6 +182,7 @@ const SCREENS = [
   ["network", "Topologia", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
   ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
+  ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
   ["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 1]
 ];
@@ -256,10 +259,10 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","pops","dashboard","platform","legado"],
-  analista: ["network","pops","dashboard","legado"],
-  atendimento: ["network","pops","dashboard"],
-  tecnico: ["network","pops","dashboard","legado"],
+  gerente: ["network","pops","dashboard","trafego","platform","legado"],
+  analista: ["network","pops","dashboard","trafego","legado"],
+  atendimento: ["network","pops","dashboard","trafego"],
+  tecnico: ["network","pops","dashboard","trafego","legado"],
   logistica: ["network","pops","dashboard"]
 };
 
@@ -285,9 +288,21 @@ function json(data, status = 200, extraHeaders = {}) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
       ...extraHeaders
     }
   });
+}
+
+// `no-referrer` impede que a URL da página vaze em requisições seguintes;
+// o resto fecha sniffing de tipo e enquadramento em iframe de terceiros.
+function securityHeaders(base) {
+  const h = new Headers(base);
+  h.set("Referrer-Policy", "no-referrer");
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Frame-Options", "DENY");
+  return h;
 }
 
 function getDB(env) {
@@ -1110,6 +1125,127 @@ async function handleZabbixStatus(env, request) {
   return json({ last_run: lastRun || null, totals });
 }
 
+/**
+ * Inventário no formato que deriveLinks() espera, lido do D1 (espelho da última
+ * sincronização) em vez do Zabbix: é uma consulta local e barata.
+ */
+async function loadInventoryFromDb(db) {
+  const hosts = (await db.prepare(`
+    SELECT hostid, host, name, status, available, snmp_ip, equipamento_id, match_source
+    FROM zabbix_hosts
+  `).all()).results || [];
+
+  const interfaces = (await db.prepare(`
+    SELECT hostid, if_index, if_name, if_alias, if_type, oper_status,
+           speed_bps, in_bps, out_bps, in_errors, out_errors, last_clock
+    FROM zabbix_interfaces
+  `).all()).results || [];
+
+  return { hosts, interfaces };
+}
+
+// GET /api/zabbix/links — enlaces físicos derivados das descrições de interface.
+async function handleZabbixLinks(env, request) {
+  const gate = await requirePermission(env, request, "zabbix.view");
+  if (gate.response) return gate.response;
+
+  const inventory = await loadInventoryFromDb(getDB(env));
+  const equipOf = new Map(inventory.hosts.map(h => [String(h.hostid), h.equipamento_id]));
+  const nameOf = new Map(inventory.hosts.map(h => [String(h.hostid), h.name]));
+
+  const links = deriveLinks(inventory).map(l => ({
+    confianca: l.confidence,
+    capacidade: capacityLabel(l.a.speed_bps),
+    tipo: linkKind(l.a.if_alias, l.b.if_alias),
+    familia: l.family,
+    a: {
+      hostid: String(l.a.hostid), host: nameOf.get(String(l.a.hostid)),
+      equipamento_id: equipOf.get(String(l.a.hostid)) || null,
+      interface: l.a.if_name, descricao: l.a.if_alias,
+      oper_status: l.a.oper_status, in_bps: l.a.in_bps, out_bps: l.a.out_bps
+    },
+    b: {
+      hostid: String(l.b.hostid), host: nameOf.get(String(l.b.hostid)),
+      equipamento_id: equipOf.get(String(l.b.hostid)) || null,
+      interface: l.b.if_name, descricao: l.b.if_alias,
+      oper_status: l.b.oper_status, in_bps: l.b.in_bps, out_bps: l.b.out_bps
+    }
+  }));
+
+  return json({
+    total: links.length,
+    alta: links.filter(l => l.confianca === "alta").length,
+    media: links.filter(l => l.confianca === "media").length,
+    links
+  });
+}
+
+/**
+ * POST /api/zabbix/topology/apply — projeta o inventário do Zabbix na topologia.
+ *
+ * Por padrão é um ensaio (dry run): devolve o relatório sem gravar nada. Só
+ * grava com { "aplicar": true } no corpo, e nesse caso exige as mesmas ações
+ * que uma edição manual equivalente exigiria.
+ */
+async function handleZabbixApplyTopology(env, request) {
+  const gate = await requirePermission(env, request, "topology.link.create");
+  if (gate.response) return gate.response;
+  if (!(await hasPermission(env, gate.user, "topology.port.edit"))) {
+    return json({ error: "FORBIDDEN", permission: "topology.port.edit" }, 403);
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const aplicar = body.aplicar === true;
+
+  const db = getDB(env);
+  const inventory = await loadInventoryFromDb(db);
+  if (!inventory.interfaces.length) {
+    return json({ error: "SEM_INVENTARIO", hint: "Rode a sincronização do Zabbix antes." }, 400);
+  }
+
+  const row = await ensureTopologyState(env, request);
+  const before = JSON.parse(row.data_json);
+  const links = deriveLinks(inventory);
+  const { topology: after, relatorio } = applyZabbixToTopology(before, inventory, links);
+
+  const removidas = relatorio.conexoes.descartadas.length;
+  if (removidas && !(await hasPermission(env, gate.user, "topology.link.delete"))) {
+    return json({
+      error: "FORBIDDEN",
+      permission: "topology.link.delete",
+      motivo: `A projeção substitui ${removidas} enlace(s) já documentado(s).`
+    }, 403);
+  }
+
+  const resumo = {
+    equipamentos_reconstruidos: relatorio.portas.length,
+    conexoes_antes: (before.conexoes || []).length,
+    conexoes_depois: after.conexoes.length,
+    derivadas: relatorio.conexoes.derivadas.length,
+    externas: relatorio.conexoes.externas.length,
+    preservadas: relatorio.conexoes.preservadas.length,
+    descartadas: removidas
+  };
+
+  if (!aplicar) {
+    return json({ ok: true, aplicado: false, resumo, relatorio });
+  }
+
+  const nextVersion = Number(row.version || 0) + 1;
+  await db.prepare(`
+    UPDATE topology_state
+    SET data_json=?, version=?, updated_at=CURRENT_TIMESTAMP, updated_by=?
+    WHERE id=1
+  `).bind(JSON.stringify(after), nextVersion, gate.user.id).run();
+
+  await audit(env, request, gate.user, "ZABBIX_TOPOLOGY_APPLY", "topology", "1", before, after, {
+    version_before: row.version, version_after: nextVersion, resumo, relatorio
+  });
+
+  return json({ ok: true, aplicado: true, version: nextVersion, resumo, relatorio });
+}
+
 async function handleZabbix(request, env, url) {
   if (url.pathname === "/api/zabbix/health" && request.method === "GET")
     return handleZabbixHealth(env, request);
@@ -1129,6 +1265,12 @@ async function handleZabbix(request, env, url) {
 
   if (url.pathname === "/api/zabbix/interfaces" && request.method === "GET")
     return handleZabbixInterfaces(env, request, url);
+
+  if (url.pathname === "/api/zabbix/links" && request.method === "GET")
+    return handleZabbixLinks(env, request);
+
+  if (url.pathname === "/api/zabbix/topology/apply" && request.method === "POST")
+    return handleZabbixApplyTopology(env, request);
 
   return json({ error: "Endpoint Zabbix não encontrado." }, 404);
 }
@@ -1618,15 +1760,24 @@ export default {
         return json({ok:false,error:"Endpoint não encontrado.",path:url.pathname},404);
       }
 
-      if (env.ASSETS) return env.ASSETS.fetch(request);
+      // Página nunca é servida com credencial na query string: redireciona para
+      // a URL limpa antes que ela vire histórico, bookmark ou Referer.
+      if (request.method === "GET" && (url.searchParams.has("password") || url.searchParams.has("username"))) {
+        const limpa = new URL(url);
+        limpa.search = "";
+        return new Response(null, {status:303, headers:{Location:limpa.toString(), "Referrer-Policy":"no-referrer"}});
+      }
+
+      if (env.ASSETS) {
+        const asset = await env.ASSETS.fetch(request);
+        return new Response(asset.body, {status:asset.status, headers:securityHeaders(asset.headers)});
+      }
       return new Response("Assets binding ASSETS não encontrado.",{status:500});
     } catch(error) {
+      // O detalhe do erro fica no log do Worker; a resposta não expõe
+      // mensagem de banco, esquema ou stack para o cliente.
       console.error(error);
-      return json({
-        ok:false,
-        error:"Erro interno do Worker.",
-        detail:String(error?.message||error)
-      },500);
+      return json({ok:false,error:"Erro interno do Worker."},500);
     }
   }
 };

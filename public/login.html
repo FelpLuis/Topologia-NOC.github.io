@@ -72,7 +72,9 @@
       <h1 class="page-title" style="font-size:var(--fs-32)">Entrar no NOC</h1>
       <p class="page-sub">Use as credenciais corporativas. Sessões expiram em 7 dias ou ao encerrar o acesso.</p>
 
-      <form class="auth-form" id="formLogin" novalidate>
+      <!-- method="post": mesmo que o JS falhe e o navegador faça o envio nativo,
+           usuário e senha vão no corpo, nunca na barra de endereço. -->
+      <form class="auth-form" id="formLogin" method="post" novalidate>
         <div class="field">
           <label for="username">Usuário</label>
           <div class="input-affix">
@@ -122,17 +124,31 @@
 (() => {
   const { $, icon, toast, modal } = UI;
 
-  $("#iconUser").innerHTML = icon("user");
-  $("#iconLock").innerHTML = icon("lock");
-  $("#iconShield").innerHTML = icon("shield");
-  $("[data-theme-toggle]").onclick = UI.toggleTheme;
-  UI.applyTheme(document.documentElement.dataset.theme);
-
   const form = $("#formLogin");
   const user = $("#username");
   const pass = $("#password");
   const btn = $("#submitLogin");
   const box = $("#loginError");
+
+  // Se por qualquer motivo a credencial chegar pela query string, ela sai da
+  // URL antes de virar histórico, bookmark ou cabeçalho Referer.
+  if (location.search) {
+    const q = new URLSearchParams(location.search);
+    if (q.has("password") || q.has("username")) {
+      q.delete("password"); q.delete("username");
+      history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
+    }
+  }
+
+  // O handler de envio é registrado antes de qualquer enfeite visual: um erro
+  // na decoração não pode derrubar o preventDefault e deixar o formulário cair
+  // no envio nativo do navegador.
+  form.addEventListener("submit", onSubmit);
+
+  $("#iconUser").innerHTML = icon("user");
+  $("#iconLock").innerHTML = icon("lock");
+  $("[data-theme-toggle]").onclick = UI.toggleTheme;
+  UI.applyTheme(document.documentElement.dataset.theme);
 
   // Mostrar/ocultar senha: reduz erro de digitação sem obrigar a repetir o campo.
   const toggle = $("#togglePassword");
@@ -162,7 +178,7 @@
     input.setAttribute("aria-invalid", msg ? "true" : "false");
   };
 
-  form.addEventListener("submit", async (e) => {
+  async function onSubmit(e) {
     e.preventDefault();
     box.hidden = true;
 
@@ -192,7 +208,7 @@
       box.innerHTML = icon("alert") + " <span>" + UI.esc(err.message) + "</span>";
       pass.select();
     }
-  });
+  }
 
   // Mensagens do backend traduzidas para linguagem de operação.
   function traduzir(code) {

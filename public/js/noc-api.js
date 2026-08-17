@@ -207,6 +207,16 @@ window.NOC = (() => {
     hosts: () => api("/api/zabbix/hosts"),
     sync: () => api("/api/zabbix/sync", { method: "POST" }),
 
+    /* Enlaces físicos derivados das descrições de interface. */
+    links: () => api("/api/zabbix/links"),
+
+    /* Projeta o inventário na topologia. Sem { aplicar: true } é só ensaio. */
+    aplicarTopologia: (aplicar = false) =>
+      api("/api/zabbix/topology/apply", {
+        method: "POST",
+        body: JSON.stringify({ aplicar }),
+      }),
+
     /* filtros: { equipamento, hostid, status: "up"|"down", conectadas: 1, q, limit } */
     interfaces(filtros = {}) {
       const qs = new URLSearchParams(

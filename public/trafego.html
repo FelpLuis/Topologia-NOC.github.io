@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Tráfego</title>
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content content-wide" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">Monitoramento</span>
+        <h1 class="page-title">Tráfego das interfaces</h1>
+        <p class="page-sub">
+          Leitura do inventário sincronizado do Zabbix: tráfego, utilização, erros e status
+          operacional de cada interface. Os enlaces são os que a descrição das interfaces confirma.
+        </p>
+      </div>
+      <div class="row" style="gap:var(--s-2)">
+        <label class="row" style="gap:6px;font-size:var(--fs-12)">
+          <span class="switch"><input type="checkbox" id="autoRefresh" checked><span class="switch-track"></span></span>
+          Atualizar sozinho
+        </label>
+        <button class="btn btn-sm btn-primary" id="btnSync" type="button" data-action="zabbix.sync">
+          Sincronizar agora
+        </button>
+      </div>
+    </div>
+
+    <div class="stack" style="gap:var(--s-4)">
+      <section class="card">
+        <div class="card-body">
+          <div class="kv" id="kpis"></div>
+          <p class="dim" id="syncInfo" style="margin-top:var(--s-3);font-size:var(--fs-11)"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Enlaces confirmados</h2>
+            <p>Pares de interfaces que se reconhecem na descrição. Utilização pelo sentido mais carregado.</p>
+          </div>
+          <span class="row" style="gap:6px">
+            <span class="badge badge-ok" id="cntAlta">—</span>
+            <span class="badge badge-warn" id="cntMedia">—</span>
+          </span>
+        </div>
+        <div class="card-body" id="links"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div>
+            <h2>Interfaces</h2>
+            <p>Ordenadas pelo sentido mais carregado. Utilização acima de 70% acende alerta.</p>
+          </div>
+          <div class="row wrap" style="gap:6px">
+            <select class="select" id="fEquip" style="min-width:150px" aria-label="Filtrar por equipamento"></select>
+            <div class="segmented" id="fStatus" role="group" aria-label="Filtrar por status">
+              <button class="tab is-active" type="button" data-st="">Todas</button>
+              <button class="tab" type="button" data-st="up">Up</button>
+              <button class="tab" type="button" data-st="down">Down</button>
+            </div>
+            <span class="input-affix">
+              <input class="input" id="fBusca" type="search" placeholder="Interface ou descrição" aria-label="Buscar interface">
+            </span>
+          </div>
+        </div>
+        <div class="card-body" id="tabela"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-trafego.js"></script>
+</body>
+</html>
