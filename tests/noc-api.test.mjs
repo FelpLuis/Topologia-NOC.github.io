@@ -121,6 +121,32 @@ test("projeção dos POPs preserva campos adicionais", async () => {
   assert.equal(NOC.popById("pop-centro").endereco, "Rua do NOC, 100");
 });
 
+test("endereço, rotas e vínculo do POP sobrevivem a uma nova carga", async () => {
+  let persisted = topologia();
+  const transport = async (url, metodo, corpo) => {
+    if (url === "/api/access") return { permissions: [], screens: [] };
+    if (metodo === "PUT") {
+      persisted = JSON.parse(JSON.stringify(corpo.topology));
+      return { version: 2, updated_at: "agora", topology: { config: persisted.config || {} } };
+    }
+    return JSON.parse(JSON.stringify(persisted));
+  };
+
+  const NOC = carregar({ onPut: transport });
+  await NOC.load();
+  const pop = NOC.data().pops.find((item) => item.id === "pop-centro");
+  pop.endereco = "Avenida da Rede, 250";
+  pop.rotas = ["Aérea → Norte", "Subterrânea → Sul"];
+  NOC.data().equipamentos[0].popId = "pop-centro";
+  await NOC.save("TOPOLOGY_UPDATE_POP");
+
+  const recarregado = carregar({ onPut: transport });
+  await recarregado.load();
+  assert.equal(recarregado.popById("pop-centro").endereco, "Avenida da Rede, 250");
+  assert.deepEqual([...recarregado.popById("pop-centro").rotas], ["Aérea → Norte", "Subterrânea → Sul"]);
+  assert.equal(recarregado.data().equipamentos[0].popId, "pop-centro");
+});
+
 test("gravações em rajada viram menos requisições e todas resolvem", async () => {
   const t = topologia();
   let puts = 0;
