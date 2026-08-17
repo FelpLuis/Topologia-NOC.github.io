@@ -4,22 +4,49 @@
    ============================================================ */
 (() => {
   "use strict";
-  const { $, $$, esc, icon, toast, modal } = UI;
+  const { $, $$, esc, icon, toast, modal, confirm: askConfirm } = UI;
 
   const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  /* O nome curto é o que aparece no texto da rota: "POP SANTOS" → "santos". */
+  const nomeCurto = (p) => norm(p?.nome).replace(/^pop\s*/, "").trim();
+  const tipoDaRota = (r) => (/subterr/i.test(r) ? "Subterrânea" : "Aérea");
+  const rotaAponta = (rota, alvo) => !!nomeCurto(alvo) && norm(rota).includes(nomeCurto(alvo));
+
+  const state = {
+    editOrder: false, orderDirty: false, orderBackup: null,
+    editRing: false, ring: {}, ringDirty: false,
+  };
 
   function ringLinks() {
     const pops = NOC.pops();
     const map = new Map();
     pops.forEach((p) => (p.rotas || []).forEach((r) => {
-      const destino = pops.find((q) => q.id !== p.id && norm(r).includes(norm(q.nome).replace(/^pop\s*/, "").trim()));
+      const destino = pops.find((q) => q.id !== p.id && rotaAponta(r, q));
       if (!destino) return;
       const key = [p.id, destino.id].sort().join("|");
       const cur = map.get(key) || { a: key.split("|")[0], b: key.split("|")[1], tipos: new Set() };
-      cur.tipos.add(/subterr/i.test(r) ? "Subterrânea" : "Aérea");
+      cur.tipos.add(tipoDaRota(r));
       map.set(key, cur);
     }));
     return [...map.values()];
+  }
+
+  /* ---------------- gravação com desfazer ---------------- */
+  async function persist(reason, mensagem, undo) {
+    try {
+      await NOC.save(reason);
+      render();
+      toast(mensagem.titulo, {
+        text: mensagem.texto,
+        type: mensagem.tipo || "ok",
+        action: undo ? { label: "Desfazer", run: undo } : null,
+      });
+      return true;
+    } catch (err) {
+      render();
+      toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
+      return false;
+    }
   }
 
   /* ---------------- lista de POPs ---------------- */
@@ -28,12 +55,13 @@
     const foco = new URLSearchParams(location.search).get("pop");
     const pops = NOC.pops();
 
-    $("#popList").innerHTML = pops.length ? pops.map((pop) => {
+    $("#popList").innerHTML = pops.length ? pops.map((pop, i) => {
       const list = NOC.devicesOfPop(pop.id);
       const s = NOC.statsOf(list);
       return `<article class="card" id="pop-${esc(pop.id)}" ${foco === pop.id ? 'style="border-color:var(--cyan-400)"' : ""}>
         <div class="card-head">
           <div class="row" style="gap:var(--s-4);align-items:flex-start">
+            ${state.editOrder ? `<span class="badge badge-brand mono" style="align-self:center">${i + 1}º</span>` : ""}
             <span class="pop-marker purple" style="height:46px"></span>
             <div>
               <span class="kicker">Ponto de presença</span>
@@ -41,7 +69,12 @@
               <p class="dim mono" style="font-size:var(--fs-11)">${esc(pop.id)}</p>
             </div>
           </div>
-          <span class="badge">${list.length} equipamento(s)</span>
+          ${state.editOrder ? `<span class="row" style="gap:6px">
+            <button class="btn btn-sm btn-icon" type="button" data-up="${esc(pop.id)}" ${i === 0 ? "disabled" : ""}
+              aria-label="Mover ${esc(pop.nome)} para cima" title="Mover para cima">↑</button>
+            <button class="btn btn-sm btn-icon" type="button" data-down="${esc(pop.id)}" ${i === pops.length - 1 ? "disabled" : ""}
+              aria-label="Mover ${esc(pop.nome)} para baixo" title="Mover para baixo">↓</button>
+          </span>` : `<span class="badge">${list.length} equipamento(s)</span>`}
         </div>
 
         <div class="card-body stack">
@@ -114,11 +147,82 @@
 
     $$("[data-unlink]").forEach((b) => (b.onclick = () => vincular(b.dataset.unlink, null)));
     $$("[data-add]").forEach((b) => (b.onclick = () => openLink(b.dataset.add)));
+    $$("[data-up]").forEach((b) => (b.onclick = () => moverPop(b.dataset.up, -1)));
+    $$("[data-down]").forEach((b) => (b.onclick = () => moverPop(b.dataset.down, 1)));
 
+    renderOrderBar();
     renderRing();
     renderStats();
 
-    if (foco) $("#pop-" + foco)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (foco && !state.editOrder) $("#pop-" + foco)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  /* ---------------- sequência dos POPs ----------------
+     A ordem do array pops manda na lista desta tela, no desenho do anel e na
+     ordem em que a topologia distribui as caixas dos POPs no mapa. */
+  function moverPop(id, passo) {
+    const lista = NOC.data()?.pops || [];
+    const i = lista.findIndex((p) => p.id === id);
+    const j = i + passo;
+    if (i < 0 || j < 0 || j >= lista.length) return;
+    [lista[i], lista[j]] = [lista[j], lista[i]];
+    state.orderDirty = true;
+    render();
+    $("#pop-" + id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function renderOrderBar() {
+    const bar = $("#orderBar");
+    if (!bar) return;
+    bar.hidden = !state.editOrder;
+    $("#orderStatus").textContent = state.orderDirty
+      ? "sequência alterada e ainda não salva"
+      : "use as setas ↑ ↓ de cada POP para reordenar";
+    $("#orderSave").disabled = !state.orderDirty;
+    $("#orderDiscard").disabled = !state.orderDirty;
+    const b = $("#btnOrder");
+    b.setAttribute("aria-pressed", String(state.editOrder));
+    b.textContent = state.editOrder ? "Sair da sequência" : "Editar sequência";
+  }
+
+  function toggleOrder() {
+    if (state.editOrder && state.orderDirty) {
+      askConfirm({
+        title: "Sair sem salvar a sequência?",
+        text: "Os POPs voltam para a ordem da última gravação.",
+        confirmLabel: "Descartar alterações",
+        danger: true,
+        onConfirm: () => { discardOrder(); state.editOrder = false; render(); },
+      });
+      return;
+    }
+    state.editOrder = !state.editOrder;
+    state.orderBackup = state.editOrder ? (NOC.data()?.pops || []).slice() : null;
+    render();
+  }
+
+  function discardOrder() {
+    if (state.orderBackup) NOC.data().pops = state.orderBackup.slice();
+    state.orderDirty = false;
+    render();
+  }
+
+  async function saveOrder() {
+    const antes = state.orderBackup ? state.orderBackup.slice() : (NOC.data().pops || []).slice();
+    const depois = (NOC.data().pops || []).slice();
+    state.orderDirty = false;
+    const ok = await persist(
+      "TOPOLOGY_REORDER_POPS",
+      { titulo: "Sequência dos POPs salva", texto: "Vale para esta tela, para o anel e para a ordem do mapa da topologia." },
+      async () => {
+        NOC.data().pops = antes;
+        state.orderBackup = antes.slice();
+        await persist("TOPOLOGY_REORDER_POPS", { titulo: "Sequência anterior restaurada", tipo: "info" });
+      }
+    );
+    if (ok) state.orderBackup = depois;
+    else state.orderDirty = true;
+    renderOrderBar();
   }
 
   /* ---------------- vínculo ---------------- */
@@ -184,33 +288,60 @@
   }
 
   /* ---------------- anel ---------------- */
+  const RING = { w: 260, h: 240, cx: 130, cy: 120, r: 92, minX: 30, maxX: 230, minY: 26, maxY: 210 };
+  /* O cadastro guarda o POP em caixa alta ("POP SÃO VICENTE"), mas a rota é
+     texto de leitura ("Subterrânea → São Vicente"). Só ajusta a caixa quando o
+     nome está todo em maiúsculas; nomes já formatados ficam como estão. */
+  const nomeExibicao = (p) => {
+    const base = String(p?.nome || "").replace(/^POP\s*/i, "").trim();
+    if (/\p{Ll}/u.test(base)) return base;
+    return base.toLowerCase().replace(/(^|[\s\-/])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase());
+  };
+  const preso = (v, min, max) => Math.max(min, Math.min(max, Math.round(v)));
+
+  /* Posição do POP no diagrama: a gravada pelo admin ou, sem ela, o ponto
+     correspondente na circunferência, seguindo a sequência dos POPs. */
+  function ringPos(p, i, total) {
+    const m = state.ring[p.id];
+    if (m && Number.isFinite(+m.x) && Number.isFinite(+m.y)) return { x: +m.x, y: +m.y };
+    const ang = (i / total) * Math.PI * 2 - Math.PI / 2;
+    return { x: RING.cx + RING.r * Math.cos(ang), y: RING.cy + RING.r * Math.sin(ang) };
+  }
+
   function renderRing() {
+    const host = $("#ringMap");
     const pops = NOC.pops();
-    if (!pops.length) { $("#ringMap").innerHTML = '<p class="dim" style="font-size:var(--fs-12)">Sem POPs cadastrados.</p>'; return; }
-    const R = 92, cx = 130, cy = 120;
-    const ponto = (i) => {
-      const ang = (i / pops.length) * Math.PI * 2 - Math.PI / 2;
-      return { x: cx + R * Math.cos(ang), y: cy + R * Math.sin(ang) };
-    };
-    const idx = Object.fromEntries(pops.map((p, i) => [p.id, i]));
+    if (!pops.length) {
+      host.innerHTML = '<p class="dim" style="font-size:var(--fs-12)">Sem POPs cadastrados.</p>';
+      renderRingBar();
+      return;
+    }
+    const pos = {};
+    pops.forEach((p, i) => (pos[p.id] = ringPos(p, i, pops.length)));
     const links = ringLinks();
 
-    $("#ringMap").innerHTML = `
-      <svg viewBox="0 0 260 240" style="width:100%;height:auto" role="img" aria-label="Diagrama do anel óptico entre os POPs">
+    host.innerHTML = `
+      <svg class="ring-svg ${state.editRing ? "is-editing" : ""}" viewBox="0 0 ${RING.w} ${RING.h}"
+           style="width:100%;height:auto;touch-action:none" role="img"
+           aria-label="Diagrama do anel óptico entre os POPs">
         ${links.map((l) => {
-          const a = ponto(idx[l.a]), b = ponto(idx[l.b]);
+          const a = pos[l.a], b = pos[l.b];
+          if (!a || !b) return "";
           const sub = l.tipos.has("Subterrânea");
           return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
             stroke="${sub ? "var(--purple-400)" : "var(--cyan-400)"}" stroke-width="1.6"
             stroke-dasharray="${sub ? "6 5" : "0"}" opacity=".7"></line>`;
         }).join("")}
-        ${pops.map((p, i) => {
-          const q = ponto(i);
+        ${pops.map((p) => {
+          const q = pos[p.id];
           const s = NOC.statsOf(NOC.devicesOfPop(p.id));
-          return `<g>
-            <circle cx="${q.x}" cy="${q.y}" r="13" fill="var(--surface-1)" stroke="var(--cyan-400)" stroke-width="1.6"/>
-            <text x="${q.x}" y="${q.y + 3.5}" text-anchor="middle" style="font:700 9px var(--font-mono);fill:var(--text-1)">${s.ocup}%</text>
-            <text x="${q.x}" y="${q.y + (q.y < cy ? -20 : 30)}" text-anchor="middle" style="font:700 9px var(--font-sans);fill:var(--text-3)">${esc(p.nome.replace(/^POP\s*/i, ""))}</text>
+          const manual = !!state.ring[p.id];
+          return `<g class="ring-node" data-pop="${esc(p.id)}">
+            <circle cx="${q.x}" cy="${q.y}" r="13" fill="var(--surface-1)"
+              stroke="${manual && state.editRing ? "var(--purple-400)" : "var(--cyan-400)"}" stroke-width="1.6"/>
+            <text x="${q.x}" y="${q.y + 3.5}" text-anchor="middle" style="font:700 9px var(--font-mono);fill:var(--text-1);pointer-events:none">${s.ocup}%</text>
+            <text x="${q.x}" y="${q.y + (q.y < RING.cy ? -20 : 30)}" text-anchor="middle" style="font:700 9px var(--font-sans);fill:var(--text-3);pointer-events:none">${esc(nomeExibicao(p))}</text>
+            <title>${esc(p.nome)}${state.editRing ? " — arraste para posicionar" : ""}</title>
           </g>`;
         }).join("")}
       </svg>
@@ -218,6 +349,223 @@
         <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--cyan-400);display:block"></i> Rota aérea</span>
         <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--purple-400);display:block"></i> Rota subterrânea</span>
       </div>`;
+    renderRingBar();
+  }
+
+  function renderRingBar() {
+    const bar = $("#ringBar");
+    if (!bar) return;
+    bar.hidden = !state.editRing;
+    const n = Object.keys(state.ring).length;
+    $("#ringStatus").textContent = state.ringDirty
+      ? "posições não salvas"
+      : n ? `${n} POP(s) posicionado(s)` : "arraste os POPs no diagrama";
+    $("#ringSave").disabled = !state.ringDirty;
+    $("#ringDiscard").disabled = !state.ringDirty;
+    $("#ringAuto").disabled = !n;
+    const b = $("#btnRing");
+    b.setAttribute("aria-pressed", String(state.editRing));
+    b.textContent = state.editRing ? "Sair do mapa" : "Editar mapa";
+  }
+
+  /* Arrasto dos nós: o SVG é redesenhado a cada quadro, então os ouvintes de
+     movimento ficam na janela e não no nó, que deixa de existir no caminho. */
+  function bindRingDrag() {
+    const host = $("#ringMap");
+    if (!host) return;
+    host.addEventListener("pointerdown", (ev) => {
+      if (!state.editRing) return;
+      const no = ev.target.closest(".ring-node");
+      const svg = host.querySelector("svg");
+      if (!no || !svg) return;
+      ev.preventDefault();
+      const id = no.dataset.pop;
+      const pops = NOC.pops();
+      const atual = ringPos(pops.find((p) => p.id === id), pops.findIndex((p) => p.id === id), pops.length);
+      const rect = svg.getBoundingClientRect();
+      const escala = RING.w / (rect.width || RING.w);
+      // guarda a distância entre o ponteiro e o centro do nó: ele não "pula"
+      const dx = atual.x - (ev.clientX - rect.left) * escala;
+      const dy = atual.y - (ev.clientY - rect.top) * escala;
+      const sx = ev.clientX, sy = ev.clientY;
+      let quadro = null, ativo = false;
+
+      const mover = (e) => {
+        if (!ativo && Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) < 3) return;
+        ativo = true;
+        state.ring[id] = {
+          x: preso((e.clientX - rect.left) * escala + dx, RING.minX, RING.maxX),
+          y: preso((e.clientY - rect.top) * escala + dy, RING.minY, RING.maxY),
+        };
+        state.ringDirty = true;
+        if (!quadro) quadro = requestAnimationFrame(() => { quadro = null; renderRing(); });
+      };
+      const soltar = () => {
+        removeEventListener("pointermove", mover);
+        removeEventListener("pointerup", soltar);
+        removeEventListener("pointercancel", soltar);
+        renderRing();
+      };
+      addEventListener("pointermove", mover);
+      addEventListener("pointerup", soltar);
+      addEventListener("pointercancel", soltar);
+    });
+  }
+
+  function toggleRing() {
+    if (state.editRing && state.ringDirty) {
+      askConfirm({
+        title: "Sair sem salvar o mapa do anel?",
+        text: "Os POPs voltam para as posições da última gravação.",
+        confirmLabel: "Descartar alterações",
+        danger: true,
+        onConfirm: () => { discardRing(); state.editRing = false; renderRing(); },
+      });
+      return;
+    }
+    state.editRing = !state.editRing;
+    renderRing();
+  }
+
+  function discardRing() {
+    state.ring = { ...(NOC.data()?.config?.ringLayout || {}) };
+    state.ringDirty = false;
+    renderRing();
+  }
+
+  async function saveRing() {
+    const antes = { ...(NOC.data()?.config?.ringLayout || {}) };
+    const gravar = (posicoes) => {
+      const t = NOC.data();
+      t.config = { ...(t.config || {}), ringLayout: posicoes };
+      state.ring = { ...posicoes };
+      state.ringDirty = false;
+    };
+    const depois = { ...state.ring };
+    gravar(depois);
+    const ok = await persist(
+      "TOPOLOGY_RING_LAYOUT",
+      { titulo: "Mapa do anel salvo", texto: "O desenho vale para todos os usuários." },
+      async () => {
+        gravar(antes);
+        await persist("TOPOLOGY_RING_LAYOUT", { titulo: "Desenho anterior restaurado", tipo: "info" });
+      }
+    );
+    if (!ok) state.ringDirty = true;
+    renderRingBar();
+  }
+
+  /* ---------------- rotas do anel ----------------
+     A rota mora no cadastro do POP, como texto ("Aérea → Santos"), e é lida
+     dos dois lados. Aqui ela é escrita nesse mesmo formato, para a topologia
+     e esta tela continuarem enxergando o mesmo anel. */
+  function setRota(aId, bId, tipo, ativo) {
+    const pops = NOC.data()?.pops || [];
+    const a = pops.find((p) => p.id === aId);
+    const b = pops.find((p) => p.id === bId);
+    if (!a || !b || a === b) return;
+    [[a, b], [b, a]].forEach(([origem, alvo]) => {
+      if (!Array.isArray(origem.rotas)) origem.rotas = [];
+      const igual = (r) => rotaAponta(r, alvo) && tipoDaRota(r) === tipo;
+      if (ativo) {
+        if (!origem.rotas.some(igual)) origem.rotas.push(`${tipo} → ${nomeExibicao(alvo)}`);
+      } else {
+        origem.rotas = origem.rotas.filter((r) => !igual(r));
+      }
+    });
+  }
+
+  function openRoutes() {
+    const canEdit = NOC.can("topology.edit");
+    modal({
+      wide: true,
+      labelledBy: "rotasTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">Anel óptico</span>
+            <h2 id="rotasTitle" style="margin-top:6px">Rotas entre POPs</h2>
+            <p class="muted" style="font-size:var(--fs-13);margin-top:4px">A rota é gravada nos dois POPs e é o que desenha o anel aqui e no mapa da topologia.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack" id="rotasBody"></div>`,
+      onMount: (host) => {
+        const body = $("#rotasBody", host);
+        const paint = () => {
+          const pops = NOC.pops();
+          const links = ringLinks();
+          const opcoes = (sel) => pops.map((p) => `<option value="${esc(p.id)}" ${sel === p.id ? "selected" : ""}>${esc(p.nome)}</option>`).join("");
+          body.innerHTML = `
+            <form class="row wrap" style="gap:var(--s-3);align-items:flex-end" id="novaRota">
+              <div class="field grow" style="min-width:170px"><label for="rA">De</label><select class="select" id="rA">${opcoes(pops[0]?.id)}</select></div>
+              <div class="field grow" style="min-width:170px"><label for="rB">Para</label><select class="select" id="rB">${opcoes(pops[1]?.id)}</select></div>
+              <div class="field" style="width:180px"><label for="rTipo">Tipo</label>
+                <select class="select" id="rTipo"><option>Aérea</option><option>Subterrânea</option></select></div>
+              <button class="btn btn-primary" type="submit" ${canEdit ? "" : "disabled title='Requer a permissão topology.edit'"}>Adicionar rota</button>
+            </form>
+            <div class="table-wrap" style="max-height:360px"><table class="table">
+              <thead><tr><th>POP</th><th>POP</th><th>Aérea</th><th>Subterrânea</th></tr></thead>
+              <tbody>${links.length ? links.map((l, i) => {
+                const a = NOC.popById(l.a), b = NOC.popById(l.b);
+                return `<tr>
+                  <td><b>${esc(a?.nome || l.a)}</b></td>
+                  <td><b>${esc(b?.nome || l.b)}</b></td>
+                  ${["Aérea", "Subterrânea"].map((tipo) => `<td>
+                    <button class="chip" type="button" data-toggle="${i}" data-tipo="${tipo}"
+                      aria-pressed="${l.tipos.has(tipo)}" ${canEdit ? "" : "disabled"}>${l.tipos.has(tipo) ? "Sim" : "—"}</button>
+                  </td>`).join("")}
+                </tr>`;
+              }).join("") : `<tr><td colspan="4"><div class="empty"><b>Nenhuma rota cadastrada</b>
+                  <p>Use o formulário acima para ligar dois POPs.</p></div></td></tr>`}</tbody>
+            </table></div>
+            <p class="dim" style="font-size:var(--fs-11)">${icon("info")} Desligar os dois tipos remove a rota entre os POPs.</p>`;
+
+          $$("[data-toggle]", body).forEach((b) => (b.onclick = async () => {
+            const l = links[+b.dataset.toggle];
+            const tipo = b.dataset.tipo;
+            const ativo = b.getAttribute("aria-pressed") === "true";
+            setRota(l.a, l.b, tipo, !ativo);
+            const ok = await persist(
+              "TOPOLOGY_UPDATE_ROTAS",
+              {
+                titulo: ativo ? `Rota ${tipo.toLowerCase()} removida` : `Rota ${tipo.toLowerCase()} criada`,
+                texto: `${NOC.popById(l.a)?.nome || l.a} ↔ ${NOC.popById(l.b)?.nome || l.b}`,
+                tipo: ativo ? "warn" : "ok",
+              },
+              async () => {
+                setRota(l.a, l.b, tipo, ativo);
+                await persist("TOPOLOGY_UPDATE_ROTAS", { titulo: "Rota restaurada", tipo: "info" });
+                paint();
+              }
+            );
+            if (!ok) setRota(l.a, l.b, tipo, ativo);
+            paint();
+          }));
+
+          const form = $("#novaRota", body);
+          if (form) form.onsubmit = async (ev) => {
+            ev.preventDefault();
+            const aId = $("#rA", form).value, bId = $("#rB", form).value, tipo = $("#rTipo", form).value;
+            if (aId === bId) {
+              toast("Escolha dois POPs diferentes", { text: "Uma rota liga dois pontos de presença distintos.", type: "warn" });
+              return;
+            }
+            setRota(aId, bId, tipo, true);
+            const ok = await persist(
+              "TOPOLOGY_UPDATE_ROTAS",
+              { titulo: "Rota criada", texto: `${NOC.popById(aId)?.nome} ↔ ${NOC.popById(bId)?.nome} • ${tipo}` },
+              async () => {
+                setRota(aId, bId, tipo, false);
+                await persist("TOPOLOGY_UPDATE_ROTAS", { titulo: "Rota removida", tipo: "info" });
+                paint();
+              }
+            );
+            if (!ok) setRota(aId, bId, tipo, false);
+            paint();
+          };
+        };
+        paint();
+      },
+    });
   }
 
   function renderStats() {
@@ -239,6 +587,34 @@
       NOC.errorState($("#popList"), err, () => location.reload());
       return;
     }
+
+    state.ring = { ...(NOC.data()?.config?.ringLayout || {}) };
+
+    if (!NOC.can("topology.edit")) {
+      [$("#btnOrder"), $("#btnRing"), $("#btnRoutes")].forEach((b) => {
+        b.disabled = true;
+        b.title = "Requer a permissão topology.edit";
+      });
+    }
+    $("#btnOrder").onclick = toggleOrder;
+    $("#orderSave").onclick = saveOrder;
+    $("#orderDiscard").onclick = discardOrder;
+    $("#btnRing").onclick = toggleRing;
+    $("#btnRoutes").onclick = openRoutes;
+    $("#ringSave").onclick = saveRing;
+    $("#ringDiscard").onclick = discardRing;
+    $("#ringAuto").onclick = () => askConfirm({
+      title: "Voltar ao desenho automático?",
+      text: "As posições manuais são descartadas e os POPs voltam a se distribuir em círculo, na sequência cadastrada.",
+      confirmLabel: "Usar desenho automático",
+      onConfirm: () => {
+        state.ring = {};
+        state.ringDirty = true;
+        renderRing();
+      },
+    });
+    bindRingDrag();
+
     render();
   }
 

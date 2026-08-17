@@ -25,16 +25,47 @@
         <h1 class="page-title">POPs e anel óptico</h1>
         <p class="page-sub">Cada POP com suas rotas, os equipamentos vinculados e a ocupação de portas. O vínculo é o mesmo usado pela topologia e pelo Dashboard.</p>
       </div>
-      <a class="btn btn-sm btn-primary" href="/">Gerenciar vínculos</a>
+      <div class="row" style="gap:var(--s-2)">
+        <button class="btn btn-sm" id="btnOrder" type="button" aria-pressed="false">Editar sequência</button>
+        <a class="btn btn-sm btn-primary" href="/">Gerenciar vínculos</a>
+      </div>
     </div>
 
     <div class="split" style="grid-template-columns:minmax(0,1fr) 340px">
-      <section class="stack" id="popList" style="gap:var(--s-4)"></section>
+      <section class="stack" style="gap:var(--s-4)">
+        <div class="card edit-bar" id="orderBar" hidden>
+          <div class="row-between wrap" style="gap:var(--s-3);padding:var(--s-3) var(--s-4)">
+            <span>
+              <b style="font-size:var(--fs-13)">Sequência dos POPs</b>
+              <small class="dim" id="orderStatus" style="display:block;font-size:var(--fs-11)"></small>
+            </span>
+            <span class="row" style="gap:6px">
+              <button class="btn btn-sm" id="orderDiscard" type="button">Descartar</button>
+              <button class="btn btn-sm btn-primary" id="orderSave" type="button">Salvar sequência</button>
+            </span>
+          </div>
+        </div>
+        <div class="stack" id="popList" style="gap:var(--s-4)"></div>
+      </section>
 
       <aside class="stack" style="gap:var(--s-4)">
         <section class="card">
-          <div class="card-head"><div><h2>Anel óptico</h2><p>Rotas registradas entre POPs.</p></div></div>
-          <div class="card-body"><div id="ringMap"></div></div>
+          <div class="card-head">
+            <div><h2>Anel óptico</h2><p>Rotas registradas entre POPs.</p></div>
+            <div class="row" style="gap:6px">
+              <button class="btn btn-sm" id="btnRoutes" type="button">Rotas</button>
+              <button class="btn btn-sm" id="btnRing" type="button" aria-pressed="false">Editar mapa</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="ringMap"></div>
+            <div class="row wrap" id="ringBar" hidden style="gap:6px;margin-top:var(--s-3);justify-content:flex-end">
+              <small class="dim grow" id="ringStatus" style="font-size:var(--fs-11)"></small>
+              <button class="btn btn-sm" id="ringAuto" type="button">Automático</button>
+              <button class="btn btn-sm" id="ringDiscard" type="button">Descartar</button>
+              <button class="btn btn-sm btn-primary" id="ringSave" type="button">Salvar</button>
+            </div>
+          </div>
         </section>
         <section class="card">
           <div class="card-head"><div><h2>Resumo</h2><p>Somatório da malha.</p></div></div>

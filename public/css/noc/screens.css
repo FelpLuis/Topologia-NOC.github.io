@@ -390,6 +390,20 @@
   pointer-events: none;
 }
 
+/* Barra de edição (sequência de POPs, anel) */
+.edit-bar {
+  position: sticky;
+  top: var(--s-3);
+  z-index: 3;
+  border-color: var(--cyan-400);
+}
+
+/* Anel óptico editável: cada nó vira alvo de arrasto */
+.ring-svg.is-editing .ring-node { cursor: grab; }
+.ring-svg.is-editing .ring-node:active { cursor: grabbing; }
+.ring-svg.is-editing .ring-node circle { stroke-width: 2.2; }
+.ring-svg .ring-node.is-dragging circle { fill: var(--surface-3); }
+
 /* Porta física — grade que espelha a face do equipamento */
 .port-grid {
   display: grid;
