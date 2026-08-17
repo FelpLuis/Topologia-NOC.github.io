@@ -53,6 +53,7 @@
   function render() {
     // Vincular equipamento a um POP é ação da topologia, não do cadastro do POP.
     const canEdit = NOC.canAll(["topology.edit", "topology.pop.link"]);
+    const canEditPop = NOC.canAll(["topology.edit", "pops.edit"]);
     const foco = new URLSearchParams(location.search).get("pop");
     const pops = NOC.pops();
 
@@ -75,7 +76,11 @@
               aria-label="Mover ${esc(pop.nome)} para cima" title="Mover para cima">↑</button>
             <button class="btn btn-sm btn-icon" type="button" data-down="${esc(pop.id)}" ${i === pops.length - 1 ? "disabled" : ""}
               aria-label="Mover ${esc(pop.nome)} para baixo" title="Mover para baixo">↓</button>
-          </span>` : `<span class="badge">${list.length} equipamento(s)</span>`}
+          </span>` : `<span class="row" style="gap:6px">
+            <span class="badge">${list.length} equipamento(s)</span>
+            <button class="btn btn-sm" type="button" data-edit-pop="${esc(pop.id)}"
+              ${canEditPop ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar informações</button>
+          </span>`}
         </div>
 
         <div class="card-body stack">
@@ -148,6 +153,7 @@
 
     $$("[data-unlink]").forEach((b) => (b.onclick = () => vincular(b.dataset.unlink, null)));
     $$("[data-add]").forEach((b) => (b.onclick = () => openLink(b.dataset.add)));
+    $$("[data-edit-pop]").forEach((b) => (b.onclick = () => openEditPop(b.dataset.editPop)));
     $$("[data-up]").forEach((b) => (b.onclick = () => moverPop(b.dataset.up, -1)));
     $$("[data-down]").forEach((b) => (b.onclick = () => moverPop(b.dataset.down, 1)));
 
@@ -156,6 +162,113 @@
     renderStats();
 
     if (foco && !state.editOrder) $("#pop-" + foco)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  /* ---------------- informações do POP ----------------
+     O identificador não muda porque é usado pelos vínculos dos equipamentos.
+     Como as rotas apontam para o nome em texto, uma renomeação também ajusta
+     as referências dos demais POPs para manter o anel íntegro. */
+  function openEditPop(popId) {
+    const pop = NOC.popById(popId);
+    if (!pop) return;
+    const canRename = NOC.canAll(["topology.edit", "pops.edit", "pops.routes"]);
+
+    const noteRow = (e = {}) => `<div class="device-row pop-note">
+      <div class="row" style="gap:var(--s-3);align-items:flex-start">
+        <div class="field grow"><label>Nome / identificação</label><input class="input" data-note-name value="${esc(e.nome || "")}" placeholder="Ex.: Rack principal"></div>
+        <div class="field grow"><label>Modelo / detalhe</label><input class="input" data-note-model value="${esc(e.modelo || "")}" placeholder="Ex.: Huawei S6730"></div>
+        <button class="btn btn-sm btn-icon" data-remove-note type="button" aria-label="Remover anotação" title="Remover anotação">${icon("close")}</button>
+      </div>
+      <div class="field"><label>Observação</label><textarea class="textarea" data-note-observation rows="2" placeholder="Informações úteis para a equipe de campo">${esc(e.observacao || "")}</textarea></div>
+    </div>`;
+
+    modal({
+      wide: true,
+      labelledBy: "editPopTitle",
+      html: `
+        <form id="editPopForm">
+          <div class="modal-head">
+            <div><span class="kicker">Ponto de presença</span>
+              <h2 id="editPopTitle" style="margin-top:6px">Editar informações do POP</h2>
+              <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(pop.id)} · identificador permanente</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="field">
+              <label for="editPopName">Nome do POP *</label>
+              <input class="input" id="editPopName" required value="${esc(pop.nome || "")}" ${canRename ? "" : "readonly"}>
+              ${canRename ? '<small class="dim">Ao renomear, as referências existentes no anel também serão atualizadas.</small>'
+                : '<small class="dim">Para renomear também é necessária a permissão de editar rotas.</small>'}
+            </div>
+            <div class="row-between">
+              <div><h3 style="font-size:var(--fs-13)">Anotações de campo</h3><small class="dim">Dados descritivos do local; não alteram os equipamentos vinculados.</small></div>
+              <button class="btn btn-sm" id="addPopNote" type="button">${icon("plus")} Adicionar anotação</button>
+            </div>
+            <div class="stack" id="popNotes" style="gap:var(--s-2)">
+              ${(pop.equipamentos || []).map(noteRow).join("") || '<p class="dim" data-no-notes>Nenhuma anotação cadastrada.</p>'}
+            </div>
+          </div>
+          <div class="modal-foot">
+            <span class="dim" style="font-size:var(--fs-11)">A alteração será registrada na auditoria.</span>
+            <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="submit">Salvar informações</button></span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#editPopForm", host);
+        const notes = $("#popNotes", host);
+        const bindRemove = () => $$("[data-remove-note]", notes).forEach((b) => (b.onclick = () => {
+          b.closest(".pop-note")?.remove();
+          if (!$(".pop-note", notes)) notes.innerHTML = '<p class="dim" data-no-notes>Nenhuma anotação cadastrada.</p>';
+        }));
+        bindRemove();
+        $("#addPopNote", host).onclick = () => {
+          $("[data-no-notes]", notes)?.remove();
+          notes.insertAdjacentHTML("beforeend", noteRow());
+          bindRemove();
+          const fields = $$("[data-note-name]", notes);
+          fields[fields.length - 1]?.focus();
+        };
+
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = $("#editPopName", form).value.trim();
+          if (!nome) return $("#editPopName", form).focus();
+          const antes = JSON.parse(JSON.stringify(NOC.data().pops || []));
+          const nomeAnterior = pop.nome;
+          const mudouNome = nome !== nomeAnterior;
+
+          if (mudouNome) {
+            for (const outro of NOC.data().pops) {
+              if (outro.id === pop.id || !Array.isArray(outro.rotas)) continue;
+              outro.rotas = outro.rotas.map((rota) => rotaAponta(rota, pop)
+                ? `${tipoDaRota(rota)} → ${nomeExibicao({ nome })}`
+                : rota);
+            }
+          }
+          pop.nome = nome;
+          pop.equipamentos = $$(".pop-note", notes).map((row) => ({
+            nome: $("[data-note-name]", row).value.trim(),
+            modelo: $("[data-note-model]", row).value.trim(),
+            observacao: $("[data-note-observation]", row).value.trim(),
+          })).filter((e) => e.nome || e.modelo || e.observacao);
+
+          const ok = await persist(
+            "TOPOLOGY_UPDATE_POP",
+            { titulo: "Informações do POP salvas", texto: mudouNome ? `${nomeAnterior} passou a se chamar ${nome}.` : `${nome} foi atualizado.` },
+            async () => {
+              NOC.data().pops = JSON.parse(JSON.stringify(antes));
+              await persist("TOPOLOGY_UPDATE_POP", { titulo: "Alteração do POP desfeita", tipo: "info" });
+            }
+          );
+          if (ok) close();
+          else {
+            NOC.data().pops = antes;
+            render();
+          }
+        };
+      },
+    });
   }
 
   /* ---------------- sequência dos POPs ----------------

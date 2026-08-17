@@ -33,7 +33,7 @@ INSERT INTO screens(code,name,description,route,active,icon,sort,nav) VALUES
 ('pops','POPs e anel óptico','Inventário por POP, rotas ópticas e sequência do anel','/pops.html',1,'pops',20,1),
 ('dashboard','Dashboard NOC','Painel operacional para TV/NOC','/dashboard.html',1,'dashboard',30,1),
 ('platform','Gerenciar plataforma','Perfis, ações, telas, usuários e auditoria','/platform.html',1,'platform',40,1),
-('legado','Editor clássico','Editor legado da topologia em tela única','/legado.html',1,'edit',50,1)
+('legado','Editor clássico','Editor legado da topologia em tela única','/legado.html',1,'edit',50,0)
 ON CONFLICT(code) DO UPDATE SET
   name=excluded.name, description=excluded.description, route=excluded.route,
   icon=excluded.icon, sort=excluded.sort, nav=excluded.nav;
