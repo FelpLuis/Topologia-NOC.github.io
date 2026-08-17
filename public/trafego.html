@@ -7,12 +7,12 @@
 <link rel="icon" href="/assets/brand/updown-symbol.png">
 <link rel="stylesheet" href="/css/noc/tokens.css">
 <link rel="stylesheet" href="/css/noc/base.css">
-<link rel="stylesheet" href="/css/noc/components.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
 <link rel="stylesheet" href="/css/noc/screens.css">
 <link rel="stylesheet" href="/css/noc/trafego.css?v=20260817-1">
 <link rel="preload" as="script" href="/js/noc-ui.js">
 <link rel="preload" as="script" href="/js/noc-api.js?v=20260817-1">
-<link rel="preload" as="script" href="/js/noc-trafego.js?v=20260817-1">
+<link rel="preload" as="script" href="/js/noc-trafego.js?v=20260817-2">
 <script>
 /* O dado do painel é pedido aqui, antes de os três scripts terminarem de
    baixar. Sem isto, o navegador só descobria a existência da requisição depois
@@ -63,7 +63,7 @@
       <div class="traf-actions">
         <label class="row" style="gap:6px;font-size:var(--fs-12)">
           <span class="switch"><input type="checkbox" id="autoRefresh" checked><span class="switch-track"></span></span>
-          Atualizar sozinho
+          Atualizar sozinho (10 s)
         </label>
         <button class="btn btn-sm" id="btnTv" type="button" title="Abrir em modo telão (atalho: V)">Modo TV</button>
         <button class="btn btn-sm btn-primary" id="btnSync" type="button" data-action="zabbix.sync">
@@ -95,6 +95,6 @@
 
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js?v=20260817-1"></script>
-<script src="/js/noc-trafego.js?v=20260817-1"></script>
+<script src="/js/noc-trafego.js?v=20260817-2"></script>
 </body>
 </html>

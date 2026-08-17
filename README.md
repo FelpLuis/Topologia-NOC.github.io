@@ -687,8 +687,11 @@ Em desenvolvimento o cron não dispara sozinho; para testar:
 curl "http://127.0.0.1:8788/cdn-cgi/local/scheduled"
 ```
 
-No front, `NOC.zabbix` (`public/js/noc-api.js`) cobre todos eles, com
-`NOC.formatBps()` e `NOC.interfaceStatus()` para exibição.
+No front, `NOC.zabbix` (`public/js/noc-api.js`) cobre todos eles, junto de
+`NOC.formatBps()` e `NOC.interfaceStatus()` para exibição. O painel é atualizado
+automaticamente a cada 10 segundos enquanto a opção “Atualizar sozinho” estiver
+ativada. Essa leitura não dispara uma nova coleta no Zabbix; ela apenas busca o
+espelho mais recente já salvo no D1.
 
 
 ## Catálogo de telas e ações

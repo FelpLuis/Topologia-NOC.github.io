@@ -16,6 +16,7 @@
   const bps = (v) => NOC.formatBps(v);
   const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
   const inteiro = (v) => Number(v || 0).toLocaleString("pt-BR");
+  const AUTO_REFRESH_SECONDS = 10;
 
   const GUIAS = [
     { id: "visao", label: "Visão geral", icon: "dashboard" },
@@ -77,6 +78,7 @@
     totaisAnteriores: null,
     ultimaLeitura: null,
     timer: null,
+    recarregando: false,
     relogio: null,
     tv: { ativo: false, indice: 0, timer: null, pausado: false, inicio: 0 },
   };
@@ -1040,7 +1042,11 @@
 
             <div class="set-group">
               <h3>Atualização e período</h3>
-              ${campo("setIntervalo", "Recarregar a cada (s)", s.intervaloSegundos, "Entre 15 e 900 segundos.", 'min="15" max="900"')}
+              <div class="field">
+                <label>Atualização automática</label>
+                <div class="input" aria-readonly="true">A cada ${AUTO_REFRESH_SECONDS} segundos</div>
+                <span class="field-hint">Usada quando “Atualizar sozinho” está ativado.</span>
+              </div>
               ${campo("setHistorico", "Janela do gráfico (h)", s.historicoHoras, "Quantas horas a curva do fluxo mostra.", 'min="1" max="168"')}
               ${campo("setTopN", "Maiores consumidores", s.topN, "Quantas interfaces entram na lista do topo.", 'min="3" max="50"')}
             </div>
@@ -1113,7 +1119,6 @@
       limiteAtencao: num("#setAtencao", state.settings.limiteAtencao),
       limiteCritico: num("#setCritico", state.settings.limiteCritico),
       toleranciaLeitura: num("#setTolerancia", state.settings.toleranciaLeitura),
-      intervaloSegundos: num("#setIntervalo", state.settings.intervaloSegundos),
       historicoHoras: num("#setHistorico", state.settings.historicoHoras),
       topN: num("#setTopN", state.settings.topN),
       tvZoom: num("#setZoom", state.settings.tvZoom),
@@ -1551,14 +1556,18 @@
     clearInterval(state.timer);
     if (!$("#autoRefresh").checked) return;
     state.timer = setInterval(async () => {
+      if (state.recarregando) return;
+      state.recarregando = true;
       try {
         await carregar();
         renderTudo();
       } catch (err) {
         // Falha de recarga não derruba a tela: o próximo ciclo tenta de novo.
         console.error("Recarga do tráfego falhou:", err);
+      } finally {
+        state.recarregando = false;
       }
-    }, Math.max(15, state.settings.intervaloSegundos) * 1000);
+    }, AUTO_REFRESH_SECONDS * 1000);
   }
 
   async function sincronizar() {
