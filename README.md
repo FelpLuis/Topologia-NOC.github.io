@@ -573,6 +573,10 @@ npx wrangler secret put ZABBIX_URL
 npx wrangler secret put ZABBIX_TOKEN
 ```
 
+Ao informar os valores no prompt, cole somente a URL ou o token, **sem aspas**.
+Por exemplo: `https://zbx7.lv.network/api_jsonrpc.php`. Aspas salvas como parte
+do Secret tornam a URL inválida.
+
 Em desenvolvimento local o wrangler lê o arquivo `.dev.vars` (fora do Git).
 A autenticação usa token via header `Authorization: Bearer` — não usa
 `user.login`, então não há senha trafegando nem sessão do Zabbix para expirar.

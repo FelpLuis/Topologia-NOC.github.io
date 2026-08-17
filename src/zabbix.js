@@ -47,11 +47,27 @@ const METRIC_COLUMNS = {
 // quando ifHighSpeed não existe para aquela interface.
 const SPEED_FALLBACK_METRIC = "ifSpeed";
 
+function normalizeSecret(value) {
+  const text = String(value || "").trim();
+  const quote = text[0];
+  return text.length >= 2 && (quote === '"' || quote === "'") && text.at(-1) === quote
+    ? text.slice(1, -1).trim()
+    : text;
+}
+
 export function zabbixConfig(env) {
-  const url = String(env.ZABBIX_URL || "").trim();
-  const token = String(env.ZABBIX_TOKEN || "").trim();
+  const url = normalizeSecret(env.ZABBIX_URL);
+  const token = normalizeSecret(env.ZABBIX_TOKEN);
   if (!url) throw new Error("ZABBIX_URL não configurada.");
   if (!token) throw new Error("ZABBIX_TOKEN não configurado.");
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error();
+  } catch {
+    throw new Error("ZABBIX_URL inválida. Informe a URL completa, sem aspas, por exemplo: https://zabbix.exemplo/api_jsonrpc.php");
+  }
+
   return { url, token };
 }
 
