@@ -89,6 +89,25 @@ window.NOC = (() => {
     });
   }
 
+  /* ---------------- memória de uma repintura ---------------- */
+  /* Cada repintura consulta o POP e a ocupação de porta de todo equipamento.
+     Sem memória, `suggestPop` normalizava o nome de cada POP para cada
+     equipamento e `portConnection` varria a lista inteira de enlaces para cada
+     porta — custo quadrático, repetido a cada alteração salva.
+
+     O cache vive só enquanto a pilha de execução atual não esvazia. Toda
+     mutação da topologia acontece em outra tarefa (clique, resposta da API) e
+     encontra o cache já descartado, então a tela nunca lê dado velho e não é
+     preciso invalidar nada à mão. */
+  let memo = null;
+  function passe() {
+    if (!memo) {
+      memo = {};
+      queueMicrotask(() => { memo = null; });
+    }
+    return memo;
+  }
+
   /* ---------------- estado da topologia ---------------- */
   async function load() {
     const [topology] = await Promise.all([
@@ -111,14 +130,18 @@ window.NOC = (() => {
 
   /* Grava a topologia inteira: é assim que a API foi desenhada, e é o que
      garante o registro de auditoria com estado anterior e posterior. */
-  async function save(reason = "TOPOLOGY_UPDATE") {
+  async function enviarTopologia(reason) {
     const t = state.topology;
     const payload = { equipamentos: t.equipamentos, conexoes: t.conexoes, pops: t.pops, config: t.config };
-    const r = await api("/api/topology", { method: "PUT", body: JSON.stringify({ topology: payload, reason }) });
-    /* O Worker devolve exatamente o que foi enviado (só completa o config com os
-       padrões). Mantemos os objetos locais para que as telas não fiquem com
-       referências órfãs entre uma gravação e outra — só o config e a versão
-       vêm da resposta. */
+    /* echo:false — só o config e a versão são aproveitados abaixo, e sem isso o
+       Worker repetia de volta os mesmos ~50 KB que acabaram de subir. */
+    const r = await api("/api/topology", {
+      method: "PUT",
+      body: JSON.stringify({ topology: payload, reason, echo: false }),
+    });
+    /* Mantemos os objetos locais para que as telas não fiquem com referências
+       órfãs entre uma gravação e outra — só o config e a versão vêm da
+       resposta. */
     if (r.topology?.config) t.config = r.topology.config;
     t.version = r.version;
     t.updated_at = r.updated_at;
@@ -126,27 +149,63 @@ window.NOC = (() => {
     return state.topology;
   }
 
+  /* Uma gravação por vez, e no máximo uma na fila. O corpo é sempre o estado
+     atual inteiro, então várias alterações seguidas (arrastar, vincular,
+     editar portas) não geram uma requisição de ~50 KB para cada uma: a que
+     está na fila sobe já com tudo o que se acumulou. Serializar também evita
+     que duas gravações concorrentes disputem a mesma versão no D1. */
+  let saveEmCurso = null;
+  let saveEnfileirado = null;
+
+  function save(reason = "TOPOLOGY_UPDATE") {
+    if (!saveEmCurso) {
+      saveEmCurso = enviarTopologia(reason).finally(() => { saveEmCurso = null; });
+      return saveEmCurso;
+    }
+    if (!saveEnfileirado) {
+      saveEnfileirado = saveEmCurso
+        .catch(() => {})
+        .then(() => { saveEnfileirado = null; return save(reason); });
+    }
+    return saveEnfileirado;
+  }
+
   /* ---------------- POPs e vínculo ---------------- */
   const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-  const pops = () => (state.topology?.pops || []).map((p) => ({
-    id: p.id,
-    nome: p.nome || p.id,
-    rotas: Array.isArray(p.rotas) ? p.rotas : [],
-    equipamentos: Array.isArray(p.equipamentos) ? p.equipamentos : [],
-  }));
+  const pops = () => {
+    const c = passe();
+    if (!c.pops) {
+      c.pops = (state.topology?.pops || []).map((p) => ({
+        id: p.id,
+        nome: p.nome || p.id,
+        rotas: Array.isArray(p.rotas) ? p.rotas : [],
+        equipamentos: Array.isArray(p.equipamentos) ? p.equipamentos : [],
+      }));
+    }
+    return c.pops;
+  };
 
   const popById = (id) => pops().find((p) => p.id === id) || null;
 
   /* Sugestão de POP a partir do cadastro antigo (campo local/nome).
      É só sugestão: o vínculo válido é o campo popId. */
   function suggestPop(equipamento) {
+    const c = passe();
+    /* Os nomes dos POPs são normalizados uma vez por repintura, não uma vez
+       por equipamento: `normalize("NFD")` em cada nome custa caro no laço. */
+    if (!c.alvos) {
+      c.alvos = pops()
+        .map((p) => ({ id: p.id, alvo: semAcento(p.nome).replace(/^pop\s*/, "").trim() }))
+        .filter((x) => x.alvo);
+    }
+    if (!c.sugestao) c.sugestao = new Map();
+    if (c.sugestao.has(equipamento)) return c.sugestao.get(equipamento);
+
     const texto = semAcento([equipamento.local, equipamento.nome, equipamento.id].join(" "));
     let melhor = null;
-    pops().forEach((p) => {
-      const alvo = semAcento(p.nome).replace(/^pop\s*/, "").trim();
-      if (alvo && texto.includes(alvo)) melhor = p.id;
-    });
+    for (const { id, alvo } of c.alvos) if (texto.includes(alvo)) melhor = id;
+    c.sugestao.set(equipamento, melhor);
     return melhor;
   }
 
@@ -174,10 +233,30 @@ window.NOC = (() => {
   const connectionsOf = (id) =>
     (state.topology?.conexoes || []).filter((c) => c.origem === id || c.destino === id);
 
-  const portConnection = (id, porta) =>
-    (state.topology?.conexoes || []).find((c) =>
-      (c.origem === id && Number(c.portaOrigem) === Number(porta)) ||
-      (c.destino === id && Number(c.portaDestino) === Number(porta)));
+  /* Índice equipamento+porta → enlace, montado uma vez por repintura. Antes,
+     cada porta de cada equipamento varria a lista inteira de enlaces, e as
+     telas fazem isso para ocupação, status e enlaces caídos. A primeira
+     ocorrência vence, como no `find` que este índice substitui. */
+  // O separador é o caractere NUL, que nunca aparece em id de equipamento:
+  // a chave equipamento+porta é sempre sem ambiguidade.
+  function indicePortas() {
+    const c = passe();
+    if (!c.portas) {
+      const m = new Map();
+      const por = (dispositivo, porta, conexao) => {
+        const chave = `${dispositivo} ${Number(porta)}`;
+        if (!m.has(chave)) m.set(chave, conexao);
+      };
+      for (const cx of state.topology?.conexoes || []) {
+        por(cx.origem, cx.portaOrigem, cx);
+        por(cx.destino, cx.portaDestino, cx);
+      }
+      c.portas = m;
+    }
+    return c.portas;
+  }
+
+  const portConnection = (id, porta) => indicePortas().get(`${id} ${Number(porta)}`);
 
   // Porta em uso = porta com enlace documentado. Mesma regra do sistema atual.
   const portaEmUso = (deviceId, porta) => !!portConnection(deviceId, porta);

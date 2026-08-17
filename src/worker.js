@@ -289,6 +289,24 @@ const ACTIONS = [
 const ALL_ACTION_CODES = ACTIONS.map(x => x[0]);
 const ALL_SCREEN_CODES = SCREENS.map(x => x[0]);
 
+/* Impressão digital do schema + catálogos. Enquanto ela não muda, o banco já
+   está no formato que este código espera e a migração inteira pode ser pulada
+   com uma única consulta — em vez das 65 idas ao D1 que o `ensureDatabaseImpl`
+   fazia em toda partida a frio do isolate. Qualquer alteração em SCHEMA, ROLES,
+   SCREENS ou ACTIONS muda a impressão e a migração roda de novo no primeiro
+   acesso. */
+function fingerprintOf(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${text.length.toString(36)}.${h.toString(36)}`;
+}
+
+const SCHEMA_FINGERPRINT = fingerprintOf(SCHEMA + JSON.stringify([ROLES, SCREENS, ACTIONS]));
+const SCHEMA_FINGERPRINT_KEY = "schema.fingerprint";
+
 const TOPOLOGY_ACTIONS = ALL_ACTION_CODES.filter(c => c.startsWith("topology.") || c.startsWith("pops.") || c.startsWith("zabbix."));
 
 const ROLE_PERMISSIONS = {
@@ -485,6 +503,36 @@ async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
   return JSON.parse(text);
 }
 
+/* As colunas de audit_logs só mudam quando a migração roda. Consultá-las a cada
+   gravação custava uma ida ao D1 por evento auditado. */
+let auditColumnNames = null;
+
+async function auditColumns(db) {
+  if (!auditColumnNames) {
+    const columns = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
+    auditColumnNames = new Set(columns.map(c => c.name));
+  }
+  return auditColumnNames;
+}
+
+/* Estado anterior e posterior da topologia inteira passam de 50 KB cada. Gravar
+   os dois em toda alteração multiplicava por três o que ia para o D1 a cada
+   "salvar" e fazia a tabela de auditoria crescer sem limite. Acima do teto, o
+   registro guarda o tamanho e a forma do objeto — o que mudou de fato continua
+   em details_json, que carrega o diff e os totais. */
+const AUDIT_JSON_MAX_BYTES = 16 * 1024;
+
+function auditJson(value, max = AUDIT_JSON_MAX_BYTES) {
+  if (value == null) return null;
+  const texto = JSON.stringify(value);
+  if (texto.length <= max) return texto;
+  const resumo = { __truncado: true, bytes: texto.length };
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    resumo.campos = Object.fromEntries(Object.entries(value).map(([k, v]) => [k, Array.isArray(v) ? v.length : typeof v]));
+  }
+  return JSON.stringify(resumo);
+}
+
 async function audit(env, request, user, action, resourceType, resourceId = null, before = null, after = null, details = null) {
   const db = getDB(env);
   if (!db) return;
@@ -492,8 +540,7 @@ async function audit(env, request, user, action, resourceType, resourceId = null
   // Compatibilidade com schemas antigos do D1:
   // versões anteriores deste projeto usavam `resource` enquanto
   // a versão atual usa `resource_type`. O banco existente não é apagado.
-  const columns = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
-  const names = new Set(columns.map(c => c.name));
+  const names = await auditColumns(db);
 
   const fields = [];
   const values = [];
@@ -523,9 +570,9 @@ async function audit(env, request, user, action, resourceType, resourceId = null
   add("path", new URL(request.url).pathname);
   add("ip", getClientIP(request));
   add("user_agent", request.headers.get("User-Agent") || "");
-  add("before_json", before == null ? null : JSON.stringify(before));
-  add("after_json", after == null ? null : JSON.stringify(after));
-  add("details_json", details == null ? null : JSON.stringify(details));
+  add("before_json", auditJson(before));
+  add("after_json", auditJson(after));
+  add("details_json", auditJson(details));
 
   // Compatibilidade com bancos que ainda usam occurred_at.
   if (names.has("occurred_at") && !names.has("created_at")) {
@@ -611,13 +658,35 @@ async function ensureDatabase(env) {
   if (databaseSchemaReady) return;
   // Somente o sinal persistente de conclusão é mantido. A Promise e o binding
   // D1 nunca atravessam requisições, evitando I/O ligado ao contexto anterior.
+  const db = getDB(env);
+  if (!db) throw new Error('Binding D1 "bd" não encontrado.');
+
+  // Caminho rápido: o isolate é reciclado com frequência e, sem isto, toda
+  // partida a frio repetia a migração inteira antes de responder a primeira
+  // requisição. Uma consulta responde se há algo a fazer.
+  try {
+    const marca = await db.prepare(`SELECT value FROM platform_meta WHERE key=?`).bind(SCHEMA_FINGERPRINT_KEY).first();
+    if (marca?.value === SCHEMA_FINGERPRINT) {
+      databaseSchemaReady = true;
+      return;
+    }
+  } catch {
+    // Banco ainda sem platform_meta: segue para a migração completa.
+  }
+
   await ensureDatabaseImpl(env);
+  await db.prepare(`
+    INSERT OR REPLACE INTO platform_meta(key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+  `).bind(SCHEMA_FINGERPRINT_KEY, SCHEMA_FINGERPRINT).run();
   databaseSchemaReady = true;
 }
 
 async function ensureDatabaseImpl(env) {
   const db = getDB(env);
   if (!db) throw new Error('Binding D1 "bd" não encontrado.');
+
+  // A migração pode acrescentar colunas em audit_logs: o cache é refeito depois.
+  auditColumnNames = null;
 
   const schemaStatements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE (?:UNIQUE )?INDEX)/)
     .map(x => x.trim()).filter(Boolean);
@@ -672,33 +741,30 @@ async function ensureDatabaseImpl(env) {
     .map(x => db.prepare(x));
   await db.batch(indexStatements);
 
-  for (const [name, description] of ROLES) {
-    await db.prepare(`
-      INSERT INTO roles(name,description) VALUES (?,?)
-      ON CONFLICT(name) DO NOTHING
-    `).bind(name,description).run();
-  }
-
+  // Os três catálogos vão em um único batch: são dezenas de INSERTs e, um a um,
+  // cada um custava uma ida ao D1.
+  //
   // O catálogo (rótulo, descrição, módulo, rota, ícone) é do código.
   // O que o administrador decide — quem acessa o quê e qual tela está ativa —
   // fica no banco e nunca é sobrescrito por um deploy.
-  for (const [code,name,description,screenCode,module,sort] of ACTIONS) {
-    await db.prepare(`
+  await db.batch([
+    ...ROLES.map(([name, description]) => db.prepare(`
+      INSERT INTO roles(name,description) VALUES (?,?)
+      ON CONFLICT(name) DO NOTHING
+    `).bind(name,description)),
+    ...ACTIONS.map(([code,name,description,screenCode,module,sort]) => db.prepare(`
       INSERT INTO permissions(code,name,description,screen_code,module,sort) VALUES (?,?,?,?,?,?)
       ON CONFLICT(code) DO UPDATE SET
         name=excluded.name, description=excluded.description,
         screen_code=excluded.screen_code, module=excluded.module, sort=excluded.sort
-    `).bind(code,name,description,screenCode,module,sort).run();
-  }
-
-  for (const [code,name,description,route,active,icon,sort,nav] of SCREENS) {
-    await db.prepare(`
+    `).bind(code,name,description,screenCode,module,sort)),
+    ...SCREENS.map(([code,name,description,route,active,icon,sort,nav]) => db.prepare(`
       INSERT INTO screens(code,name,description,route,active,icon,sort,nav) VALUES (?,?,?,?,?,?,?,?)
       ON CONFLICT(code) DO UPDATE SET
         name=excluded.name, description=excluded.description, route=excluded.route,
         icon=excluded.icon, sort=excluded.sort, nav=excluded.nav
-    `).bind(code,name,description,route,active,icon,sort,nav).run();
-  }
+    `).bind(code,name,description,route,active,icon,sort,nav))
+  ]);
 
   const idsOf = async (table, key) => {
     const safeTable = safeSqlIdentifier(table);
@@ -711,22 +777,29 @@ async function ensureDatabaseImpl(env) {
   const permMap = await idsOf("permissions","code");
   const screenMap = await idsOf("screens","code");
 
+  // As concessões são montadas como statements e enviadas em batch: sozinhas,
+  // cada uma custava uma ida ao D1 e são dezenas por partida a frio.
   const grantPermission = (roleId, code) => permMap[code]
-    ? db.prepare(`INSERT OR IGNORE INTO role_permissions(role_id,permission_id) VALUES (?,?)`).bind(roleId,permMap[code]).run()
+    ? db.prepare(`INSERT OR IGNORE INTO role_permissions(role_id,permission_id) VALUES (?,?)`).bind(roleId,permMap[code])
     : null;
   const grantScreen = (roleId, code) => screenMap[code]
-    ? db.prepare(`INSERT OR IGNORE INTO role_screens(role_id,screen_id) VALUES (?,?)`).bind(roleId,screenMap[code]).run()
+    ? db.prepare(`INSERT OR IGNORE INTO role_screens(role_id,screen_id) VALUES (?,?)`).bind(roleId,screenMap[code])
     : null;
+  const runGrants = async (statements) => {
+    const validos = statements.filter(Boolean);
+    if (validos.length) await db.batch(validos);
+  };
 
   // Acessos padrão dos perfis do catálogo: aplicados uma única vez.
   await seedOnce(db, "seed.role_access.v2", async () => {
+    const grants = [];
     for (const [role,codes] of Object.entries(ROLE_PERMISSIONS)) {
       if (!roleMap[role]) continue;
-      for (const code of codes) await grantPermission(roleMap[role], code);
+      for (const code of codes) grants.push(grantPermission(roleMap[role], code));
     }
     for (const [role,codes] of Object.entries(ROLE_SCREENS)) {
       if (!roleMap[role]) continue;
-      for (const code of codes) await grantScreen(roleMap[role], code);
+      for (const code of codes) grants.push(grantScreen(roleMap[role], code));
     }
 
     // Perfis fora do catálogo (criados pelo administrador) recebem as ações
@@ -741,9 +814,10 @@ async function ensureDatabaseImpl(env) {
       `).bind(role.id).all()).results || []).map(x => x.code));
       for (const [origem, derivadas] of ACTION_EQUIVALENCE) {
         if (!atuais.has(origem)) continue;
-        for (const code of derivadas) await grantPermission(role.id, code);
+        for (const code of derivadas) grants.push(grantPermission(role.id, code));
       }
     }
+    await runGrants(grants);
   });
 
   // As telas novas (POPs e editor clássico) entram para quem já tinha a
@@ -752,10 +826,10 @@ async function ensureDatabaseImpl(env) {
     const comRede = ((await db.prepare(`
       SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
     `).all()).results || []).map(x => x.role_id);
-    for (const roleId of comRede) {
-      await grantScreen(roleId, "pops");
-      await grantScreen(roleId, "legado");
-    }
+    await runGrants(comRede.flatMap(roleId => [
+      grantScreen(roleId, "pops"),
+      grantScreen(roleId, "legado")
+    ]));
   });
 
   // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez
@@ -766,19 +840,23 @@ async function ensureDatabaseImpl(env) {
       ["topology.view", "topology.connection.use"],
       ["topology.equipment.edit", "topology.connection.configure"]
     ];
+    const grants = [];
     for (const [origem, destino] of equivalencias) {
       if (!permMap[origem] || !permMap[destino]) continue;
       const perfis = ((await db.prepare(`
         SELECT role_id FROM role_permissions WHERE permission_id=?
       `).bind(permMap[origem]).all()).results || []).map(x => x.role_id);
-      for (const roleId of perfis) await grantPermission(roleId, destino);
+      for (const roleId of perfis) grants.push(grantPermission(roleId, destino));
     }
+    await runGrants(grants);
   });
 
   // O administrador nunca fica sem acesso: é a garantia de reabrir o sistema.
   if (roleMap.administrador) {
-    for (const code of ALL_ACTION_CODES) await grantPermission(roleMap.administrador, code);
-    for (const code of ALL_SCREEN_CODES) await grantScreen(roleMap.administrador, code);
+    await runGrants([
+      ...ALL_ACTION_CODES.map(code => grantPermission(roleMap.administrador, code)),
+      ...ALL_SCREEN_CODES.map(code => grantScreen(roleMap.administrador, code))
+    ]);
   }
 
   const bootstrapPassword = String(env.BOOTSTRAP_ADMIN_PASSWORD || "");
@@ -1812,9 +1890,12 @@ function topologyDiff(before,after){
     for(const id of Object.keys(a))if(!b[id])diff[type].removed.push(id);
     for(const id of Object.keys(a))if(b[id]&&JSON.stringify(a[id])!==JSON.stringify(b[id]))diff[type].changed.push(id);
   }
-  const aa=(before?.conexoes||[]).map(JSON.stringify),bb=(after?.conexoes||[]).map(JSON.stringify);
-  diff.conexoes.added=bb.filter(x=>!aa.includes(x)).length;
-  diff.conexoes.removed=aa.filter(x=>!bb.includes(x)).length;
+  // Conjuntos, e não includes em array: a comparação era quadrática no número
+  // de enlaces e roda em toda gravação da topologia.
+  const aa=new Set((before?.conexoes||[]).map(c=>JSON.stringify(c)));
+  const bb=new Set((after?.conexoes||[]).map(c=>JSON.stringify(c)));
+  for(const c of bb)if(!aa.has(c))diff.conexoes.added++;
+  for(const c of aa)if(!bb.has(c))diff.conexoes.removed++;
   return diff;
 }
 
@@ -1877,8 +1958,14 @@ function requiredTopologyActions(before, after) {
 
 async function handleTopology(env,request) {
   const method=request.method;
-  const gate=await requirePermission(env,request,method==="GET"?"topology.view":"topology.edit");
-  if(gate.response)return gate.response;
+  // O conjunto de ações do perfil é carregado uma única vez: a gravação precisa
+  // dele inteiro logo adiante, e buscar a ação base em separado era uma
+  // consulta a mais em toda leitura e toda gravação da topologia.
+  const user=await requireUser(env,request);
+  if(!user)return json({error:"AUTH_REQUIRED"},401);
+  const permissoes=await permissionsOf(env,user);
+  const acaoBase=method==="GET"?"topology.view":"topology.edit";
+  if(!permissoes.has(acaoBase))return json({error:"FORBIDDEN",permission:acaoBase},403);
   const db=getDB(env);
   const row=await ensureTopologyState(env,request);
   const before=JSON.parse(row.data_json);
@@ -1896,11 +1983,10 @@ async function handleTopology(env,request) {
     config:{...DEFAULT_TOPOLOGY_CONFIG,...(incoming.config||{})}
   };
   const diff=topologyDiff(before,after);
-  const permissoes=await permissionsOf(env,gate.user);
 
   const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length||diff.conexoes.removed;
   if(hasDeletion && !permissoes.has("topology.delete")){
-    await audit(env,request,gate.user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing topology.delete",diff});
+    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing topology.delete",diff});
     return json({error:"FORBIDDEN",permission:"topology.delete"},403);
   }
 
@@ -1909,7 +1995,7 @@ async function handleTopology(env,request) {
   const exigidas=requiredTopologyActions(before,after);
   const faltando=[...exigidas].filter(code=>!permissoes.has(code));
   if(faltando.length){
-    await audit(env,request,gate.user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing actions",missing:faltando,diff});
+    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing actions",missing:faltando,diff});
     return json({error:"FORBIDDEN",permission:faltando[0],permissions:faltando},403);
   }
   const nextVersion=Number(row.version||0)+1;
@@ -1918,18 +2004,29 @@ async function handleTopology(env,request) {
   const topologyWrites = [
     db.prepare(`
       UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
-    `).bind(JSON.stringify(after),nextVersion,gate.user.id),
+    `).bind(JSON.stringify(after),nextVersion,user.id),
     ...diff.equipamentos.removed.flatMap(id => [
       db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
       db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id)
     ])
   ];
   await db.batch(topologyWrites);
-  await audit(env,request,gate.user,"TOPOLOGY_UPDATE","topology","1",before,after,{
+  await audit(env,request,user,"TOPOLOGY_UPDATE","topology","1",before,after,{
     version_before:row.version,version_after:nextVersion,diff,
     before_summary:topologySummary(before),after_summary:topologySummary(after)
   });
-  return json({ok:true,version:nextVersion,updated_at:new Date().toISOString(),topology:after,diff});
+  /* Devolver a topologia inteira era repetir de volta os ~50 KB que o cliente
+     acabou de enviar. Quem só precisa do config e da versão pede `echo:false`;
+     o editor clássico, que repovoa o estado com a resposta, continua recebendo
+     tudo por omissão. */
+  const echo = incoming === body ? true : body?.echo !== false;
+  return json({
+    ok:true,
+    version:nextVersion,
+    updated_at:new Date().toISOString(),
+    topology: echo ? after : {config:after.config},
+    diff
+  });
 }
 
 function normalizeManagementIp(value) {
@@ -2131,6 +2228,19 @@ function isPublicAsset(pathname) {
   return PUBLIC_ASSET_PATHS.has(pathname) || pathname.startsWith("/css/noc/");
 }
 
+/* Código e imagem são iguais para todo usuário: o que restringe o acesso é a
+   sessão exigida antes de servi-los, não o conteúdo. Com `no-store` o navegador
+   rebaixava todo o JS e CSS — centenas de KB — a cada navegação entre telas.
+   `private` mantém o arquivo apenas no navegador do usuário, nunca em cache
+   compartilhado, e a janela curta somada ao ETag do binding ASSETS faz a
+   revalidação seguinte custar um 304.
+   HTML e JSON continuam fora do cache: carregam dados e estado da sessão. */
+const CACHEABLE_ASSET = /\.(?:js|mjs|css|map|png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|otf)$/i;
+
+function assetCacheControl(pathname) {
+  return CACHEABLE_ASSET.test(pathname) ? "private, max-age=300, must-revalidate" : "private, no-store";
+}
+
 function normalizedRoute(pathname) {
   return pathname === "/index.html" ? "/" : pathname;
 }
@@ -2157,12 +2267,15 @@ async function serveAsset(request, env) {
 
     if (url.pathname === "/" || url.pathname.endsWith(".html")) {
       const route = normalizedRoute(url.pathname);
-      const screen = await getDB(env).prepare(`SELECT id,active FROM screens WHERE route=? LIMIT 1`).bind(route).first();
-      if (screen) {
-        const allowed = await getDB(env).prepare(`
-          SELECT 1 FROM role_screens WHERE role_id=? AND screen_id=? LIMIT 1
-        `).bind(user.role_id, screen.id).first();
-        if (!screen.active || !allowed) return new Response("Acesso negado.", {status:403,headers:securityHeaders({"Cache-Control":"no-store"})});
+      // Tela e liberação do perfil na mesma consulta: eram duas idas ao D1 em
+      // toda abertura de página.
+      const screen = await getDB(env).prepare(`
+        SELECT s.active,
+               EXISTS(SELECT 1 FROM role_screens rs WHERE rs.role_id=? AND rs.screen_id=s.id) AS allowed
+        FROM screens s WHERE s.route=? LIMIT 1
+      `).bind(user.role_id, route).first();
+      if (screen && (!screen.active || !screen.allowed)) {
+        return new Response("Acesso negado.", {status:403,headers:securityHeaders({"Cache-Control":"no-store"})});
       }
     }
   }
@@ -2170,7 +2283,7 @@ async function serveAsset(request, env) {
   const asset = await env.ASSETS.fetch(request);
   const headers = securityHeaders(asset.headers);
   if (!publicAsset) {
-    headers.set("Cache-Control", "private, no-store");
+    headers.set("Cache-Control", assetCacheControl(url.pathname));
     headers.append("Vary", "Cookie");
   }
   return new Response(asset.body, {status:asset.status,headers});
