@@ -96,7 +96,13 @@
   const ignorada = (i) => !!ajusteDe(i)?.ignorar;
   const critica = (i) => !!ajusteDe(i)?.critica;
 
-  const rotuloInterface = (i) => ajusteDe(i)?.apelido || i.if_name || "—";
+  const rotuloInterface = (i) => ajusteDe(i)?.interface || ajusteDe(i)?.apelido || i.if_name || "—";
+  const descricaoInterface = (i) => {
+    const ajuste = ajusteDe(i);
+    return ajuste && Object.prototype.hasOwnProperty.call(ajuste, "descricao")
+      ? ajuste.descricao
+      : (i.if_alias || "");
+  };
   const rotuloEquipamento = (i) => i.equipamento_id || i.host_name || "—";
 
   /* Tráfego acima da capacidade nominal é fisicamente impossível: indica falha
@@ -398,20 +404,20 @@
       lista.push({
         grau: grave ? "critico" : "atencao",
         titulo: `${grave ? "Saturação" : "Utilização alta"} — ${rotuloEquipamento(i)} ${rotuloInterface(i)}`,
-        texto: `${i.if_alias || "sem descrição"} • ${bps(carga(i))} de ${bps(i.speed_bps)}${critica(i) ? " • marcada como crítica" : ""}`,
+        texto: `${descricaoInterface(i) || "sem descrição"} • ${bps(carga(i))} de ${bps(i.speed_bps)}${critica(i) ? " • marcada como crítica" : ""}`,
         figura: `${u.toFixed(1)}%`,
         alvo: { tipo: "interface", chave: chaveDe(i) },
       });
     }
 
     for (const i of state.interfaces) {
-      if (i.oper_status !== 2 || !i.if_alias) continue;
+      if (i.oper_status !== 2 || !descricaoInterface(i)) continue;
       // Interface descrita é interface que deveria estar servindo algo.
       if (state.links.some((l) => chaveDe(l.a) === chaveDe(i) || chaveDe(l.b) === chaveDe(i))) continue;
       lista.push({
         grau: "atencao",
         titulo: `Interface descrita e fora do ar — ${rotuloEquipamento(i)} ${rotuloInterface(i)}`,
-        texto: `Descrição: ${i.if_alias}`,
+        texto: `Descrição: ${descricaoInterface(i)}`,
         figura: "down",
         alvo: { tipo: "interface", chave: chaveDe(i) },
       });
@@ -532,7 +538,7 @@
         return `<div class="top-row">
           <span class="top-name">
             ${esc(rotuloInterface(i))}${critica(i) ? ' <span class="if-tag">crítica</span>' : ""}
-            <small>${esc(rotuloEquipamento(i))}${i.if_alias ? ` • ${esc(i.if_alias)}` : ""}</small>
+            <small>${esc(rotuloEquipamento(i))}${descricaoInterface(i) ? ` • ${esc(descricaoInterface(i))}` : ""}</small>
           </span>
           <span class="top-figure">${esc(bps(carga(i)))}
             <small>${u === null ? "capacidade não informada" : `${u.toFixed(1)}% de ${esc(bps(i.speed_bps))}`}</small>
@@ -721,9 +727,10 @@
               ${critica(i) ? '<span class="if-tag">crítica</span>' : ""}
               ${ignorada(i) ? '<span class="if-tag is-muted">fora dos totais</span>' : ""}
             </span>
-            ${ajuste?.apelido ? `<small class="dim mono">${esc(i.if_name)}</small>` : ""}
+            ${rotuloInterface(i) !== i.if_name ? `<small class="dim mono">Original: ${esc(i.if_name)}</small>` : ""}
           </td>
-          <td>${i.if_alias ? esc(i.if_alias) : '<small class="dim">sem descrição</small>'}</td>
+          <td>${descricaoInterface(i) ? esc(descricaoInterface(i)) : '<small class="dim">sem descrição</small>'}
+            ${descricaoInterface(i) !== (i.if_alias || "") ? `<small class="dim">Original: ${esc(i.if_alias || "sem descrição")}</small>` : ""}</td>
           <td><span class="row" style="gap:6px;align-items:center"><span class="dot ${st.dot}"></span>${esc(st.label)}</span></td>
           <td class="mono">${esc(bps(i.speed_bps))}</td>
           <td class="mono${invalida ? " dim" : ""}">${esc(bps(i.in_bps))}</td>
@@ -733,7 +740,7 @@
           <td class="mono ${erros ? "" : "dim"}">${inteiro(erros)}</td>
           <td class="row-actions" data-tv-hide>
             <button class="btn btn-sm btn-ghost btn-icon" type="button" data-edit-if="${esc(chaveDe(i))}"
-              data-action="trafego.settings" data-action-title="Apelido, criticidade e observação"
+              data-action="trafego.settings" data-action-title="Interface, descrição, criticidade e observação"
               aria-label="Editar ${esc(rotuloInterface(i))}">${icon("edit")}</button>
           </td>
         </tr>`;
@@ -773,14 +780,14 @@
         const emAlerta = (u !== null && u > state.settings.limiteAtencao) || i.oper_status === 2 || !leituraValida(i);
         if (!emAlerta) return false;
       }
-      if (alvo && !`${i.if_name} ${i.if_alias} ${ajusteDe(i)?.apelido || ""}`.toLowerCase().includes(alvo)) return false;
+      if (alvo && !`${i.if_name} ${i.if_alias} ${rotuloInterface(i)} ${descricaoInterface(i)} ${ajusteDe(i)?.nota || ""}`.toLowerCase().includes(alvo)) return false;
       return true;
     });
 
     const valorInterface = (i, chave) => ({
       equipamento: i.equipamento_id || i.host_name || "",
       interface: rotuloInterface(i),
-      descricao: i.if_alias || "",
+      descricao: descricaoInterface(i),
       status: Number(i.oper_status) || 0,
       capacidade: Number(i.speed_bps) || 0,
       entrada: Number(i.in_bps) || 0,
@@ -963,7 +970,7 @@
               <span class="input-affix">
                 <span class="affix-icon">${icon("search")}</span>
                 <input class="input" id="fBusca" type="search" value="${esc(state.filtro.busca)}"
-                       placeholder="Interface, apelido ou descrição" aria-label="Buscar interface">
+                       placeholder="Interface ou descrição" aria-label="Buscar interface">
               </span>
               <button class="btn btn-sm btn-ghost btn-icon" type="button" id="btnDensidade"
                       title="Alternar densidade da tabela" aria-label="Alternar densidade da tabela">${icon("filter")}</button>
@@ -1080,12 +1087,13 @@
               <span class="dim" style="font-size:var(--fs-11)">${overrides.length} configurada(s)</span>
             </div>
             ${overrides.length ? `<div class="table-wrap"><table class="table">
-              <thead><tr><th>Interface</th><th>Apelido</th><th>Observação</th><th>Marcas</th><th></th></tr></thead>
+              <thead><tr><th>Interface original</th><th>Interface exibida</th><th>Descrição</th><th>Observação</th><th>Marcas</th><th></th></tr></thead>
               <tbody>${overrides.map(([chave, v]) => {
                 const alvo = state.interfaces.find((i) => chaveDe(i) === chave);
                 return `<tr>
                   <td class="mono">${esc(alvo ? `${rotuloEquipamento(alvo)} ${alvo.if_name}` : chave)}</td>
-                  <td>${v.apelido ? esc(v.apelido) : '<small class="dim">—</small>'}</td>
+                  <td>${v.interface || v.apelido ? esc(v.interface || v.apelido) : '<small class="dim">—</small>'}</td>
+                  <td>${Object.prototype.hasOwnProperty.call(v, "descricao") ? (v.descricao ? esc(v.descricao) : '<small class="dim">sem descrição</small>') : '<small class="dim">original</small>'}</td>
                   <td>${v.nota ? esc(v.nota) : '<small class="dim">—</small>'}</td>
                   <td>${[v.critica ? '<span class="if-tag">crítica</span>' : "", v.ignorar ? '<span class="if-tag is-muted">fora dos totais</span>' : ""].join(" ") || '<small class="dim">—</small>'}</td>
                   <td class="row-actions"><button class="btn btn-sm btn-ghost btn-icon" type="button"
@@ -1095,7 +1103,7 @@
               }).join("")}</tbody>
             </table></div>` : `<div class="empty" style="padding:var(--s-6) 0">
               <b>Nenhuma interface com ajuste próprio</b>
-              <p>Use o lápis na guia Interfaces para dar apelido, marcar como crítica ou tirar dos totais.</p></div>`}
+              <p>Use o lápis na guia Interfaces para alterar interface, descrição, criticidade ou participação nos totais.</p></div>`}
           </div>
         </div>
         <div class="card-foot">
@@ -1169,7 +1177,8 @@
   function editarInterface(chave) {
     const alvo = state.interfaces.find((i) => chaveDe(i) === chave);
     if (!alvo) return;
-    const atual = ajusteDe(alvo) || { apelido: "", nota: "", critica: false, ignorar: false };
+    if (!state.podeEditarSettings) return;
+    const atual = ajusteDe(alvo) || { interface: "", nota: "", critica: false, ignorar: false };
 
     UI.modal({
       labelledBy: "ifTitle",
@@ -1184,10 +1193,14 @@
         </div>
         <div class="modal-body">
           <form class="stack" id="ifForm">
-            <div class="field"><label for="ifApelido">Apelido operacional</label>
-              <input class="input" id="ifApelido" maxlength="80" value="${esc(atual.apelido)}"
+            <div class="field"><label for="ifNome">Interface</label>
+              <input class="input" id="ifNome" maxlength="80" value="${esc(rotuloInterface(alvo))}"
+                     placeholder="Ex.: 100GE1/0/1" required>
+              <span class="field-hint">Nome exibido no painel. O valor original do Zabbix continua visível na tabela.</span></div>
+            <div class="field"><label for="ifDescricao">Descrição</label>
+              <input class="input" id="ifDescricao" maxlength="200" value="${esc(descricaoInterface(alvo))}"
                      placeholder="Ex.: Uplink Ascenty A">
-              <span class="field-hint">Substitui o nome da interface nas listas. O nome real continua visível abaixo.</span></div>
+              <span class="field-hint">Descrição operacional exibida no tráfego; o ifAlias original do Zabbix não é sobrescrito.</span></div>
             <div class="field"><label for="ifNota">Observação</label>
               <input class="input" id="ifNota" maxlength="200" value="${esc(atual.nota || "")}"
                      placeholder="Circuito, operadora ou referência operacional"></div>
@@ -1206,17 +1219,23 @@
         $("#ifForm", host).onsubmit = (e) => { e.preventDefault(); $("[data-salvar]", host).click(); };
         $("[data-salvar]", host).onclick = async () => {
           const botao = $("[data-salvar]", host);
+          const nome = $("#ifNome", host).value.trim();
+          if (!nome) {
+            $("#ifNome", host).focus();
+            toast("Informe a interface", { text: "O nome exibido da interface não pode ficar vazio.", type: "warn" });
+            return;
+          }
           botao.disabled = true;
           botao.textContent = "Salvando…";
           const interfaces = { ...state.settings.interfaces };
           const novo = {
-            apelido: $("#ifApelido", host).value.trim(),
+            interface: nome,
+            descricao: $("#ifDescricao", host).value.trim(),
             nota: $("#ifNota", host).value.trim(),
             critica: $("#ifCritica", host).checked,
             ignorar: $("#ifIgnorar", host).checked,
           };
-          if (!novo.apelido && !novo.nota && !novo.critica && !novo.ignorar) delete interfaces[chave];
-          else interfaces[chave] = novo;
+          interfaces[chave] = novo;
 
           const ok = await salvarAjustes({ interfaces }, "Interface atualizada");
           if (ok) close();
@@ -1424,7 +1443,7 @@
     for (const i of filtradas()) {
       const u = utilizacao(i);
       linhas.push([
-        rotuloEquipamento(i), i.if_name, ajusteDe(i)?.apelido || "", i.if_alias || "",
+        rotuloEquipamento(i), i.if_name, rotuloInterface(i) === i.if_name ? "" : rotuloInterface(i), descricaoInterface(i),
         NOC.interfaceStatus(i).label, i.speed_bps ?? "", i.in_bps ?? "", i.out_bps ?? "",
         u === null ? "" : u.toFixed(2), erroDe(i),
       ]);

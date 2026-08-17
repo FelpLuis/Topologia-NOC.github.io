@@ -319,7 +319,7 @@ const ACTIONS = [
   ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
   ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
 
-  ["trafego.settings", "Configurar o painel de tráfego", "Limites de utilização, atualização, apelidos de interface e painéis do modo TV", "trafego", "Tráfego", 10],
+  ["trafego.settings", "Configurar o painel de tráfego", "Limites, nomes e descrições de interface, atualização e painéis do modo TV", "trafego", "Tráfego", 10],
 
 
   ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
@@ -1710,7 +1710,7 @@ const textoCurto = (valor, maximo) => String(valor ?? "").trim().slice(0, maximo
 /* O servidor nunca confia no que o cliente manda: cada campo volta normalizado
    dentro de um intervalo que faz sentido operacional. Limite crítico abaixo do
    de atenção inverteria as cores do painel, então ele é empurrado para cima. */
-function normalizeTrafegoSettings(entrada = {}) {
+export function normalizeTrafegoSettings(entrada = {}) {
   const base = { ...DEFAULT_TRAFEGO_SETTINGS };
   const atencao = limitaNumero(entrada.limiteAtencao, 1, 99, base.limiteAtencao);
   const critico = Math.max(atencao + 1, limitaNumero(entrada.limiteCritico, 2, 100, base.limiteCritico));
@@ -1723,13 +1723,25 @@ function normalizeTrafegoSettings(entrada = {}) {
   const entradas = Object.entries(entrada.interfaces || {}).slice(0, 2000);
   for (const [chave, valor] of entradas) {
     if (!/^\d+:\d+$/.test(chave) || !valor || typeof valor !== "object") continue;
-    const apelido = textoCurto(valor.apelido, 80);
+    // `apelido` existia antes de a tela permitir editar o campo Interface.
+    // Aceitá-lo aqui migra os registros antigos sem perder personalizações.
+    const nomeInterface = textoCurto(valor.interface ?? valor.apelido, 80);
+    const temDescricao = Object.prototype.hasOwnProperty.call(valor, "descricao");
+    // String vazia é válida: permite limpar a descrição exibida sem alterar o
+    // ifAlias bruto que será atualizado novamente na próxima sincronização.
+    const descricao = temDescricao ? textoCurto(valor.descricao, 200) : undefined;
     const nota = textoCurto(valor.nota, 200);
     const critica = valor.critica === true;
     const ignorar = valor.ignorar === true;
     // Entrada sem nenhum dado útil não ocupa espaço no registro.
-    if (!apelido && !nota && !critica && !ignorar) continue;
-    interfaces[chave] = { apelido, nota, critica, ignorar };
+    if (!nomeInterface && !temDescricao && !nota && !critica && !ignorar) continue;
+    interfaces[chave] = {
+      interface: nomeInterface,
+      ...(temDescricao ? { descricao } : {}),
+      nota,
+      critica,
+      ignorar
+    };
   }
 
   return {

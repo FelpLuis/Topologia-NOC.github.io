@@ -26,7 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_zbx_snapshots_taken ON zabbix_traffic_snapshots(t
 -- registro para quem aplica as migrations à mão.
 INSERT OR IGNORE INTO permissions(code,name,description,module,screen_code,sort) VALUES
 ('trafego.settings','Configurar o painel de tráfego',
- 'Limites de utilização, atualização, apelidos de interface e painéis do modo TV',
+ 'Limites, nomes e descrições de interface, atualização e painéis do modo TV',
  'Tráfego','trafego',10);
 
 -- Os ajustes do painel ficam em platform_meta, chave 'trafego.settings'.

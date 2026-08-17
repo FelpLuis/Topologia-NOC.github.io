@@ -844,7 +844,7 @@ A escala padrão (100%) é calibrada para 55" a ~4 m: o número principal fica e
 | --- | --- | --- |
 | Tipo, capacidade e observação do enlace | Guia Enlaces → Editar | `topology.edit` + `topology.link.create` |
 | Vínculo host do Zabbix ↔ equipamento | Guia Equipamentos → Vínculo | `zabbix.link` |
-| Apelido, observação, marca “crítica” e “fora dos totais” da interface | Guia Interfaces → lápis | `trafego.settings` |
+| Nome exibido, descrição, observação, marca “crítica” e “fora dos totais” da interface | Guia Interfaces → lápis | `trafego.settings` |
 | Limites de atenção e crítico, tolerância de leitura | Guia Ajustes | `trafego.settings` |
 | Intervalo de recarga, janela do gráfico, tamanho do topo | Guia Ajustes | `trafego.settings` |
 | Título, escala, rotação e painéis do telão | Guia Ajustes | `trafego.settings` |
