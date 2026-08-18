@@ -563,12 +563,23 @@ cadastro do POP dentro da topologia — portanto passam pelo mesmo `PUT /api/top
 pela mesma auditoria e pela mesma ação `pops.edit`. Sem coordenada, o POP continua
 inteiro no modo Esquema e aparece na lista "fora do mapa" no modo Mapa OSM.
 
+O mapa abre sempre com a **Baixada Santista** inteira enquadrada — é onde a rede está,
+e é ela que precisa estar visível para posicionar um POP que ainda não tem coordenada.
+POP fora dessa região alarga a moldura, nunca a encolhe.
+
+No mapa geográfico o POP é um **alfinete**, não o card: a cor acompanha a ocupação e o
+número é a quantidade de equipamentos. O card só abre no clique, um de cada vez, e
+fecha no × ou clicando no mapa vazio — cinco cards abertos cobririam cinco cidades.
+No modo Esquema nada muda: lá o card aparece direto, como sempre.
+
 Há dois caminhos para cadastrar a localização:
 
 - **Gerenciar rede → POPs → Editar**: nome, endereço, rotas e latitude/longitude,
   com um campo que aceita o par colado de um mapa (`-23.960833, -46.333611`);
-- **Definir localização** (o botão de layout no modo Mapa OSM): arraste o POP até
-  o ponto dele e salve — o arrasto vira latitude e longitude.
+- **Definir localização** (o botão de layout no modo Mapa OSM): arraste o alfinete até
+  o ponto dele e salve — o arrasto vira latitude e longitude. POP ainda sem coordenada
+  aparece na lista "fora do mapa" com o botão **Colocar aqui**, que o solta no centro da
+  vista para então ser arrastado.
 
 Não há biblioteca de mapa de terceiros: `public/js/noc-geo.js` implementa a projeção
 Web Mercator e a camada de tiles em ~180 linhas, porque o CSP do Worker só libera

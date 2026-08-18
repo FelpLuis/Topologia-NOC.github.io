@@ -23,6 +23,9 @@
        (2^zoom, podendo ser fracionário) e ox/oy a origem do mundo em px.
        geoDraft guarda as coordenadas arrastadas e ainda não gravadas. */
     geo: { k: 0, ox: 0, oy: 0 }, geoDraft: {}, geoDirty: false,
+    /* No mapa geográfico o POP começa como um alfinete e só vira card quando
+       clicado — num mapa, cinco cards abertos tapam a cidade inteira. */
+    geoOpen: new Set(),
   };
   let basemap = null; // camada de tiles, criada na primeira vez que o mapa OSM abre
   const isGeo = () => state.view === "geo";
@@ -199,8 +202,15 @@
   const SITE_W = 268, SITE_H = 156, DEV_W = 190, DEV_H = 118;
   const PAD = 18, HEAD = 92, GAP = 16, SITE_GAP = 92;
   /* Modo geográfico: folga ao redor dos POPs ao enquadrar e limites do zoom
-     do mapa (nível 3 ≈ continente, nível 18 ≈ rua). */
-  const GEO_PAD = 190, GEO_Z_MIN = 3, GEO_Z_MAX = 18;
+     do mapa (nível 3 ≈ continente, nível 18 ≈ rua). MARKER é o alfinete que
+     representa o POP fechado. */
+  const GEO_PAD = 190, GEO_Z_MIN = 3, GEO_Z_MAX = 18, MARKER = 46;
+  /* Região padrão do mapa: a Baixada Santista, onde está a rede. É o que abre
+     quando nenhum POP tem coordenada ainda — sem uma região de referência não
+     haveria onde soltar o primeiro POP. O recorte vai de Cubatão e da Serra ao
+     norte até a orla de Praia Grande ao sul, e de São Vicente a Bertioga:
+     Santos, São Vicente, Praia Grande, Cubatão e Guarujá aparecem juntos. */
+  const BAIXADA = { norte: -23.67, sul: -24.09, oeste: -46.75, leste: -46.10 };
   const stage = () => $("#stage");
   const world = () => $("#world");
 
@@ -246,38 +256,53 @@
   };
   const geoCoordsAt = (x, y) => GEO.unproject((x + state.geo.ox) / state.geo.k, (y + state.geo.oy) / state.geo.k);
 
-  /* Enquadra todos os POPs com localização. É o "ajustar à tela" do modo
-     geográfico: escolhe o k que cabe na área útil e recoloca a origem. */
-  function geoFit() {
+  /* Escolhe a escala e a origem que colocam um retângulo do mundo real no
+     centro da tela. Serve tanto para os POPs quanto para a região padrão. */
+  function enquadrar(min, max, folga) {
     const st = stage().getBoundingClientRect();
-    const pontos = geoSites().map((s) => {
-      const c = coordsOf(s.id);
-      return GEO.project(c.lat, c.lon);
-    });
-    if (!pontos.length) {
-      state.geo = { k: 2 ** 12, ox: 0, oy: 0 };
-      state.scale = 1; state.tx = 0; state.ty = 0;
-      layout(); renderAll(); applyTransform();
-      return;
-    }
-    const minX = Math.min(...pontos.map((p) => p.x)), maxX = Math.max(...pontos.map((p) => p.x));
-    const minY = Math.min(...pontos.map((p) => p.y)), maxY = Math.max(...pontos.map((p) => p.y));
-    const dx = maxX - minX, dy = maxY - minY;
-    const util = { w: Math.max(320, st.width - GEO_PAD * 2), h: Math.max(240, st.height - GEO_PAD * 2) };
-    // Um POP só (ou POPs praticamente no mesmo ponto): zoom de bairro.
+    const dx = max.x - min.x, dy = max.y - min.y;
+    const util = { w: Math.max(320, st.width - folga * 2), h: Math.max(240, st.height - folga * 2) };
+    /* Escala exata da região, sem arredondar para o nível de tile de baixo:
+       arredondar custava até metade da área e a região ficava pequena no meio
+       da tela. O tile mais próximo é redimensionado no máximo ~40%, o que num
+       fundo de mapa não se nota. Os botões de zoom continuam andando de um
+       nível inteiro por vez, e aí o tile volta ao tamanho nativo.
+       Sem extensão (um POP só, ou POPs no mesmo ponto): zoom de bairro. */
     const bruto = dx > 1e-9 || dy > 1e-9
       ? Math.min(dx > 1e-9 ? util.w / dx : Infinity, dy > 1e-9 ? util.h / dy : Infinity)
       : 2 ** 14;
-    /* Arredonda para baixo até um nível inteiro: o tile sai no tamanho nativo
-       (nítido) e todos os POPs continuam dentro da área visível. */
-    const k = GEO.clamp(2 ** Math.floor(Math.log2(bruto)), K_MIN, K_MAX);
-    state.geo = { k, ox: minX * k - GEO_PAD, oy: minY * k - GEO_PAD };
+    const k = GEO.clamp(bruto, K_MIN, K_MAX);
+    // A origem é escolhida para o centro da região cair no centro do palco.
+    state.geo = {
+      k,
+      ox: ((min.x + max.x) / 2) * k - st.width / 2,
+      oy: ((min.y + max.y) / 2) * k - st.height / 2,
+    };
     state.scale = 1;
+    state.tx = 0;
+    state.ty = 0;
+  }
+
+  /* "Ajustar à tela" do modo geográfico. A Baixada Santista entra sempre no
+     enquadramento — é onde a rede está, e é ela que precisa aparecer inteira
+     ao abrir o mapa, inclusive para posicionar um POP que ainda não tem
+     coordenada. POP fora dela alarga a moldura, nunca a encolhe. */
+  function geoFit() {
+    const cantos = [
+      GEO.project(BAIXADA.norte, BAIXADA.oeste),
+      GEO.project(BAIXADA.sul, BAIXADA.leste),
+      ...geoSites().map((s) => {
+        const c = coordsOf(s.id);
+        return GEO.project(c.lat, c.lon);
+      }),
+    ];
+    enquadrar(
+      { x: Math.min(...cantos.map((p) => p.x)), y: Math.min(...cantos.map((p) => p.y)) },
+      { x: Math.max(...cantos.map((p) => p.x)), y: Math.max(...cantos.map((p) => p.y)) },
+      20
+    );
     layout();
-    renderSites();
-    renderEdges();
-    state.tx = (st.width - state.world.w) / 2;
-    state.ty = (st.height - state.world.h) / 2;
+    renderAll();
     applyTransform();
   }
 
@@ -296,18 +321,52 @@
     applyTransform(false);
   }
 
+  // POP fechado no mapa é um alfinete; aberto, é o card de sempre.
+  const geoAberto = (siteId) => state.geoOpen.has(siteId) || state.expanded.has(siteId);
+  const geoSize = (s) => (geoAberto(s.id) ? siteSize(s) : { w: MARKER, h: MARKER });
+
   function layoutGeo() {
     const st = stage().getBoundingClientRect();
     if (!state.geo.k) state.geo.k = 2 ** 12;
 
+    const medidas = geoSites().map((s) => ({ site: s, ...geoSize(s) }));
+    const pontos = {};
+    medidas.forEach(({ site }) => (pontos[site.id] = geoPoint(site.id)));
+
+    /* Rede de proteção do tamanho do mundo. Assim que a primeira coordenada é
+       cadastrada, o POP cai a centenas de milhares de pixels da origem em uso
+       — o div do mapa ia junto e a tela inteira saía do lugar. Quando isso
+       acontece, a origem é trazida de volta para perto do conteúdo; o
+       deslocamento entra na origem e sai do pan na mesma medida, então a vista
+       não se mexe. Dentro do limite nada é tocado: reancorar a cada layout
+       brigaria com o enquadramento. */
+    const LIMITE = 20000;
+    if (medidas.length) {
+      const canto = (m, eixo) => pontos[m.site.id][eixo] - (eixo === "x" ? m.w : (geoAberto(m.site.id) ? HEAD : m.h)) / 2;
+      const cantoX = Math.min(...medidas.map((m) => canto(m, "x")));
+      const cantoY = Math.min(...medidas.map((m) => canto(m, "y")));
+      if (Math.abs(cantoX) > LIMITE || Math.abs(cantoY) > LIMITE) {
+        const sx = Math.round(cantoX - GEO_PAD), sy = Math.round(cantoY - GEO_PAD);
+        state.geo.ox += sx;
+        state.geo.oy += sy;
+        state.tx += sx * state.scale;
+        state.ty += sy * state.scale;
+        medidas.forEach(({ site }) => { pontos[site.id].x -= sx; pontos[site.id].y -= sy; });
+      }
+    }
+
     const boxes = {};
-    geoSites().forEach((s) => {
-      const { w, h } = siteSize(s);
-      const p = geoPoint(s.id);
-      /* A caixa é centrada no ponto na horizontal e ancorada pelo cabeçalho na
-         vertical: ao expandir, ela cresce para baixo e o POP não "escorrega"
-         para longe da sua coordenada. */
-      boxes[s.id] = { x: Math.round(p.x - w / 2), y: Math.round(p.y - HEAD / 2), w, h, px: p.x, py: p.y, geo: true };
+    medidas.forEach(({ site, w, h }) => {
+      const p = pontos[site.id];
+      /* O alfinete fica centrado no ponto. Já o card é centrado só na
+         horizontal e ancorado pelo cabeçalho na vertical: ao expandir os
+         equipamentos ele cresce para baixo, sem escorregar do lugar. */
+      const aberto = geoAberto(site.id);
+      boxes[site.id] = {
+        x: Math.round(p.x - w / 2),
+        y: Math.round(p.y - (aberto ? HEAD : h) / 2),
+        w, h, px: p.x, py: p.y, geo: true, marcador: !aberto,
+      };
     });
 
     state.boxes = boxes;
@@ -518,6 +577,22 @@
       const dim = state.query && !st.list.some(matches);
       const pendente = s.id === SEM_POP;
 
+      /* No mapa geográfico, POP fechado é um alfinete: o card inteiro sobre
+         cada cidade tapava o mapa. A cor acompanha a ocupação e o número é a
+         quantidade de equipamentos, então o alfinete já diz o essencial. */
+      if (b.marcador) {
+        const posicionadoM = !!state.geoDraft[s.id];
+        return `<button class="topo-marker ${NOC.occClass(st.ocup)} ${dim ? "is-dim" : ""} ${state.editLayout && posicionadoM ? "is-locating" : ""}"
+                  type="button" data-box="${esc(s.id)}" data-marker="${esc(s.id)}"
+                  style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px"
+                  title="${esc(s.nome)} — ${st.list.length} equipamento(s), ${st.ocup}% de ocupação"
+                  aria-label="${esc(s.nome)}, ${st.list.length} equipamentos, ${st.ocup}% de ocupação. ${state.editLayout ? "Arraste para posicionar." : "Abrir o card."}">
+          <span class="marker-icon">${icon("pops")}</span>
+          ${st.list.length ? `<span class="marker-count">${st.list.length}</span>` : ""}
+          <span class="marker-label">${esc(s.nome)}</span>
+        </button>`;
+      }
+
       const devicesHtml = aberto ? st.list.map((e) => {
         const n = state.nodes[e.id];
         if (!n) return "";
@@ -539,6 +614,8 @@
       return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""} ${state.editLayout && posicionado && isGeo() ? "is-locating" : ""}"
                 data-box="${esc(s.id)}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
         ${b.geo ? '<span class="site-pin"></span>' : ""}
+        ${b.geo ? `<button class="site-close" type="button" data-collapse="${esc(s.id)}"
+          title="Fechar o card e voltar ao alfinete" aria-label="Fechar o card de ${esc(s.nome)}">${icon("close")}</button>` : ""}
         ${state.editLayout ? `<span class="site-grip">${icon("sort")} ${isGeo() ? "arraste até o local" : "arraste"}</span>` : ""}
         <button class="site-head" type="button" data-site="${esc(s.id)}" aria-expanded="${aberto}"
                 ${temEquip ? "" : 'data-empty="1"'}
@@ -568,6 +645,16 @@
       if (performance.now() - state.dragEndAt < 300) return; // clique que veio do arrasto
       if (b.dataset.empty) return;
       toggleSite(b.dataset.site);
+    }));
+    // Alfinete → card. No modo de localização o clique é do arrasto, não abre.
+    $$("[data-marker]", host).forEach((b) => (b.onclick = () => {
+      if (performance.now() - state.dragEndAt < 300) return;
+      if (state.editLayout) return;
+      abrirCard(b.dataset.marker);
+    }));
+    $$("[data-collapse]", host).forEach((b) => (b.onclick = (ev) => {
+      ev.stopPropagation();
+      fecharCard(b.dataset.collapse);
     }));
     $$(".topo-device", host).forEach((b) => (b.onclick = () => {
       if (state.editLayout) return; // no modo layout o clique não abre a gaveta
@@ -606,7 +693,8 @@
         : Math.max(0, Math.round((ox + (ev.clientX - sx) / state.scale) / GRID) * GRID);
       b.y = livre ? Math.round(oy + (ev.clientY - sy) / state.scale)
         : Math.max(0, Math.round((oy + (ev.clientY - sy) / state.scale) / GRID) * GRID);
-      if (livre) { b.px = b.x + b.w / 2; b.py = b.y + HEAD / 2; }
+      // O ponto da coordenada é o centro do alfinete, ou o cabeçalho do card.
+      if (livre) { b.px = b.x + b.w / 2; b.py = b.y + (b.marcador ? b.h : HEAD) / 2; }
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
       placeNodes(siteId);
@@ -780,6 +868,33 @@
     return NOC.connectionsOf(state.selected).some((c) => c.origem === id || c.destino === id);
   };
 
+  /* Card do POP no mapa geográfico. Um de cada vez, como o balão de qualquer
+     mapa: dois cards abertos já cobrem duas cidades vizinhas. */
+  function abrirCard(id) {
+    state.geoOpen = new Set([id]);
+    layout();
+    renderAll();
+    centerOnBox(id);
+  }
+
+  function fecharCard(id) {
+    state.geoOpen.delete(id);
+    state.expanded.delete(id); // volta ao alfinete, sem os equipamentos abertos
+    layout();
+    renderAll();
+    applyTransform();
+  }
+
+  function fecharCards() {
+    if (!state.geoOpen.size && !state.expanded.size) return false;
+    state.geoOpen.clear();
+    state.expanded.clear();
+    layout();
+    renderAll();
+    applyTransform();
+    return true;
+  }
+
   function toggleSite(id) {
     const abrindo = !state.expanded.has(id);
     abrindo ? state.expanded.add(id) : state.expanded.delete(id);
@@ -859,7 +974,7 @@
     }, { passive: false });
 
     let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0, moved = false;
-    const ignore = ".topo-device, .site-head, .topo-hud, [data-edge], [data-ring]";
+    const ignore = ".topo-device, .site-head, .topo-marker, .site-close, .topo-hud, [data-edge], [data-ring]";
     st.addEventListener("pointerdown", (e) => {
       if (e.target.closest(ignore)) return;
       dragging = true; moved = false;
@@ -878,7 +993,10 @@
     st.addEventListener("pointerup", end);
     st.addEventListener("pointercancel", end);
     st.addEventListener("click", (e) => {
-      if (!moved && !e.target.closest(ignore) && state.selected) { state.selected = null; renderAll(); }
+      if (moved || e.target.closest(ignore)) return;
+      // Clique no mapa vazio fecha o card aberto, como em qualquer mapa.
+      if (isGeo() && !state.editLayout && fecharCards()) return;
+      if (state.selected) { state.selected = null; renderAll(); }
     });
     st.addEventListener("keydown", (e) => {
       const step = 70;
@@ -1782,6 +1900,13 @@
           if (!ok) { aplicar(antes); return; }
           close();
           renderLayoutBar();
+          /* O POP recém-localizado pode ter caído fora da vista atual: o mapa
+             vai até ele em vez de deixar o operador procurando. */
+          if (isGeo() && coords) {
+            layout();
+            renderAll();
+            if (state.boxes[popId]) centerOnBox(popId); else geoFit();
+          }
           if (onSaved) onSaved();
         };
       },
@@ -2028,20 +2153,40 @@
 
     const pendente = faltando.find((s) => s.id === SEM_POP);
     const pops = faltando.filter((s) => s.id !== SEM_POP);
+    /* Em modo de localização o POP não tem como ser arrastado — ele nem está
+       desenhado. O botão então o solta no centro da vista, e daí em diante é
+       arrasto normal até o ponto certo. */
+    const soltando = state.editLayout && podeEditarPop();
     box.innerHTML = `
       <b style="font-size:var(--fs-12)">${faltando.length} fora do mapa</b>
       ${pops.map((s) => `<div class="row-between">
         <span class="truncate" title="${esc(s.nome)}">${esc(s.nome)}</span>
-        <button class="btn btn-ghost btn-sm" type="button" data-locate="${esc(s.id)}"
-          ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>Localizar</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-${soltando ? "drop" : "locate"}="${esc(s.id)}"
+          ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}
+        >${soltando ? "Colocar aqui" : "Localizar"}</button>
       </div>`).join("")}
       ${pendente ? `<div class="dim" style="font-size:var(--fs-10)">
         ${devicesOf(SEM_POP).length} equipamento(s) sem POP vinculado só aparecem no modo Esquema.</div>` : ""}`;
+
     $$("[data-locate]", box).forEach((b) => (b.onclick = () => openPopForm(b.dataset.locate, () => {
       layout(); renderAll();
-      const alvo = state.boxes[b.dataset.locate];
-      if (alvo) centerOnBox(b.dataset.locate); else applyTransform();
+      if (state.boxes[b.dataset.locate]) centerOnBox(b.dataset.locate); else applyTransform();
     })));
+
+    $$("[data-drop]", box).forEach((b) => (b.onclick = () => {
+      const st = stage().getBoundingClientRect();
+      const c = geoCoordsAt((st.width / 2 - state.tx) / state.scale, (st.height / 2 - state.ty) / state.scale);
+      state.geoDraft[b.dataset.drop] = { lat: c.lat, lon: c.lon };
+      state.layoutDirty = true;
+      layout();
+      renderAll();
+      renderLayoutBar();
+      applyTransform();
+      toast(`${siteById(b.dataset.drop)?.nome || "POP"} colocado no mapa`, {
+        text: "Arraste o alfinete até o ponto exato e clique em “Salvar localizações”.",
+        type: "info",
+      });
+    }));
   }
 
   /* ---------------- render + início ---------------- */
@@ -2051,6 +2196,12 @@
     renderEdges();
     renderTable();
     renderMissing();
+  }
+
+  /* O modo escolhido é lembrado por navegador: quem trabalha com o mapa
+     geográfico não precisa selecioná-lo a cada abertura. */
+  function modoPreferido() {
+    try { return localStorage.getItem(VIEW_KEY) || "mapa"; } catch (e) { return "mapa"; /* modo privado */ }
   }
 
   /* Troca entre mapa esquemático, mapa geográfico e lista. */
@@ -2071,6 +2222,9 @@
     }
 
     state.view = view;
+    /* Entrando no mapa geográfico, todo POP volta a ser alfinete: o card é do
+       clique. Cards herdados do esquema cobririam o mapa logo na abertura. */
+    if (view === "geo") { state.geoOpen.clear(); state.expanded.clear(); }
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* modo privado */ }
     $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.view === view)));
 
@@ -2137,8 +2291,10 @@
     bindStage();
     requestAnimationFrame(fit);
 
-    // Abre o primeiro POP com equipamentos, para o mapa não começar "vazio".
-    const primeiro = visibleSites().find((s) => devicesOf(s.id).length);
+    /* Abre o primeiro POP com equipamentos, para o mapa não começar "vazio".
+       No mapa geográfico não: lá o POP nasce como alfinete e o card é do
+       clique — abrir um sozinho já tapa a cidade dele. */
+    const primeiro = modoPreferido() !== "geo" && visibleSites().find((s) => devicesOf(s.id).length);
     if (primeiro) { state.expanded.add(primeiro.id); layout(); renderAll(); requestAnimationFrame(fit); }
 
     let resizeTimer = null;
@@ -2176,6 +2332,8 @@
       const comEquip = mapSites().filter((s) => devicesOf(s.id).length);
       const abrir = state.expanded.size < comEquip.length;
       state.expanded = abrir ? new Set(comEquip.map((s) => s.id)) : new Set();
+      // No mapa geográfico, expandir tudo também abre os cards dos alfinetes.
+      if (isGeo()) state.geoOpen = abrir ? new Set(mapSites().map((s) => s.id)) : new Set();
       $("#expandAll").textContent = abrir ? "Recolher tudo" : "Expandir tudo";
       if (isGeo()) { layout(); renderAll(); applyTransform(); } else fit();
       renderList();
@@ -2201,10 +2359,7 @@
 
     $$("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 
-    /* O modo escolhido é lembrado por navegador: quem trabalha com o mapa
-       geográfico não precisa selecioná-lo a cada abertura. */
-    let inicial = "mapa";
-    try { inicial = localStorage.getItem(VIEW_KEY) || "mapa"; } catch (e) { /* modo privado */ }
+    const inicial = modoPreferido();
     if (inicial === "geo" || inicial === "lista") setView(inicial);
     else syncLayoutButton();
 

@@ -435,6 +435,83 @@
 }
 .topo-site.is-locating .site-pin { background: var(--purple-400); box-shadow: 0 0 0 3px rgba(165, 107, 255, .4); }
 
+/* Alfinete do POP no mapa geográfico — nível 0, antes do card.
+   A cor acompanha a ocupação, e o número, a quantidade de equipamentos. */
+.topo-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--cyan-400);
+  border-radius: 50%;
+  background: var(--surface-1);
+  color: var(--cyan-400);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .45), 0 0 0 4px rgba(29, 201, 255, .16);
+  cursor: pointer;
+  transition: transform var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+}
+.topo-marker:hover, .topo-marker:focus-visible {
+  transform: scale(1.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5), 0 0 0 6px rgba(29, 201, 255, .26);
+}
+.topo-marker.is-warn { border-color: var(--warn-500); color: var(--warn-500); box-shadow: 0 2px 10px rgba(0, 0, 0, .45), 0 0 0 4px rgba(255, 176, 32, .20); }
+.topo-marker.is-danger { border-color: var(--danger-500); color: var(--danger-500); box-shadow: 0 2px 10px rgba(0, 0, 0, .45), 0 0 0 4px rgba(255, 95, 116, .22); }
+.topo-marker.is-locating { border-color: var(--purple-400); color: var(--purple-400); border-style: dashed; }
+.topo-marker.is-dim { opacity: .35; }
+.topo-marker .icon { width: 20px; height: 20px; }
+.topo-marker .marker-count {
+  position: absolute;
+  top: -5px; right: -5px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--cyan-400);
+  color: var(--bg);
+  font: 700 var(--fs-10) / 18px var(--font-mono);
+  text-align: center;
+}
+.topo-marker.is-warn .marker-count { background: var(--warn-500); }
+.topo-marker.is-danger .marker-count { background: var(--danger-500); }
+/* O nome fica fora do círculo e não recebe clique, para não crescer o alvo */
+.topo-marker .marker-label {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 190px;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--surface-glass);
+  color: var(--text-1);
+  font: 700 var(--fs-10) var(--font-sans);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.topo-stage.is-editing-layout .topo-marker { cursor: grab; }
+.topo-marker.is-dragging { cursor: grabbing; z-index: 6; transition: none; }
+
+/* Fecha o card e devolve o POP ao alfinete */
+.site-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  cursor: pointer;
+}
+.site-close:hover { color: var(--text-1); border-color: var(--cyan-400); }
+.site-close .icon { width: 14px; height: 14px; }
+/* No modo de localização o canto superior direito é da alça de arrasto */
+.topo-stage.is-editing-layout .site-close { display: none; }
+
 /* Lista de POPs que ainda não podem ser desenhados no mapa geográfico */
 .topo-missing {
   right: auto;
