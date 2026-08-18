@@ -276,8 +276,7 @@ window.UI = (() => {
       bar.innerHTML = `
         <button class="btn btn-ghost btn-icon" data-sidebar-toggle type="button" aria-label="Recolher menu lateral" title="Recolher menu (Ctrl+B)">${icon("menu")}</button>
         <a class="brand" href="/" aria-label="UPDOWN Telecom">
-          <span class="brand-symbol" aria-hidden="true"></span>
-          <span class="brand-logo" aria-hidden="true"></span>
+          <span class="brand-art" aria-hidden="true"></span>
         </a>
         <div class="appbar-search">
           <div class="input-affix">

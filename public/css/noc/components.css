@@ -16,33 +16,21 @@
 .brand:hover { text-decoration: none; }
 .brand img { width: 34px; height: 34px; object-fit: contain; display: block; }
 
-/* Símbolo e logotipo trocam de arte conforme o tema:
-   tema escuro usa a versão clara, tema claro usa a versão escura. */
-.brand-symbol,
-.brand-logo {
+/* A marca agora usa uma única arte oficial. A imagem recebida tem formato
+   vertical; o enquadramento central aproxima o logotipo sem alterar o arquivo. */
+.brand-art {
   display: block;
   flex: none;
+  width: 132px;
+  height: 38px;
+  border-radius: var(--r-2);
+  background-image: url("/assets/brand/updown-internet.png");
   background-repeat: no-repeat;
   background-position: center;
-  background-size: contain;
+  background-size: 185% auto;
 }
-.brand-symbol {
-  width: 34px;
-  height: 34px;
-  background-image: url("/assets/brand/updown-symbol.png");
-}
-.brand-logo {
-  height: 26px;
-  aspect-ratio: 606 / 186;
-  background-position: left center;
-}
-.brand-logo { background-image: url("/assets/brand/updown-logo.png"); }
-:root[data-theme="light"] .brand-symbol { background-image: url("/assets/brand/updown-symbol-dark.png"); }
-:root[data-theme="light"] .brand-logo { background-image: url("/assets/brand/updown-logo-dark.png"); }
 
-.brand-lg img,
-.brand-lg .brand-symbol { width: 52px; height: 52px; }
-.brand-lg .brand-logo { height: 38px; }
+.brand-lg .brand-art { width: 180px; height: 52px; }
 
 /* ---------------------------------------------------------
    Botões
@@ -969,10 +957,10 @@ table.table { width: 100%; border-collapse: collapse; }
      da topologia ganhava 88px de rolagem sobrando abaixo dele. */
   .content:not(.content-wide) { padding: var(--s-4) var(--s-4) calc(var(--mobile-nav-h) + var(--s-6)); }
 
-  /* Marca reduzida ao símbolo e busca em botão: o que sobra de largura vai
-     para o nome do usuário e as ações. */
+  /* Marca e busca compactas: o que sobra de largura vai para o nome do
+     usuário e as ações. */
   .appbar { gap: var(--s-2); padding: 0 var(--s-3); }
-  .appbar .brand-logo { display: none; }
+  .appbar .brand-art { width: 104px; height: 34px; }
   .appbar-search { display: none; }
   .appbar-search-btn { display: inline-flex; }
   [data-palette-open]:not(.appbar-search-btn) { display: none; }
