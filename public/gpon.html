@@ -32,7 +32,8 @@
 
         <div class="row wrap grow" style="justify-content:flex-end;gap:var(--s-2)">
           <div class="segmented" role="group" aria-label="Modo de visualização">
-            <button type="button" data-view="mapa" aria-pressed="true">Mapa</button>
+            <button type="button" data-view="mapa" aria-pressed="true" title="Mapa esquemático, sem fundo geográfico">Esquema</button>
+            <button type="button" data-view="geo" aria-pressed="false" title="POPs e equipamentos GPON sobre o mapa do OpenStreetMap, na localização cadastrada">Mapa OSM</button>
             <button type="button" data-view="lista" aria-pressed="false">Lista</button>
           </div>
           <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
@@ -72,9 +73,19 @@
         <section class="topo-stage" id="stage" tabindex="0" role="application"
                  aria-label="Mapa da topologia GPON. Use as setas para deslocar e as teclas mais e menos para aproximar.">
           <div class="topo-world" id="world">
+            <!-- Fundo geográfico: só recebe tiles no modo "Mapa OSM". -->
+            <div class="topo-basemap" id="basemap" aria-hidden="true" hidden></div>
             <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div id="nodes"></div>
           </div>
+
+          <!-- POPs ainda sem localização cadastrada não têm onde ser desenhados. -->
+          <div class="panel topo-hud topo-missing" id="geoMissing" hidden></div>
+
+          <p class="topo-attrib" id="geoAttrib" hidden>
+            Fundo do mapa:
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
+          </p>
 
           <div class="panel topo-hud topo-layout-bar" id="layoutBar" hidden>
             <span class="row" style="gap:6px">
@@ -119,6 +130,7 @@
 
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js"></script>
+<script src="/js/noc-geo.js"></script>
 <script src="/js/noc-topology.js"></script>
 </body>
 </html>

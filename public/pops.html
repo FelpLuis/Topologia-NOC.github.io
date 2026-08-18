@@ -26,9 +26,11 @@
         <p class="page-sub">Cada POP com suas rotas, os equipamentos vinculados e a ocupação de portas. O vínculo é o mesmo usado pela topologia e pelo Dashboard.</p>
       </div>
       <div class="row" style="gap:var(--s-2)">
+        <button class="btn btn-sm btn-primary" id="btnNewPop" type="button"
+                data-action="topology.edit pops.create">+ Adicionar POP</button>
         <button class="btn btn-sm" id="btnOrder" type="button" aria-pressed="false"
                 data-action="topology.edit pops.order">Editar sequência</button>
-        <a class="btn btn-sm btn-primary" href="/">Gerenciar vínculos</a>
+        <a class="btn btn-sm" href="/">Gerenciar vínculos</a>
       </div>
     </div>
 
@@ -82,6 +84,6 @@
 
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js?v=20260817-2"></script>
-<script src="/js/noc-pops.js?v=20260817-2"></script>
+<script src="/js/noc-pops.js?v=20260818-1"></script>
 </body>
 </html>

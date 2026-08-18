@@ -49,6 +49,156 @@
     }
   }
 
+  /* ---------------- cadastro e exclusão de POP ---------------- */
+  function openNewPop() {
+    if (state.editOrder || state.editRing) {
+      toast("Conclua a edição atual", {
+        text: "Salve ou descarte a sequência/mapa antes de adicionar um POP.",
+        type: "warn",
+      });
+      return;
+    }
+
+    modal({
+      labelledBy: "newPopTitle",
+      html: `
+        <form id="newPopForm">
+          <div class="modal-head">
+            <div><span class="kicker">Ponto de presença</span>
+              <h2 id="newPopTitle" style="margin-top:6px">Adicionar POP</h2>
+              <p class="muted" style="font-size:var(--fs-13);margin-top:4px">O novo POP entra no fim da sequência do anel.</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="field">
+              <label for="newPopName">Nome do POP *</label>
+              <input class="input" id="newPopName" required placeholder="Ex.: POP ASCENTY" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="newPopAddress">Endereço</label>
+              <input class="input" id="newPopAddress" placeholder="Rua, número, bairro, cidade e CEP">
+            </div>
+            <div class="alert alert-info" style="animation:none">${icon("info")}
+              <span>Depois do cadastro, use <b>Rotas</b> para ligá-lo ao anel óptico e <b>Vincular equipamento</b> para associar o inventário.</span>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <span class="dim" style="font-size:var(--fs-11)">O identificador é criado automaticamente.</span>
+            <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="submit">Adicionar POP</button></span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#newPopForm", host);
+        const name = $("#newPopName", form);
+        name.focus();
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = name.value.trim();
+          if (!nome) return name.focus();
+          const t = NOC.data();
+          const base = nome.replace(/^pop\s+/i, "").trim() || nome;
+          const novo = {
+            id: NOC.novoId("pop", base, t.pops),
+            nome,
+            endereco: $("#newPopAddress", form).value.trim(),
+            rotas: [],
+            equipamentos: [],
+          };
+          if (!novo.endereco) delete novo.endereco;
+          t.pops.push(novo);
+
+          const ok = await persist("TOPOLOGY_CREATE_POP", {
+            titulo: `${nome} adicionado`,
+            texto: "Agora você pode criar as rotas do anel e vincular equipamentos.",
+          }, async () => {
+            t.pops = t.pops.filter((p) => p.id !== novo.id);
+            await persist("TOPOLOGY_DELETE_POP", { titulo: "Cadastro desfeito", tipo: "info" });
+          });
+          if (ok) close();
+          else t.pops = t.pops.filter((p) => p.id !== novo.id);
+        };
+      },
+    });
+  }
+
+  function deleteRequirements(pop) {
+    const t = NOC.data();
+    const codes = ["topology.edit", "topology.delete", "pops.delete"];
+    if (t.equipamentos.some((e) => e.popId === pop.id)) codes.push("topology.pop.link");
+    if (t.pops.some((p) => p.id !== pop.id && (p.rotas || []).some((r) => rotaAponta(r, pop)))) codes.push("pops.routes");
+    if (t.config?.ringLayout?.[pop.id]) codes.push("pops.ring.layout");
+    return codes;
+  }
+
+  function deletePop(popId) {
+    if (state.editOrder || state.editRing) {
+      toast("Conclua a edição atual", {
+        text: "Salve ou descarte a sequência/mapa antes de excluir um POP.",
+        type: "warn",
+      });
+      return;
+    }
+    const pop = NOC.popRecord(popId);
+    if (!pop) return;
+    const required = deleteRequirements(pop);
+    if (!NOC.canAll(required)) {
+      toast("Seu perfil não pode excluir este POP", {
+        text: `A exclusão e a limpeza dos vínculos exigem: ${required.join(" + ")}.`,
+        type: "warn",
+      });
+      return;
+    }
+
+    const vinculados = NOC.data().equipamentos.filter((e) => e.popId === pop.id).length;
+    const referencias = NOC.data().pops.reduce((n, p) => n + (p.id === pop.id ? 0 : (p.rotas || []).filter((r) => rotaAponta(r, pop)).length), 0);
+    askConfirm({
+      title: `Excluir ${pop.nome}?`,
+      text: [
+        "O POP será removido do cadastro e do anel óptico.",
+        vinculados ? `${vinculados} equipamento(s) ficarão sem POP.` : "",
+        referencias ? `${referencias} referência(s) de rota serão removidas.` : "",
+      ].filter(Boolean).join(" "),
+      confirmLabel: "Excluir POP",
+      danger: true,
+      onConfirm: () => removePop(pop),
+    });
+  }
+
+  async function removePop(pop) {
+    const t = NOC.data();
+    const popsAntes = JSON.parse(JSON.stringify(t.pops));
+    const vinculosAntes = t.equipamentos.map((e) => ({ id: e.id, popId: e.popId ?? null }));
+    const ringAntes = { ...(t.config?.ringLayout || {}) };
+    const stateRingAntes = { ...state.ring };
+
+    t.pops = t.pops
+      .filter((p) => p.id !== pop.id)
+      .map((p) => ({ ...p, rotas: (p.rotas || []).filter((r) => !rotaAponta(r, pop)) }));
+    t.equipamentos.forEach((e) => { if (e.popId === pop.id) e.popId = null; });
+    if (t.config?.ringLayout) delete t.config.ringLayout[pop.id];
+    delete state.ring[pop.id];
+
+    const restore = () => {
+      t.pops = JSON.parse(JSON.stringify(popsAntes));
+      const porId = new Map(vinculosAntes.map((v) => [v.id, v.popId]));
+      t.equipamentos.forEach((e) => { if (porId.has(e.id)) e.popId = porId.get(e.id); });
+      t.config = t.config || {};
+      t.config.ringLayout = { ...ringAntes };
+      state.ring = { ...stateRingAntes };
+    };
+
+    const ok = await persist("TOPOLOGY_DELETE_POP", {
+      titulo: `${pop.nome} excluído`,
+      texto: "Os vínculos ficaram pendentes e as referências do anel foram limpas.",
+      tipo: "warn",
+    }, async () => {
+      restore();
+      await persist("TOPOLOGY_CREATE_POP", { titulo: "POP restaurado", tipo: "info" });
+    });
+    if (!ok) { restore(); render(); }
+  }
+
   /* ---------------- lista de POPs ---------------- */
   function render() {
     // Vincular equipamento a um POP é ação da topologia, não do cadastro do POP.
