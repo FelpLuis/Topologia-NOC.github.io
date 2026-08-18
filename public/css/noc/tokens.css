@@ -119,6 +119,13 @@
   --appbar-glow: rgba(29, 201, 255, .18);
   --sidebar-bg: linear-gradient(180deg, rgba(12, 35, 72, .97) 0%, rgba(7, 44, 64, .98) 100%);
   --sidebar-line: rgba(29, 201, 255, .22);
+
+  /* Pintura única da tela de acesso: marca e formulário dividem o mesmo fundo,
+     sem costura vertical entre as duas metades. */
+  --auth-bg:
+    radial-gradient(760px 520px at 14% 10%, rgba(11, 116, 255, .24), transparent 62%),
+    radial-gradient(620px 460px at 88% 86%, rgba(29, 201, 255, .14), transparent 58%),
+    linear-gradient(150deg, #030b16 0%, #04152a 52%, #061d31 100%);
 }
 
 /* ---------------- Tema claro ---------------- */
@@ -169,4 +176,9 @@
   --appbar-glow: rgba(29, 201, 255, .22);
   --sidebar-bg: linear-gradient(180deg, #eef1ff 0%, #e8f8fc 100%);
   --sidebar-line: rgba(11, 116, 255, .20);
+
+  --auth-bg:
+    radial-gradient(760px 520px at 14% 10%, rgba(11, 116, 255, .16), transparent 62%),
+    radial-gradient(620px 460px at 88% 86%, rgba(29, 201, 255, .16), transparent 58%),
+    linear-gradient(150deg, #f6f9fd 0%, #e9f1fb 52%, #e2f1f9 100%);
 }

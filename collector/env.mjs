@@ -36,5 +36,9 @@ export function collectorConfig() {
     token: required("COLLECTOR_TOKEN"),
     intervalMs: Math.max(60000, Number(process.env.COLLECTOR_INTERVAL_MS || 300000)),
     devices: [device("ZTE_C350"), device("ZTE_C300")],
+    ixc: {
+      baseUrl: required("IXC_BASE_URL").replace(/\/+$/, ""),
+      token: required("IXC_API_TOKEN"),
+    },
   };
 }

@@ -5,28 +5,28 @@
 /* ---------------------------------------------------------
    1. Autenticação (login / nova senha)
    --------------------------------------------------------- */
-/* O painel de marca leva ~65% porque os recursos ficam numa fila só e precisam
+/* Um fundo só para a tela inteira: a pintura e a malha de rede atravessam as
+   duas colunas, então não existe mais divisória entre marca e formulário — a
+   grade continua servindo só para posicionar o conteúdo.
+   O painel de marca leva ~65% porque os recursos ficam numa fila só e precisam
    da largura; o piso de 448px na coluna do formulário existe para que essa
    folga nunca seja tirada do card de acesso (400px + respiro lateral). */
 .auth {
+  position: relative;
+  overflow: hidden;
   min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(0, 1.85fr) minmax(448px, 1fr);
+  background: var(--auth-bg);
+  color: var(--text-1);
 }
 
 .auth-visual {
   position: relative;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: var(--s-10) clamp(var(--s-6), 3.4vw, var(--s-12));
-  border-right: 1px solid var(--line);
-  background:
-    radial-gradient(700px 480px at 18% 12%, rgba(11, 116, 255, .24), transparent 62%),
-    radial-gradient(560px 420px at 82% 88%, rgba(29, 201, 255, .14), transparent 58%),
-    linear-gradient(150deg, #030b16 0%, #04152a 52%, #061d31 100%);
-  color: #eaf6ff;
 }
 /* Classe, não a tag `h1`: é a manchete decorativa do painel de marca, e a
    página já tem seu próprio `<h1>` no formulário — duas por página quebra a
@@ -42,20 +42,39 @@
 }
 .auth-tagline em {
   font-style: normal;
-  background: linear-gradient(90deg, #ffffff, #6adfff);
+  background: linear-gradient(90deg, var(--text-1), var(--cyan-400));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
-.auth-visual p { color: #93b2c6; font-size: var(--fs-14); max-width: 46ch; }
+.auth-visual p { color: var(--text-2); font-size: var(--fs-14); max-width: 46ch; }
 
-.auth-net { position: absolute; inset: 0; pointer-events: none; opacity: .9; }
+/* A malha nasce dentro do painel de marca, mas o fundo não termina mais no meio
+   da tela: `width: 100vw` a partir da borda esquerda faz o desenho atravessar a
+   página inteira, senão os traços apareceriam cortados no ar na antiga costura.
+   O `.auth` recorta o excedente e o `z-index: 0` mantém a arte atrás de tudo. */
+.auth-net {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: 100vw;
+  pointer-events: none;
+  opacity: .9;
+}
 .auth-net svg { width: 100%; height: 100%; }
 .net-edge { fill: none; stroke: rgba(80, 190, 255, .22); stroke-width: 1.2; }
 .net-edge.is-hot { stroke: rgba(29, 201, 255, .55); stroke-width: 1.8; }
 .net-node { fill: #071b2c; stroke: #55d0ff; stroke-width: 1.4; }
 .net-core { fill: rgba(17, 129, 255, .16); stroke: #1dc9ff; stroke-width: 1.6; }
-.net-label { fill: #8fb5cb; font: 700 9px var(--font-mono); letter-spacing: .08em; }
+.net-label { fill: var(--text-3); font: 700 9px var(--font-mono); letter-spacing: .08em; }
+
+/* No tema claro a malha some sobre o fundo pálido: traço mais firme e nó branco
+   devolvem o desenho sem mexer no SVG da página. */
+:root[data-theme="light"] .net-edge { stroke: rgba(11, 116, 255, .26); }
+:root[data-theme="light"] .net-edge.is-hot { stroke: rgba(11, 116, 255, .5); }
+:root[data-theme="light"] .net-node { fill: #ffffff; stroke: var(--brand-500); }
+:root[data-theme="light"] .net-core { fill: rgba(11, 116, 255, .12); stroke: var(--brand-500); }
+:root[data-theme="light"] .net-pulse { fill: var(--brand-500); filter: none; }
 .net-pulse { fill: #6adfff; filter: drop-shadow(0 0 6px #1dc9ff); }
 .net-pulse-anim { animation: net-travel 4.6s linear infinite; }
 .net-pulse-anim.d2 { animation-delay: -1.6s; }
@@ -84,21 +103,38 @@
   font-size: clamp(var(--fs-16), 1.35vw, var(--fs-24));
   letter-spacing: -.03em;
 }
+/* `--text-2`, não `--text-3`: com o fundo claro do tema light a descrição de
+   11px caía para 2.7:1 de contraste sobre a pintura da tela. */
 .auth-stats small {
-  color: #7c9cb2;
+  color: var(--text-2);
   font-size: var(--fs-11);
   text-transform: uppercase;
   letter-spacing: .06em;
   overflow-wrap: break-word;
 }
 
+/* Sem superfície própria: o painel de acesso é só uma área de posicionamento
+   sobre o fundo comum. O `z-index` o mantém acima da malha, que agora passa por
+   baixo dele. */
 .auth-panel {
+  position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
   padding: var(--s-8) var(--s-6);
-  background: var(--surface-1);
+  background: transparent;
 }
-.auth-card { width: min(400px, 100%); }
+/* O card recupera a legibilidade que a antiga faixa sólida dava ao formulário:
+   vidro sobre a arte, em vez de um segundo fundo colado ao primeiro. */
+.auth-card {
+  width: min(400px, 100%);
+  padding: var(--s-8);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--surface-glass);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-3);
+}
 .auth-card .brand { display: none; margin-bottom: var(--s-6); }
 .auth-form { display: grid; gap: var(--s-4); margin-top: var(--s-6); }
 .auth-foot {

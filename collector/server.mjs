@@ -4,10 +4,11 @@ import path from "node:path";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { loadCollectorEnv, collectorConfig } from "./env.mjs";
 import { collectZte } from "./zte-cli.mjs";
+import { collectIxc } from "./ixc-client.mjs";
 
 await loadCollectorEnv();
 const config = collectorConfig();
-const state = { clients: [], boxes: [], alerts: [], syncedAt: null, syncing: null, errors: [] };
+const state = { clients: [], boxes: [], alerts: [], syncedAt: null, syncing: null, errors: [], ixc: null, ixcStats: null };
 
 const safeEqual = (a, b) => {
   const digest = (value) => createHash("sha256").update(String(value)).digest();
@@ -29,17 +30,28 @@ async function sync() {
   if (state.syncing) return state.syncing;
   state.syncing = (async () => {
     const mapping = await loadMap(), collected = [], errors = [];
-    const results = await Promise.allSettled(config.devices.map((device) => collectZte(device)));
+    const [results, ixcResult] = await Promise.all([
+      Promise.allSettled(config.devices.map((device) => collectZte(device))),
+      collectIxc(config.ixc).then((value) => ({ value }), (error) => ({ error })),
+    ]);
     results.forEach((result, index) => {
       if (result.status === "fulfilled") collected.push(...result.value);
       else errors.push({ olt_id: config.devices[index].id, message: result.reason?.message || String(result.reason) });
     });
-    state.clients = collected.map((client) => ({ ...client, ...(mapping[`${client.olt_id}|${client.onu_index}`] || {}) }));
-    state.boxes = Array.isArray(mapping.boxes) ? mapping.boxes : [];
+    if (ixcResult.value) { state.ixc = ixcResult.value; state.ixcStats = ixcResult.value.stats; }
+    else errors.push({ source: "IXC", message: ixcResult.error?.message || String(ixcResult.error) });
+    let matchedIxc = 0;
+    state.clients = collected.map((client) => {
+      const ixc = state.ixc?.match(client);
+      if (ixc) matchedIxc += 1;
+      return { ...client, ...(ixc || {}), ...(mapping[`${client.olt_id}|${client.onu_index}`] || {}) };
+    });
+    state.boxes = Array.isArray(mapping.boxes) && mapping.boxes.length ? mapping.boxes : (state.ixc?.boxes || []);
+    state.ixcStats = state.ixcStats ? { ...state.ixcStats, matchedOnus: matchedIxc } : null;
     state.errors = errors;
     state.alerts = [
       ...state.clients.filter((c) => c.status !== "online").map((c) => ({ level: "warning", client_id: c.id, title: `${c.name} — ${c.state_detail}`, detail: `${c.olt_id} • ${c.onu_index}` })),
-      ...errors.map((e) => ({ level: "critical", title: `Falha ao consultar ${e.olt_id}`, detail: e.message })),
+      ...errors.map((e) => ({ level: "critical", title: `Falha ao consultar ${e.olt_id || e.source}`, detail: e.message })),
     ];
     state.syncedAt = new Date().toISOString();
     return state;
@@ -61,7 +73,7 @@ const server = http.createServer(async (request, response) => {
   if (!authorized(request)) { response.statusCode = 401; return response.end(JSON.stringify({ error: "UNAUTHORIZED" })); }
   try {
     if (!state.syncedAt) await sync();
-    response.end(JSON.stringify({ source: "Coletor ZTE C300/C350", synced_at: state.syncedAt, clients: state.clients, boxes: state.boxes, alerts: state.alerts }));
+    response.end(JSON.stringify({ source: "Coletor ZTE + IXC Provedor", synced_at: state.syncedAt, ixc: state.ixcStats, clients: state.clients, boxes: state.boxes, alerts: state.alerts }));
   } catch (error) {
     response.statusCode = 503; response.end(JSON.stringify({ error: "COLLECTOR_UNAVAILABLE" }));
   }
