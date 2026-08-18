@@ -822,13 +822,50 @@ table.table { width: 100%; border-collapse: collapse; }
   overflow: hidden auto;
 }
 .nav { display: grid; gap: 2px; }
-.nav-label {
-  padding: var(--s-4) var(--s-3) var(--s-2);
-  font-size: var(--fs-10);
+.nav-sector {
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.nav-sector[open] {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-2) 48%, transparent);
+}
+.nav-sector-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 42px;
+  padding: 0 var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  font-size: var(--fs-11);
   font-weight: 800;
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.nav-sector-trigger::-webkit-details-marker { display: none; }
+.nav-sector-trigger:hover { background: var(--surface-2); color: var(--text-1); }
+.nav-sector-trigger .icon:first-child { color: var(--cyan-400); }
+.nav-sector-chevron {
+  margin-left: auto;
+  transition: transform var(--dur-1) var(--ease);
+}
+.nav-sector[open] > .nav-sector-trigger .nav-sector-chevron { transform: rotate(180deg); }
+.nav-sector-menu {
+  display: grid;
+  gap: 2px;
+  margin: 0 var(--s-2) var(--s-2) var(--s-4);
+  padding-left: var(--s-2);
+  border-left: 1px solid var(--line);
+}
+.nav-sector-empty {
+  padding: var(--s-2) var(--s-3) var(--s-3);
   color: var(--text-3);
+  font-size: var(--fs-11);
 }
 .nav-item {
   position: relative;
@@ -863,9 +900,18 @@ table.table { width: 100%; border-collapse: collapse; }
 .nav-item .badge { margin-left: auto; }
 
 .shell.is-collapsed .sidebar { padding: var(--s-3) var(--s-2); }
+.shell.is-collapsed .nav-sector:not([data-sector="noc"]) { display: none; }
+.shell.is-collapsed .nav-sector[data-sector="noc"] { border: 0; background: transparent; }
+.shell.is-collapsed .nav-sector[data-sector="noc"] > .nav-sector-trigger { display: none; }
+.shell.is-collapsed .nav-sector[data-sector="noc"] > .nav-sector-menu {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .shell.is-collapsed .nav-item { justify-content: center; padding: 0; }
 .shell.is-collapsed .nav-item > :not(.icon) { display: none; }
-.shell.is-collapsed .nav-label, .shell.is-collapsed .sidebar-foot { display: none; }
+.shell.is-collapsed .sidebar-foot { display: none; }
 
 .sidebar-foot { margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line); }
 

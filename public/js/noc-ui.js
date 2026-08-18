@@ -194,28 +194,33 @@ window.UI = (() => {
   /* O menu é montado a partir das telas liberadas para o perfil (/api/access).
      Esta lista é só o desenho inicial, usada enquanto o acesso não chega. */
   const NAV_PADRAO = [
-    { code: "network", label: "Topologia", href: "/", icon: "topology", desc: "Mapa por localidade, equipamentos e portas" },
-    { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", desc: "Mapa da topologia da rede GPON" },
-    { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", desc: "Mapa por cliente ISP, equipamentos e portas" },
-    { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "pops", desc: "Clientes ISP e caminhos de fibra no mapa" },
-    { code: "isp-cadastro", label: "Cadastro de ISP", href: "/isp-cadastro.html", icon: "users", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },
-    { code: "pops", label: "POPs e anel óptico", href: "/pops.html", icon: "pops", desc: "Inventário por POP e rotas ópticas" },
-    { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", desc: "Painel operacional para TV" },
-    { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", desc: "Perfis, ações, telas, usuários e auditoria" },
+    { code: "network", label: "Topologia", href: "/", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
+    { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", sector: "noc", desc: "Mapa da topologia da rede GPON" },
+    { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
+    { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "pops", sector: "noc", desc: "Clientes ISP e caminhos de fibra no mapa" },
+    { code: "isp-cadastro", label: "Cadastro de ISP", href: "/isp-cadastro.html", icon: "users", sector: "noc", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },
+    { code: "pops", label: "POPs e anel óptico", href: "/pops.html", icon: "pops", sector: "noc", desc: "Inventário por POP e rotas ópticas" },
+    { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", sector: "noc", desc: "Painel operacional para TV" },
+    { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", sector: "noc", desc: "Perfis, ações, telas, usuários e auditoria" },
   ];
 
-  // Telas de apoio ficam no grupo "Ferramentas" do menu lateral.
-  const TELAS_FERRAMENTA = new Set(["legado"]);
-  const TELAS_GPON = new Set(["gpon"]);
-  // A PARTE ISP é um grupo próprio no menu: topologia e mapa de fibra.
-  const TELAS_ISP = new Set(["isp", "isp-mapa", "isp-cadastro"]);
+  /* Setores fixos do menu. As telas existentes (incluindo GPON e ISP) ficam
+     reunidas em NOC; os demais blocos já estão prontos para receber telas. */
+  const SETORES = [
+    { code: "atendimento", label: "Atendimento", icon: "user" },
+    { code: "logistica", label: "Logística", icon: "pops" },
+    { code: "comercial", label: "Comercial", icon: "dashboard" },
+    { code: "sac", label: "SAC", icon: "bell" },
+    { code: "analista", label: "Analista", icon: "platform" },
+    { code: "noc", label: "NOC", icon: "topology" },
+  ];
 
   function NAV() {
     const telas = window.UPDOWN_ACCESS?.screens;
     if (!Array.isArray(telas) || !telas.length) return NAV_PADRAO;
     return telas
       .filter((s) => s.nav !== 0 && s.route)
-      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", desc: s.description || "" }));
+      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", sector: s.sector || "noc", desc: s.description || "" }));
   }
 
   // A tela atual é reconhecida pela rota, e não por um id fixo em cada página.
@@ -286,25 +291,33 @@ window.UI = (() => {
   /* Monta o menu lateral e o inferior com as telas liberadas para o perfil. */
   function renderNav() {
     const itens = NAV();
-    const operacao = itens.filter((n) => !TELAS_FERRAMENTA.has(n.code) && !TELAS_GPON.has(n.code) && !TELAS_ISP.has(n.code));
-    const gpon = itens.filter((n) => TELAS_GPON.has(n.code));
-    const isp = itens.filter((n) => TELAS_ISP.has(n.code));
-    const ferramentas = itens.filter((n) => TELAS_FERRAMENTA.has(n.code));
+    const porSetor = new Map(SETORES.map((setor) => [setor.code, []]));
+    itens.forEach((n) => (porSetor.get(n.sector) || porSetor.get("noc")).push(n));
     const item = (n) => `
       <a class="nav-item" data-nav="${n.code}" data-code="${n.code}" href="${n.href}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
         ${icon(n.icon)}<span>${esc(n.label)}</span>
       </a>`;
+    const setor = (s) => {
+      const menus = porSetor.get(s.code) || [];
+      const contemTelaAtual = menus.some((n) => ehAtual(n.href));
+      const aberto = s.code === "noc" || contemTelaAtual;
+      return `
+        <details class="nav-sector" data-sector="${s.code}" ${aberto ? "open" : ""}>
+          <summary class="nav-sector-trigger">
+            ${icon(s.icon)}<span>${esc(s.label)}</span>${icon("chevronDown", "icon nav-sector-chevron")}
+          </summary>
+          <div class="nav-sector-menu">
+            ${menus.length ? menus.map(item).join("") : '<span class="nav-sector-empty">Nenhum menu cadastrado</span>'}
+          </div>
+        </details>`;
+    };
 
     const side = $("[data-sidebar]");
     if (side) {
       side.className = "sidebar";
       side.innerHTML = `
         <nav class="nav" aria-label="Navegação principal">
-          <span class="nav-label">NOC</span>
-          ${operacao.map(item).join("")}
-          ${gpon.length ? `<span class="nav-label">GPON</span>${gpon.map(item).join("")}` : ""}
-          ${isp.length ? `<span class="nav-label">PARTE ISP</span>${isp.map(item).join("")}` : ""}
-          ${ferramentas.length ? `<span class="nav-label">Ferramentas</span>${ferramentas.map(item).join("")}` : ""}
+          ${SETORES.map(setor).join("")}
         </nav>
         <div class="sidebar-foot stack" style="gap:var(--s-3)">
           <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
@@ -315,7 +328,7 @@ window.UI = (() => {
     const mobile = $("[data-mobile-nav]");
     if (mobile) {
       mobile.className = "mobile-nav";
-      mobile.innerHTML = [...operacao, ...gpon, ...isp].map((n) => `
+      mobile.innerHTML = itens.map((n) => `
         <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${esc(n.label.split(" ")[0])}</span></a>`).join("");
     }
   }
