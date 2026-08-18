@@ -8,7 +8,8 @@ import { collectIxc } from "./ixc-client.mjs";
 
 await loadCollectorEnv();
 const config = collectorConfig();
-const state = { clients: [], boxes: [], alerts: [], syncedAt: null, syncing: null, errors: [], ixc: null, ixcStats: null };
+const state = { clients: [], boxes: [], alerts: [], syncedAt: null, syncing: null, errors: [],
+  ixc: null, ixcStats: null, ixcSyncedAt: 0, publishedStatus: new Map(), hasSnapshot: false };
 
 const safeEqual = (a, b) => {
   const digest = (value) => createHash("sha256").update(String(value)).digest();
@@ -37,19 +38,42 @@ async function pushSnapshot() {
   if (!response.ok) throw new Error(`Worker GPON: HTTP ${response.status}`);
 }
 
+const statusSignature = (client) => JSON.stringify([
+  client.status || "unknown", client.state_detail || "", client.rx_power ?? null, client.tx_power ?? null
+]);
+
+async function pushStatus() {
+  const changes = state.clients.filter((client) => state.publishedStatus.get(client.id) !== statusSignature(client)).map((client) => ({
+    id: client.id, status: client.status, state_detail: client.state_detail,
+    rx_power: client.rx_power ?? null, tx_power: client.tx_power ?? null,
+  }));
+  if (!changes.length) return;
+  const response = await fetch(config.pushUrl.replace(/\/ingest$/, "/status"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.pushToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ synced_at: state.syncedAt, changes }), signal: AbortSignal.timeout(60000),
+  });
+  if (!response.ok) throw new Error(`Worker GPON status: HTTP ${response.status}`);
+  changes.forEach((change) => state.publishedStatus.set(change.id, statusSignature(change)));
+}
+
 async function sync() {
   if (state.syncing) return state.syncing;
   state.syncing = (async () => {
     const mapping = await loadMap(), collected = [], errors = [];
+    const refreshIxc = !state.ixc || Date.now() - state.ixcSyncedAt >= config.ixcIntervalMs;
     const [results, ixcResult] = await Promise.all([
       Promise.allSettled(config.devices.map((device) => collectZte(device))),
-      collectIxc(config.ixc).then((value) => ({ value }), (error) => ({ error })),
+      refreshIxc ? collectIxc(config.ixc).then((value) => ({ value }), (error) => ({ error })) : Promise.resolve({ value: state.ixc }),
     ]);
     results.forEach((result, index) => {
       if (result.status === "fulfilled") collected.push(...result.value);
       else errors.push({ olt_id: config.devices[index].id, message: result.reason?.message || String(result.reason) });
     });
-    if (ixcResult.value) { state.ixc = ixcResult.value; state.ixcStats = ixcResult.value.stats; }
+    if (ixcResult.value) {
+      state.ixc = ixcResult.value; state.ixcStats = ixcResult.value.stats;
+      if (refreshIxc) state.ixcSyncedAt = Date.now();
+    }
     else errors.push({ source: "IXC", message: ixcResult.error?.message || String(ixcResult.error) });
     let matchedIxc = 0;
     state.clients = collected.map((client) => {
@@ -65,7 +89,13 @@ async function sync() {
       ...errors.map((e) => ({ level: "critical", title: `Falha ao consultar ${e.olt_id || e.source}`, detail: e.message })),
     ];
     state.syncedAt = new Date().toISOString();
-    try { await pushSnapshot(); }
+    try {
+      if (!state.hasSnapshot || refreshIxc) {
+        await pushSnapshot();
+        state.publishedStatus = new Map(state.clients.map((client) => [client.id, statusSignature(client)]));
+        state.hasSnapshot = true;
+      } else await pushStatus();
+    }
     catch (error) {
       const item = { source: "Worker GPON", message: error?.message || String(error) };
       state.errors.push(item);

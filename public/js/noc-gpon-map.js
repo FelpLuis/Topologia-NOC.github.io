@@ -50,6 +50,15 @@
     bindMap();
     new ResizeObserver(() => renderMap()).observe($("#gponMap"));
     load(false);
+    setInterval(refreshIfChanged, 10000);
+  }
+
+  async function refreshIfChanged() {
+    if (!state.feed.configured) return load(false);
+    try {
+      const revision = await NOC.api("/api/gpon/revision");
+      if (revision.synced_at && revision.synced_at !== state.feed.synced_at) await load(false);
+    } catch {}
   }
 
   async function load(manual) {

@@ -36,7 +36,8 @@ export function collectorConfig() {
     token: required("COLLECTOR_TOKEN"),
     pushUrl: required("GPON_PUSH_URL"),
     pushToken: String(process.env.GPON_PUSH_TOKEN || required("COLLECTOR_TOKEN")),
-    intervalMs: Math.max(60000, Number(process.env.COLLECTOR_INTERVAL_MS || 300000)),
+    intervalMs: Math.max(10000, Number(process.env.COLLECTOR_INTERVAL_MS || 10000)),
+    ixcIntervalMs: Math.max(60000, Number(process.env.IXC_REFRESH_INTERVAL_MS || 600000)),
     devices: [device("ZTE_C350"), device("ZTE_C300")],
     ixc: {
       baseUrl: required("IXC_BASE_URL").replace(/\/+$/, ""),

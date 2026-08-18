@@ -221,6 +221,15 @@ CREATE TABLE IF NOT EXISTS gpon_snapshot_chunks (
   PRIMARY KEY(version, chunk_index)
 );
 
+CREATE TABLE IF NOT EXISTS gpon_client_status (
+  client_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  state_detail TEXT NOT NULL DEFAULT '',
+  rx_power REAL,
+  tx_power REAL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS zabbix_hosts (
   hostid TEXT PRIMARY KEY,
   host TEXT NOT NULL,
@@ -3505,7 +3514,23 @@ async function loadGponSnapshot(env) {
     SELECT data_text FROM gpon_snapshot_chunks WHERE version=? ORDER BY chunk_index
   `).bind(meta.version).all()).results || [];
   if (rows.length !== Number(meta.chunk_count)) throw new Error("GPON_SNAPSHOT_INCOMPLETE");
-  return JSON.parse(rows.map(row => row.data_text).join(""));
+  const data = JSON.parse(rows.map(row => row.data_text).join(""));
+  const statusRows = (await db.prepare(`
+    SELECT client_id,status,state_detail,rx_power,tx_power FROM gpon_client_status
+  `).all()).results || [];
+  if (statusRows.length && Array.isArray(data.clients)) {
+    const byId = new Map(statusRows.map(row => [String(row.client_id), row]));
+    data.clients = data.clients.map(client => {
+      const status = byId.get(String(client.id));
+      return status ? { ...client, status: status.status, state_detail: status.state_detail,
+        rx_power: status.rx_power, tx_power: status.tx_power } : client;
+    });
+    data.alerts = data.clients.filter(client => String(client.status).toLowerCase() !== "online").map(client => ({
+      level: "warning", client_id: client.id, title: `${client.name} — ${client.state_detail || client.status}`,
+      detail: `${client.olt_id || "OLT"} • ${client.onu_index || "ONU"}`
+    }));
+  }
+  return data;
 }
 
 async function handleGponIngest(env, request) {
@@ -3546,7 +3571,42 @@ async function handleGponIngest(env, request) {
     String(data.synced_at || new Date().toISOString()).slice(0, 40), chunks.length,
     new TextEncoder().encode(serialized).byteLength, clients.length, boxes.length, alerts.length).run();
   await db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version).run();
+  await db.prepare(`DELETE FROM gpon_client_status`).run();
   return json({ ok: true, clients: clients.length, boxes: boxes.length, alerts: alerts.length });
+}
+
+async function handleGponStatusIngest(env, request) {
+  const expected = String(env.GPON_SYNC_TOKEN || "");
+  const authorization = String(request.headers.get("Authorization") || "");
+  if (!expected || !(await timingSafeEqual(authorization, `Bearer ${expected}`))) return json({ error: "UNAUTHORIZED" }, 401);
+  let data;
+  try { data = await readJson(request, 4 * 1024 * 1024); }
+  catch (error) { return json({ error: error?.message === "BODY_TOO_LARGE" ? "BODY_TOO_LARGE" : "INVALID_JSON" }, 400); }
+  if (!Array.isArray(data?.changes) || data.changes.length > 30000) return json({ error: "INVALID_GPON_STATUS" }, 400);
+  const rows = data.changes.map(change => ({
+    id: String(change?.id || "").slice(0, 160), status: String(change?.status || "unknown").slice(0, 40),
+    detail: String(change?.state_detail || "").slice(0, 160),
+    rx: numeroGpon(change?.rx_power), tx: numeroGpon(change?.tx_power)
+  })).filter(row => row.id);
+  const db = getDB(env);
+  for (let index = 0; index < rows.length; index += 100) {
+    await db.batch(rows.slice(index, index + 100).map(row => db.prepare(`
+      INSERT INTO gpon_client_status(client_id,status,state_detail,rx_power,tx_power,updated_at)
+      VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+      ON CONFLICT(client_id) DO UPDATE SET status=excluded.status,state_detail=excluded.state_detail,
+        rx_power=excluded.rx_power,tx_power=excluded.tx_power,updated_at=CURRENT_TIMESTAMP
+    `).bind(row.id, row.status, row.detail, row.rx, row.tx)));
+  }
+  if (rows.length) await db.prepare(`UPDATE gpon_snapshot_state SET synced_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`)
+    .bind(String(data.synced_at || new Date().toISOString()).slice(0, 40)).run();
+  return json({ ok: true, changes: rows.length });
+}
+
+async function handleGponRevision(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+  const row = await getDB(env).prepare(`SELECT version,synced_at,updated_at FROM gpon_snapshot_state WHERE id=1`).first();
+  return json(row || { version: null, synced_at: null, updated_at: null });
 }
 
 async function handleTopologyPermissions(env,request){
@@ -3734,6 +3794,12 @@ export default {
 
         if (url.pathname === "/api/gpon/ingest" && request.method === "POST")
           return await handleGponIngest(env,request);
+
+        if (url.pathname === "/api/gpon/status" && request.method === "POST")
+          return await handleGponStatusIngest(env,request);
+
+        if (url.pathname === "/api/gpon/revision" && request.method === "GET")
+          return await handleGponRevision(env,request);
 
         if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
           return await handleTrafegoSettings(env,request);

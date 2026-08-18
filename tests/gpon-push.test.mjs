@@ -8,5 +8,8 @@ test("rota GPON aceita ingestão protegida e usa snapshot como fonte", () => {
   assert.match(worker, /await timingSafeEqual\(authorization/);
   assert.match(worker, /gpon_snapshot_chunks/);
   assert.match(worker, /\/api\/gpon\/ingest/);
+  assert.match(worker, /\/api\/gpon\/status/);
+  assert.match(worker, /gpon_client_status/);
+  assert.match(worker, /\/api\/gpon\/revision/);
   assert.match(worker, /loadGponSnapshot/);
 });
