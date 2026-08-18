@@ -95,6 +95,7 @@ export function buildIxcInventory({ customers, contracts, logins, fiberClients, 
       const transmitter = transmitterById.get(text(fiber.id_transmissor));
       return {
         ixc_id: text(customer?.id), fiber_id: text(fiber.id), contract_id: text(contract?.id),
+        ixc_login_id: text(login?.id),
         contract_status: text(contract?.status),
         name: text(customer?.razao) || text(customer?.fantasia) || text(fiber.nome) || client.name,
         username: text(login?.login), ip: text(login?.ip),
@@ -117,4 +118,9 @@ export async function collectIxc(config) {
     fetchAll(config, "radpop_radio_cliente_fibra"), fetchAll(config, "rad_caixa_ftth"), fetchAll(config, "radpop_radio"),
   ]);
   return buildIxcInventory({ customers, contracts, logins, fiberClients, boxes, transmitters });
+}
+
+export async function collectIxcLoginStatuses(config) {
+  const logins = await fetchAll(config, "radusuarios");
+  return new Map(logins.map((login) => [text(login.id), text(login.online).toLowerCase()]));
 }

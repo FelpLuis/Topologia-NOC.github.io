@@ -143,6 +143,20 @@
       renderFilters();
       renderAll();
     }));
+    syncFilterButton();
+  }
+
+  function syncFilterButton() {
+    const button = $("#toggleFilters");
+    if (!button) return;
+    const count = state.cats.size + (state.query ? 1 : 0);
+    const badge = $("#activeFilterCount");
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    button.classList.toggle("has-active", count > 0);
+    button.title = count
+      ? `${count} filtro${count === 1 ? " ativo" : "s ativos"}`
+      : "Mostrar filtros de equipamentos";
   }
 
   function renderList() {
@@ -2493,7 +2507,7 @@
                 <button class="btn btn-primary" type="submit" ${podeCriarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.create'"}>Criar POP</button>
               </form>
               ${semCoord ? `<div class="alert alert-info" style="animation:none">${icon("info")}
-                <span><b>${semCoord} POP(s) sem localização.</b> Sem latitude e longitude eles não aparecem no modo “Mapa OSM” —
+                <span><b>${semCoord} POP(s) sem localização.</b> Sem latitude e longitude eles não aparecem no modo “Mapa” —
                 use <b>Editar</b> abaixo para cadastrar, ou arraste o POP no mapa com “Definir localização”.</span></div>` : ""}
               <div class="table-wrap"><table class="table">
                 <thead><tr><th>POP</th><th>Localização</th><th>Rotas</th><th class="num">Equip.</th><th class="num">Portas</th><th></th></tr></thead>
@@ -2622,7 +2636,7 @@
               titulo: "POP criado",
               texto: coords
                 ? `${nome} já pode receber equipamentos e aparece no mapa em ${GEO.label(coords.lat, coords.lon)}.`
-                : `${nome} já pode receber equipamentos. Cadastre a localização para vê-lo no mapa OSM.`,
+                : `${nome} já pode receber equipamentos. Cadastre a localização para vê-lo no mapa.`,
             });
             if (!ok) NOC.data().pops = NOC.data().pops.filter((p) => p.id !== novo.id);
             paint();
@@ -2818,6 +2832,7 @@
     $("#zoomOut").innerHTML = icon("zoomOut");
     $("#zoomFit").innerHTML = icon("fit");
     $("#toggleSide").innerHTML = icon("chevronLeft");
+    if ($("#filterButtonIcon")) $("#filterButtonIcon").innerHTML = icon("filter");
     $("#btnManage").innerHTML = icon("plus") + " Gerenciar rede";
 
     NOC.skeleton($("#deviceList"), 5);
@@ -2860,12 +2875,28 @@
       }, 160);
     });
 
-    $("#deviceSearch").addEventListener("input", (e) => { state.query = e.target.value.trim().toLowerCase(); renderAll(); });
+    $("#deviceSearch").addEventListener("input", (e) => {
+      state.query = e.target.value.trim().toLowerCase();
+      syncFilterButton();
+      renderAll();
+    });
     $("#clearFilters").onclick = () => {
       state.query = ""; state.cats.clear();
       $("#deviceSearch").value = "";
       renderFilters(); renderAll();
     };
+    const filterButton = $("#toggleFilters");
+    const filterPanel = $("#filterPanel");
+    if (filterButton && filterPanel) {
+      filterButton.onclick = () => {
+        const open = filterButton.getAttribute("aria-expanded") !== "true";
+        filterButton.setAttribute("aria-expanded", String(open));
+        filterPanel.classList.toggle("is-open", open);
+        filterPanel.setAttribute("aria-hidden", String(!open));
+        filterPanel.inert = !open;
+        if (open) setTimeout(() => $("#deviceSearch").focus(), 180);
+      };
+    }
     /* Em tela estreita a lista é um painel sobreposto ao mapa, e o estado
        inicial dela é fechado — abrir por cima do mapa assim que a tela carrega
        esconderia justamente o que a pessoa veio ver. No desktop ela continua

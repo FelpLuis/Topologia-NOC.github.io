@@ -4,12 +4,12 @@ import path from "node:path";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { loadCollectorEnv, collectorConfig } from "./env.mjs";
 import { collectZte } from "./zte-cli.mjs";
-import { collectIxc } from "./ixc-client.mjs";
+import { collectIxc, collectIxcLoginStatuses } from "./ixc-client.mjs";
 
 await loadCollectorEnv();
 const config = collectorConfig();
 const state = { clients: [], boxes: [], alerts: [], syncedAt: null, syncing: null, errors: [],
-  ixc: null, ixcStats: null, ixcSyncedAt: 0, publishedStatus: new Map(), hasSnapshot: false };
+  ixc: null, ixcStats: null, ixcSyncedAt: 0, publishedStatus: new Map(), hasSnapshot: false, fastSyncing: null };
 
 const safeEqual = (a, b) => {
   const digest = (value) => createHash("sha256").update(String(value)).digest();
@@ -57,7 +57,7 @@ async function pushStatus() {
   changes.forEach((change) => state.publishedStatus.set(change.id, statusSignature(change)));
 }
 
-async function sync() {
+async function syncFull() {
   if (state.syncing) return state.syncing;
   state.syncing = (async () => {
     const mapping = await loadMap(), collected = [], errors = [];
@@ -94,6 +94,7 @@ async function sync() {
         await pushSnapshot();
         state.publishedStatus = new Map(state.clients.map((client) => [client.id, statusSignature(client)]));
         state.hasSnapshot = true;
+        state.errors = state.errors.filter((entry) => !["Worker GPON", "IXC Radius"].includes(entry.source));
       } else await pushStatus();
     }
     catch (error) {
@@ -106,8 +107,33 @@ async function sync() {
   return state.syncing;
 }
 
+const radiusStatus = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (/^(s|sim|1|true|online|yes)$/.test(normalized)) return "online";
+  if (/^(n|nao|não|0|false|offline|no)$/.test(normalized)) return "offline";
+  return null;
+};
+
+async function syncFast() {
+  if (state.fastSyncing || state.syncing || !state.clients.length || !state.hasSnapshot) return state.fastSyncing || state.syncing;
+  state.fastSyncing = (async () => {
+    const statuses = await collectIxcLoginStatuses(config.ixc);
+    state.clients = state.clients.map((client) => {
+      const status = radiusStatus(statuses.get(String(client.ixc_login_id || "")));
+      return status ? { ...client, status, state_detail: status === "online" ? "Radius online" : "Radius offline" } : client;
+    });
+    state.syncedAt = new Date().toISOString();
+    await pushStatus();
+    state.errors = state.errors.filter((entry) => !["Worker GPON", "IXC Radius"].includes(entry.source));
+  })().catch((error) => {
+    const item = { source: "IXC Radius", message: error?.message || String(error) };
+    state.errors = [...state.errors.filter((entry) => entry.source !== item.source), item];
+  }).finally(() => { state.fastSyncing = null; });
+  return state.fastSyncing;
+}
+
 if (process.argv.includes("--once")) {
-  await sync();
+  await syncFull();
   console.log(JSON.stringify({ synced_at: state.syncedAt, clients: state.clients.length, errors: state.errors }, null, 2));
   process.exit(state.errors.length ? 1 : 0);
 }
@@ -115,11 +141,11 @@ if (process.argv.includes("--once")) {
 const server = http.createServer(async (request, response) => {
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("Cache-Control", "no-store");
-  if (request.url === "/health") return response.end(JSON.stringify({ ok: true, syncing: Boolean(state.syncing), synced_at: state.syncedAt, errors: state.errors }));
+  if (request.url === "/health") return response.end(JSON.stringify({ ok: true, syncing: Boolean(state.syncing || state.fastSyncing), full_syncing: Boolean(state.syncing), fast_syncing: Boolean(state.fastSyncing), synced_at: state.syncedAt, clients: state.clients.length, boxes: state.boxes.length, errors: state.errors }));
   if (request.url !== "/api/gpon/clientes") { response.statusCode = 404; return response.end(JSON.stringify({ error: "NOT_FOUND" })); }
   if (!authorized(request)) { response.statusCode = 401; return response.end(JSON.stringify({ error: "UNAUTHORIZED" })); }
   try {
-    if (!state.syncedAt) await sync();
+    if (!state.syncedAt) await syncFull();
     response.end(JSON.stringify({ source: "Coletor ZTE + IXC Provedor", synced_at: state.syncedAt, ixc: state.ixcStats, clients: state.clients, boxes: state.boxes, alerts: state.alerts }));
   } catch (error) {
     response.statusCode = 503; response.end(JSON.stringify({ error: "COLLECTOR_UNAVAILABLE" }));
@@ -128,9 +154,13 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(config.port, config.host, () => {
   console.log(JSON.stringify({ message: "Coletor GPON iniciado", address: `${config.host}:${config.port}`, interval_ms: config.intervalMs }));
-  void sync().catch((error) => console.error(JSON.stringify({ message: "Falha na sincronização GPON", error: error?.message || String(error) })));
+  void syncFull().catch((error) => console.error(JSON.stringify({ message: "Falha na sincronização GPON", error: error?.message || String(error) })));
 });
 const timer = setInterval(() => {
-  void sync().catch((error) => console.error(JSON.stringify({ message: "Falha na sincronização GPON", error: error?.message || String(error) })));
+  void syncFast();
 }, config.intervalMs);
 timer.unref();
+const fullTimer = setInterval(() => {
+  void syncFull().catch((error) => console.error(JSON.stringify({ message: "Falha na sincronização completa GPON", error: error?.message || String(error) })));
+}, config.ixcIntervalMs);
+fullTimer.unref();
