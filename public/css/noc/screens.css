@@ -215,6 +215,8 @@
   height: calc(100dvh - var(--appbar-h) - var(--mobile-nav-h));
 }
 .topo-toolbar {
+  position: relative;
+  z-index: 12;
   display: flex;
   align-items: center;
   gap: var(--s-3);
@@ -244,16 +246,40 @@
   text-align: center;
 }
 .topo-filter-panel {
-  flex: 0 0 100%;
+  position: absolute;
+  z-index: 13;
+  top: 100%;
+  left: 0;
+  right: 0;
   display: grid;
   grid-template-rows: 0fr;
-  margin-top: calc(var(--s-2) * -1);
+  padding: 0 var(--s-5);
+  background: var(--surface-glass);
+  border-bottom: 1px solid transparent;
+  box-shadow: none;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  visibility: hidden;
+  pointer-events: none;
   transition: grid-template-rows var(--dur-2) var(--ease-out),
-              margin-top var(--dur-2) var(--ease-out);
+              padding var(--dur-2) var(--ease-out),
+              border-color var(--dur-2) var(--ease-out),
+              box-shadow var(--dur-2) var(--ease-out),
+              visibility 0s var(--dur-2);
 }
 .topo-filter-panel.is-open {
   grid-template-rows: 1fr;
-  margin-top: 0;
+  padding-top: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom-color: var(--line-strong);
+  box-shadow: var(--shadow-3);
+  visibility: visible;
+  pointer-events: auto;
+  transition: grid-template-rows var(--dur-2) var(--ease-out),
+              padding var(--dur-2) var(--ease-out),
+              border-color var(--dur-2) var(--ease-out),
+              box-shadow var(--dur-2) var(--ease-out),
+              visibility 0s;
 }
 .topo-filter-panel-inner {
   min-height: 0;
@@ -265,9 +291,7 @@
   transition: padding-top var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out);
 }
 .topo-filter-panel.is-open .topo-filter-panel-inner {
-  padding-top: var(--s-3);
-  border-top-width: 1px;
-  border-top-color: var(--line);
+  border-top-color: transparent;
 }
 .topo-filter-search { flex: 0 1 280px; min-width: 220px; }
 .topo-filter-categories { flex: 1 1 420px; gap: 6px; }
@@ -323,7 +347,17 @@
   grid-template-columns: 312px minmax(0, 1fr);
   min-height: 0;
 }
-.topology-no-sidebar .topo-main { grid-template-columns: minmax(0, 1fr); }
+.topology-no-sidebar .topo-main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.topology-no-sidebar .topo-stage,
+.topology-no-sidebar #listView {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .topo-main.is-side-hidden { grid-template-columns: minmax(0, 1fr); }
 .topo-main.is-side-hidden .topo-side { display: none; }
 .topo-side {
@@ -557,30 +591,35 @@
 }
 .topo-legend {
   position: absolute;
-  left: 50%;
+  left: var(--s-4);
+  right: 190px;
   bottom: var(--s-4);
-  transform: translateX(-50%);
   padding: var(--s-3) var(--s-4);
   border-radius: var(--r-md);
   font-size: var(--fs-11);
   color: var(--text-2);
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--s-4);
   white-space: nowrap;
+  overflow-x: auto;
+  width: max-content;
+  max-width: calc(100% - 222px);
 }
 .topo-legend .row { gap: var(--s-2); }
 
 @media (max-width: 760px) {
   .topo-legend {
     left: var(--s-3);
-    right: var(--s-3);
+    right: 150px;
     bottom: var(--s-3);
-    transform: none;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: var(--s-2) var(--s-4);
-    white-space: normal;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: var(--s-4);
+    white-space: nowrap;
+    width: auto;
+    max-width: none;
   }
 }
 
