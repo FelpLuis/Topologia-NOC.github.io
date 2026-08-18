@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS google_calendar_connections (
   google_account_id TEXT,
   google_email TEXT NOT NULL DEFAULT '',
   refresh_token_ciphertext TEXT NOT NULL,
+  access_token_ciphertext TEXT,
+  access_token_expires_at INTEGER,
   calendars_json TEXT NOT NULL DEFAULT '[]',
   alert_minutes INTEGER NOT NULL DEFAULT 10 CHECK(alert_minutes BETWEEN 0 AND 1440),
   active INTEGER NOT NULL DEFAULT 1,
@@ -839,6 +841,10 @@ async function ensureDatabaseImpl(env) {
     ["screen_code", "TEXT"],
     ["sort", "INTEGER NOT NULL DEFAULT 0"]
   ]);
+  await ensureColumns(db, "google_calendar_connections", [
+    ["access_token_ciphertext", "TEXT"],
+    ["access_token_expires_at", "INTEGER"]
+  ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -1440,8 +1446,13 @@ function clearGoogleCalendarStateCookie() {
   return `${GOOGLE_CALENDAR_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+function googleCalendarReady(env) {
+  const key = String(env.GOOGLE_CALENDAR_TOKEN_KEY || "").trim().replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, (_, double, single) => double ?? single);
+  return googleCalendarEnabled(env) && key.length >= 32;
+}
+
 async function handleGoogleCalendarStart(env, request) {
-  if (!googleCalendarEnabled(env)) return json({ error: "GOOGLE_CALENDAR_NOT_CONFIGURED" }, 503);
+  if (!googleCalendarReady(env)) return json({ error: "GOOGLE_CALENDAR_NOT_CONFIGURED" }, 503);
   const user = await getCurrentUser(env, request);
   if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
 
@@ -1536,21 +1547,29 @@ async function handleGoogleCalendarCallback(env, request) {
       fetchGoogleCalendars(tokens.access_token)
     ]);
     const selected = calendars.filter(calendar => calendar.primary || calendar.selected).map(calendar => calendar.id);
-    const encrypted = await encryptGoogleRefreshToken(env, user.id, tokens.refresh_token);
+    const [encryptedRefreshToken, encryptedAccessToken] = await Promise.all([
+      encryptGoogleRefreshToken(env, user.id, tokens.refresh_token),
+      encryptGoogleRefreshToken(env, user.id, tokens.access_token, "access")
+    ]);
+    const accessTokenExpiresAt = Math.floor(Date.now() / 1000) + Math.max(60, Number(tokens.expires_in) || 3600);
     await db.prepare(`
       INSERT INTO google_calendar_connections
-        (user_id,google_account_id,google_email,refresh_token_ciphertext,calendars_json,active,connected_at,updated_at,last_sync_at,last_error)
-      VALUES (?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,NULL)
+        (user_id,google_account_id,google_email,refresh_token_ciphertext,access_token_ciphertext,access_token_expires_at,
+         calendars_json,active,connected_at,updated_at,last_sync_at,last_error)
+      VALUES (?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,NULL)
       ON CONFLICT(user_id) DO UPDATE SET
         google_account_id=excluded.google_account_id,
         google_email=excluded.google_email,
         refresh_token_ciphertext=excluded.refresh_token_ciphertext,
+        access_token_ciphertext=excluded.access_token_ciphertext,
+        access_token_expires_at=excluded.access_token_expires_at,
         calendars_json=excluded.calendars_json,
         active=1,
         updated_at=CURRENT_TIMESTAMP,
         last_sync_at=CURRENT_TIMESTAMP,
         last_error=NULL
-    `).bind(user.id, profile.id || null, profile.email, encrypted, JSON.stringify(selected)).run();
+    `).bind(user.id, profile.id || null, profile.email, encryptedRefreshToken, encryptedAccessToken,
+      accessTokenExpiresAt, JSON.stringify(selected.slice(0, 20))).run();
     await audit(env, request, user, "GOOGLE_CALENDAR_CONNECTED", "google_calendar", String(user.id), null, null, {
       email: profile.email,
       calendars: selected.length
@@ -1583,18 +1602,33 @@ async function handleGoogleCalendarCallback(env, request) {
 function selectedCalendarIds(row) {
   try {
     const parsed = JSON.parse(row?.calendars_json || "[]");
-    return Array.isArray(parsed) ? [...new Set(parsed.map(String).filter(Boolean))].slice(0, 50) : [];
+    return Array.isArray(parsed) ? [...new Set(parsed.map(String).filter(Boolean))].slice(0, 20) : [];
   } catch { return []; }
 }
 
 async function googleCalendarAccess(env, row) {
+  const now = Math.floor(Date.now() / 1000);
+  if (row.access_token_ciphertext && Number(row.access_token_expires_at) > now + 60) {
+    try {
+      return { access_token: await decryptGoogleRefreshToken(env, row.user_id, row.access_token_ciphertext, "access") };
+    } catch { /* tenta renovar com o refresh token abaixo */ }
+  }
   const refreshToken = await decryptGoogleRefreshToken(env, row.user_id, row.refresh_token_ciphertext);
-  return refreshGoogleAccessToken(env, refreshToken);
+  const tokens = await refreshGoogleAccessToken(env, refreshToken);
+  const encryptedAccessToken = await encryptGoogleRefreshToken(env, row.user_id, tokens.access_token, "access");
+  const expiresAt = now + Math.max(60, Number(tokens.expires_in) || 3600);
+  await getDB(env).prepare(`
+    UPDATE google_calendar_connections
+    SET access_token_ciphertext=?,access_token_expires_at=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?
+  `).bind(encryptedAccessToken, expiresAt, row.user_id).run();
+  row.access_token_ciphertext = encryptedAccessToken;
+  row.access_token_expires_at = expiresAt;
+  return tokens;
 }
 
 async function calendarConnection(env, userId) {
   return getDB(env).prepare(`
-    SELECT user_id,google_account_id,google_email,refresh_token_ciphertext,calendars_json,
+    SELECT user_id,google_account_id,google_email,refresh_token_ciphertext,access_token_ciphertext,access_token_expires_at,calendars_json,
            alert_minutes,active,connected_at,updated_at,last_sync_at,last_error
     FROM google_calendar_connections WHERE user_id=? AND active=1
   `).bind(userId).first();
@@ -1603,7 +1637,7 @@ async function calendarConnection(env, userId) {
 async function handleGoogleCalendarStatus(env, request) {
   const user = await getCurrentUser(env, request);
   if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
-  const configured = googleCalendarEnabled(env) && String(env.GOOGLE_CALENDAR_TOKEN_KEY || "").trim().length >= 32;
+  const configured = googleCalendarReady(env);
   if (!configured) return json({ configured: false, connected: false });
   const row = await calendarConnection(env, user.id);
   if (!row) return json({ configured: true, connected: false });
@@ -1649,7 +1683,7 @@ async function handleGoogleCalendarSettings(env, request) {
   if (!Number.isInteger(alertMinutes) || alertMinutes < 0 || alertMinutes > 1440) {
     return json({ error: "GOOGLE_CALENDAR_ALERT_MINUTES_INVALID" }, 400);
   }
-  if (!requested || !requested.length || requested.length > 50) {
+  if (!requested || !requested.length || requested.length > 20) {
     return json({ error: "GOOGLE_CALENDAR_SELECTION_INVALID" }, 400);
   }
 

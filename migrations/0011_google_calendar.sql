@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS google_calendar_connections (
   google_account_id TEXT,
   google_email TEXT NOT NULL DEFAULT '',
   refresh_token_ciphertext TEXT NOT NULL,
+  access_token_ciphertext TEXT,
+  access_token_expires_at INTEGER,
   calendars_json TEXT NOT NULL DEFAULT '[]',
   alert_minutes INTEGER NOT NULL DEFAULT 10 CHECK(alert_minutes BETWEEN 0 AND 1440),
   active INTEGER NOT NULL DEFAULT 1,

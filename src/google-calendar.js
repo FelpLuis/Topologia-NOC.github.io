@@ -105,26 +105,26 @@ async function calendarKey(env) {
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
-function tokenAdditionalData(userId) {
-  return encoder.encode(`updown:google-calendar:${userId}`);
+function tokenAdditionalData(userId, purpose) {
+  return encoder.encode(`updown:google-calendar:${purpose}:${userId}`);
 }
 
-export async function encryptGoogleRefreshToken(env, userId, refreshToken) {
+export async function encryptGoogleRefreshToken(env, userId, refreshToken, purpose = "refresh") {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv, additionalData: tokenAdditionalData(userId) },
+    { name: "AES-GCM", iv, additionalData: tokenAdditionalData(userId, purpose) },
     await calendarKey(env),
     encoder.encode(String(refreshToken))
   );
   return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(new Uint8Array(ciphertext))}`;
 }
 
-export async function decryptGoogleRefreshToken(env, userId, sealed) {
+export async function decryptGoogleRefreshToken(env, userId, sealed, purpose = "refresh") {
   const [version, ivValue, ciphertextValue] = String(sealed || "").split(".");
   if (version !== "v1" || !ivValue || !ciphertextValue) throw new Error("GOOGLE_CALENDAR_TOKEN_INVALID");
   try {
     const plaintext = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: base64UrlToBytes(ivValue), additionalData: tokenAdditionalData(userId) },
+      { name: "AES-GCM", iv: base64UrlToBytes(ivValue), additionalData: tokenAdditionalData(userId, purpose) },
       await calendarKey(env),
       base64UrlToBytes(ciphertextValue)
     );
@@ -188,7 +188,7 @@ function safeGoogleLink(value) {
 }
 
 export async function fetchGoogleEvents(accessToken, calendarIds, { timeMin, timeMax, maxPerCalendar = 50 } = {}) {
-  const results = await Promise.all(calendarIds.slice(0, 50).map(async calendarId => {
+  const results = await Promise.all(calendarIds.slice(0, 20).map(async calendarId => {
     const page = await googleApi(accessToken, `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
       timeMin,
       timeMax,

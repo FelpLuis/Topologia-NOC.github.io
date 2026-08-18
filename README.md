@@ -257,17 +257,21 @@ uma identidade precisa corresponder ao e-mail verificado de um usuário existent
 Depois de validar o acesso corporativo, `PASSWORD_LOGIN_ENABLED=false` desativa o
 login por senha local.
 
-### Google Agenda e alertas de compromissos
+### Conta pessoal Google e alertas de compromissos
 
 Cada usuário autenticado pode abrir o menu do perfil, escolher **Agenda Google**
-e vincular a própria conta. A integração pede somente
+e vincular a própria conta pessoal Google (`@gmail.com`). Esse vínculo é
+independente do login corporativo usado para entrar no NOC: a conta Google serve
+somente para ler as agendas e gerar os avisos. A integração pede somente
 `calendar.readonly`, permite escolher quais agendas acompanhar e mostra um
 pop-up no NOC quando o compromisso entra na antecedência configurada. Se o
 usuário autorizar, o navegador também exibe uma notificação do sistema.
 
-No Google Cloud, habilite a Google Calendar API, configure a tela de
-consentimento OAuth e crie um cliente do tipo **Aplicativo da Web**. Cadastre a
-URI de redirecionamento autorizada exatamente como:
+No Google Cloud, habilite a Google Calendar API e configure a tela de
+consentimento OAuth com o tipo de público **Externo**. O tipo **Interno** aceita
+somente contas da organização e, portanto, não serve para contas pessoais Gmail.
+Depois, crie um cliente do tipo **Aplicativo da Web** e cadastre a URI de
+redirecionamento autorizada exatamente como:
 
 ```text
 https://SEU-DOMINIO/api/calendar/google/callback
@@ -284,8 +288,8 @@ npx wrangler secret put GOOGLE_CALENDAR_TOKEN_KEY
 `GOOGLE_CALENDAR_TOKEN_KEY` precisa ter pelo menos 32 caracteres. Ela cifra os
 refresh tokens antes de gravá-los no D1 e não deve ser trocada enquanto houver
 contas vinculadas. Defina também `GOOGLE_CALENDAR_REDIRECT_URI` com a URI acima.
-Em modo de teste no Google Cloud, inclua como testadores os usuários que poderão
-vincular suas contas.
+Enquanto o aplicativo estiver em modo de teste no Google Cloud, inclua em
+**Usuários de teste** cada endereço Gmail que poderá vincular sua agenda.
 
 ### Perfis RBAC
 

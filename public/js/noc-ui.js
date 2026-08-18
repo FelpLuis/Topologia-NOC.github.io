@@ -367,7 +367,7 @@ window.UI = (() => {
       html: `
         <div class="modal-head">
           <div><span class="kicker">${icon("bell")} Compromissos</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Agenda Google</h2>
-          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Vincule suas agendas e receba avisos enquanto o NOC estiver aberto.</p></div>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Vincule sua conta pessoal Google (Gmail) e receba avisos enquanto o NOC estiver aberto.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body" data-calendar-body><div class="empty"><b>Consultando sua agenda…</b></div></div>
@@ -378,9 +378,9 @@ window.UI = (() => {
           body.innerHTML = configured ? `
             <div class="empty">
               <span style="display:inline-flex;margin-bottom:12px">${icon("bell", "icon icon-lg")}</span>
-              <b>Nenhuma conta Google vinculada</b>
-              <p>O acesso é somente leitura e pode ser removido a qualquer momento.</p>
-              <button class="btn btn-primary" data-calendar-connect type="button">Vincular conta Google</button>
+              <b>Nenhuma conta pessoal Google vinculada</b>
+              <p>Use sua conta @gmail.com. Esse vínculo é separado do login corporativo do NOC, tem acesso somente leitura e pode ser removido a qualquer momento.</p>
+              <button class="btn btn-primary" data-calendar-connect type="button">Vincular conta pessoal Google</button>
             </div>` : `
             <div class="notice notice-warn">${icon("alert")}<span><b>Integração ainda não configurada</b><br>O administrador precisa cadastrar as credenciais do Google Calendar no servidor.</span></div>`;
           $("[data-calendar-connect]", body)?.addEventListener("click", () => {
@@ -571,6 +571,10 @@ window.UI = (() => {
     setInterval(pollCalendarEvents, 60_000);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pollCalendarEvents(); });
   }
+
+  // Em navegação muito rápida, o guardião pode concluir antes deste arquivo
+  // chegar ao fim. Nesse caso, inicia sem depender de um segundo evento.
+  if (window.UPDOWN_AUTH) queueMicrotask(initCalendarAlerts);
 
   function wireUserMenu(root) {
     const btn = $("[data-user-menu]", root);

@@ -36,6 +36,12 @@ test("refresh token é cifrado por usuário e recuperado somente com a mesma cha
   await assert.rejects(() => decryptGoogleRefreshToken(env, 43, sealed), /DECRYPT_FAILED/);
 });
 
+test("tokens de acesso e de renovação usam contextos criptográficos separados", async () => {
+  const accessToken = await encryptGoogleRefreshToken(env, 42, "access-token", "access");
+  assert.equal(await decryptGoogleRefreshToken(env, 42, accessToken, "access"), "access-token");
+  await assert.rejects(() => decryptGoogleRefreshToken(env, 42, accessToken), /DECRYPT_FAILED/);
+});
+
 test("configuração rejeita callback insegura ou em caminho diferente", () => {
   assert.equal(googleCalendarEnabled(env), true);
   assert.equal(
