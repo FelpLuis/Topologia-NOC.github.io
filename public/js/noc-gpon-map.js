@@ -70,7 +70,7 @@
   }
 
   function render() {
-    renderSource(); renderKpis(); renderAlerts(); renderMap(); renderDetail();
+    renderSource(); renderKpis(); renderClientList(); renderAlerts(); renderMap(); renderDetail();
   }
 
   function renderSource() {
@@ -80,8 +80,10 @@
     badge.textContent = f.unavailable ? "Fonte OLT indisponível" : f.configured ? `Fonte: ${f.source || "OLT"}` : "Fonte OLT não configurada";
     $("#syncTime").textContent = f.synced_at ? `Atualizado ${new Date(f.synced_at).toLocaleString("pt-BR")}` : "Sem sincronização da OLT";
     const message = $("#mapMessage");
-    message.hidden = !f.message;
-    message.textContent = f.message || "";
+    const semLocal = clients().length - validClients().length;
+    const info = f.message || (semLocal ? `${semLocal.toLocaleString("pt-BR")} clientes foram importados sem coordenadas. Use a lista lateral para consultá-los e relacione serial/ONU ao cadastro de clientes para posicioná-los.` : "");
+    message.hidden = !info;
+    message.textContent = info;
   }
 
   function renderKpis() {
@@ -111,6 +113,15 @@
       detail: `${deviceById(c.origem)?.nome || c.origem} ↔ ${deviceById(c.destino)?.nome || c.destino}`,
     }));
     return [...generated, ...links, ...(state.feed.alerts || [])];
+  }
+
+  function renderClientList() {
+    const list = visibleClients(), shown = list.slice(0, 60);
+    $("#clientListCount").textContent = list.length.toLocaleString("pt-BR");
+    $("#clientList").innerHTML = shown.map((c) => `<button class="gpon-client-row ${clientAlert(c) ? "is-alert" : ""}" type="button" data-client-row="${esc(c.id)}" ${state.selected?.type === "client" && String(state.selected.id) === String(c.id) ? 'aria-current="true"' : ""}>
+      <i></i><span><b>${esc(c.name)}</b><small>${esc(`${c.serial || c.onu_index || "Sem serial"} • ${c.olt_id}${c.pon ? ` • ${c.pon}` : ""}`)}</small></span></button>`).join("")
+      + (list.length > shown.length ? `<div class="gpon-list-more">Mostrando 60 de ${list.length.toLocaleString("pt-BR")}. Refine a busca.</div>` : "");
+    $$('[data-client-row]', $("#clientList")).forEach((el) => el.onclick = () => select("client", el.dataset.clientRow, false));
   }
 
   function renderAlerts() {

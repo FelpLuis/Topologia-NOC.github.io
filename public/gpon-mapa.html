@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UPDOWN • Mapas GPON</title>
-<link rel="icon" href="/assets/brand/updown-symbol-dark.png">
-<link rel="preconnect" href="/api" crossorigin>
+<meta name="description" content="Clientes autenticados, caixas, POPs e caminho de atendimento ponta a ponta da rede GPON.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/css/noc/tokens.css">
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
@@ -19,7 +21,7 @@
 
 <div class="shell">
   <aside data-sidebar></aside>
-  <main class="content content-wide gpon-page" id="main">
+  <main class="content gpon-page" id="main">
     <header class="gpon-head">
       <div>
         <span class="kicker">NOC • VISÃO OPERACIONAL SOMENTE LEITURA</span>
@@ -56,6 +58,11 @@
             <label><input type="checkbox" data-layer="pops" checked> POPs</label>
             <label><input type="checkbox" data-layer="drops" checked> Drops</label>
           </div>
+
+          <div class="gpon-side-head">
+            <b>Clientes / ONUs</b><span class="badge" id="clientListCount">0</span>
+          </div>
+          <div class="gpon-clients" id="clientList"></div>
 
           <div class="gpon-side-head">
             <b>Alertas ativos</b><span class="badge badge-danger" id="alertCount">0</span>

@@ -89,7 +89,10 @@
 .btn-sm { min-height: 32px; padding: 0 var(--s-3); font-size: var(--fs-12); border-radius: var(--r-sm); }
 .btn-lg { min-height: 48px; padding: 0 var(--s-6); font-size: var(--fs-14); }
 .btn-block { width: 100%; }
-.btn-icon { width: 40px; min-height: 40px; padding: 0; }
+/* `flex: none` porque botão de ícone é quadrado por definição: dentro de uma
+   linha de flex apertada ele encolhia na largura e virava um retângulo com o
+   ícone cortado. */
+.btn-icon { width: 40px; min-height: 40px; padding: 0; flex: none; }
 .btn-icon.btn-sm { width: 32px; min-height: 32px; }
 
 /* Estado de carregamento: o rótulo some e um anel gira no lugar,
@@ -250,12 +253,18 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--s-4);
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-4);
   padding: var(--s-5) var(--s-5) var(--s-4);
   border-bottom: 1px solid var(--line);
 }
 .card-head h2, .card-head h3 { font-size: var(--fs-16); }
 .card-head p { color: var(--text-3); font-size: var(--fs-12); margin-top: 4px; }
+/* O grupo de ações do cabeçalho (normalmente um `.row` com um badge e um ou
+   dois botões) é o segundo filho direto. Sem quebrar linha ele mede a largura
+   somada de todos os botões — em POPs, badge + "Editar informações" +
+   "Excluir" já passava de 370px e estourava a tela de um celular comum. */
+.card-head > .row { flex-wrap: wrap; row-gap: var(--s-2); }
 .card-body { padding: var(--s-5); }
 .card-foot {
   padding: var(--s-4) var(--s-5);
@@ -748,12 +757,23 @@ table.table { width: 100%; border-collapse: collapse; }
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--line);
 }
+/* A barra é uma linha de flex com marca, busca e ações. Sem `min-width: 0` na
+   busca e `flex: none` nos itens de largura fixa, o conteúdo se recusa a
+   encolher: no celular a linha inteira media ~525px numa janela de 371px, a
+   página ganhava rolagem lateral e o botão de recolher o menu era espremido
+   de 40px para 17px. */
+.appbar > .brand { flex: none; min-width: 0; }
 .appbar-search {
   flex: 1 1 460px;
+  min-width: 0;
   max-width: 520px;
 }
 .appbar-search .input { height: 40px; min-height: 40px; }
-.appbar-actions { display: flex; align-items: center; gap: var(--s-2); margin-left: auto; }
+.appbar-actions { display: flex; align-items: center; gap: var(--s-2); margin-left: auto; flex: none; }
+
+/* No celular a busca vira um botão: um campo de 60px não é um campo de busca,
+   e o toque nele abre a mesma paleta de comandos do desktop. */
+.appbar-search-btn { display: none; }
 
 .user-menu {
   display: flex;
@@ -805,14 +825,14 @@ table.table { width: 100%; border-collapse: collapse; }
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   margin-top: var(--appbar-h);
-  min-height: calc(100vh - var(--appbar-h));
+  min-height: calc(100dvh - var(--appbar-h));
 }
 .shell.is-collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
 
 .sidebar {
   position: sticky;
   top: var(--appbar-h);
-  height: calc(100vh - var(--appbar-h));
+  height: calc(100dvh - var(--appbar-h));
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
@@ -916,6 +936,9 @@ table.table { width: 100%; border-collapse: collapse; }
 .sidebar-foot { margin-top: auto; padding-top: var(--s-4); border-top: 1px solid var(--line); }
 
 .content { min-width: 0; padding: var(--s-6); }
+/* Só para tela que pinta de borda a borda — o mapa da topologia e os mapas
+   GPON/ISP. Página de conteúdo comum mantém a calha de var(--s-6): sem ela o
+   título e os cartões encostam na borda do menu lateral e na da janela. */
 .content-wide { padding: 0; }
 .page-head {
   display: flex;
@@ -926,36 +949,82 @@ table.table { width: 100%; border-collapse: collapse; }
   margin-bottom: var(--s-5);
 }
 
-/* Navegação inferior no celular — alvos de toque de 56px */
+/* ---------------------------------------------------------
+   Navegação inferior no celular
+   Cinco compartimentos no máximo: quatro telas e o botão que abre a
+   navegação completa. A versão anterior distribuía as dez telas com
+   `grid-auto-flow: column` — cada alvo ficava com 34 a 59px (abaixo dos
+   44px que a plataforma promete) e o rótulo, cortado na primeira palavra,
+   repetia "Topologia" e "Cadastro" em itens diferentes.
+   --------------------------------------------------------- */
 .mobile-nav { display: none; }
+
 @media (max-width: 900px) {
+  :root { --mobile-nav-h: 64px; }
+
   .shell, .shell.is-collapsed { grid-template-columns: minmax(0, 1fr); }
   .sidebar { display: none; }
-  .content { padding: var(--s-4) var(--s-4) 88px; }
-  .appbar-search { flex-basis: auto; }
+  /* `:not(.content-wide)` porque esta regra vem depois de `.content-wide` na
+     folha e, sem a exceção, devolvia calha às telas de borda a borda — o mapa
+     da topologia ganhava 88px de rolagem sobrando abaixo dele. */
+  .content:not(.content-wide) { padding: var(--s-4) var(--s-4) calc(var(--mobile-nav-h) + var(--s-6)); }
+
+  /* Marca reduzida ao símbolo e busca em botão: o que sobra de largura vai
+     para o nome do usuário e as ações. */
+  .appbar { gap: var(--s-2); padding: 0 var(--s-3); }
+  .appbar .brand-logo { display: none; }
+  .appbar-search { display: none; }
+  .appbar-search-btn { display: inline-flex; }
+  [data-palette-open]:not(.appbar-search-btn) { display: none; }
+
   .mobile-nav {
     position: fixed;
     left: 0; right: 0; bottom: 0;
     z-index: 45;
     display: grid;
+    grid-auto-columns: minmax(0, 1fr);
     grid-auto-flow: column;
     background: var(--surface-glass);
     backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .mobile-nav a {
+  .mobile-nav a,
+  .mobile-nav button {
     display: grid;
+    align-content: center;
     justify-items: center;
-    gap: 4px;
-    padding: 10px 4px;
-    min-height: 56px;
+    gap: 3px;
+    min-width: 0;
+    padding: var(--s-2) 4px;
+    min-height: var(--mobile-nav-h);
+    border: 0;
+    background: transparent;
     color: var(--text-3);
     font-size: var(--fs-10);
     font-weight: 700;
     text-decoration: none;
   }
+  /* O rótulo é o nome curto da tela, não a primeira palavra dela: cabe em
+     uma linha e, quando não cabe, some por reticências em vez de virar um
+     nome ambíguo. */
+  .mobile-nav span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .mobile-nav a[aria-current="page"] { color: var(--cyan-400); }
-  .toasts { right: var(--s-3); left: var(--s-3); bottom: 80px; width: auto; }
+  .mobile-nav .is-open { color: var(--text-1); }
+
+  .toasts { right: var(--s-3); left: var(--s-3); bottom: calc(var(--mobile-nav-h) + var(--s-3)); width: auto; }
   .drawer { width: 100%; }
 }
+
+/* Gaveta com a navegação completa por setor, aberta pelo botão "Menu" da
+   barra inferior. Reaproveita o mesmo HTML do menu lateral. */
+.nav-sheet { padding: var(--s-4); }
+.nav-sheet .nav { gap: var(--s-1); }
+.nav-sheet .nav-item { min-height: 48px; }
+.nav-sheet .nav-sector-trigger { min-height: 48px; }

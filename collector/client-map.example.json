@@ -1,0 +1,21 @@
+{
+  "olt-c350|1/2/1:1": {
+    "name": "Cliente Exemplo",
+    "username": "cliente.pppoe",
+    "address": "Rua Exemplo, 100",
+    "lat": -23.95123,
+    "lon": -46.3321,
+    "box_id": "cto-014",
+    "vlan": "310"
+  },
+  "boxes": [
+    {
+      "id": "cto-014",
+      "name": "CTO-014",
+      "type": "CTO",
+      "status": "online",
+      "lat": -23.95091,
+      "lon": -46.3318
+    }
+  ]
+}

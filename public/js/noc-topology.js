@@ -2461,10 +2461,22 @@
       $("#deviceSearch").value = "";
       renderFilters(); renderAll();
     };
-    $("#toggleSide").onclick = () => {
-      const hidden = $("#topoMain").classList.toggle("is-side-hidden");
+    /* Em tela estreita a lista é um painel sobreposto ao mapa, e o estado
+       inicial dela é fechado — abrir por cima do mapa assim que a tela carrega
+       esconderia justamente o que a pessoa veio ver. No desktop ela continua
+       sendo uma coluna, aberta por padrão. */
+    const sincronizaBotaoLista = (hidden) => {
       $("#toggleSide").innerHTML = icon(hidden ? "chevronRight" : "chevronLeft");
       $("#toggleSide").setAttribute("aria-label", hidden ? "Mostrar lista de equipamentos" : "Ocultar lista de equipamentos");
+      $("#toggleSide").setAttribute("aria-expanded", String(!hidden));
+    };
+    if (matchMedia("(max-width: 1100px)").matches) {
+      $("#topoMain").classList.add("is-side-hidden");
+      sincronizaBotaoLista(true);
+    }
+    $("#toggleSide").onclick = () => {
+      const hidden = $("#topoMain").classList.toggle("is-side-hidden");
+      sincronizaBotaoLista(hidden);
       setTimeout(() => { if (isGeo()) { layout(); renderAll(); applyTransform(false); } else fit(); }, 60);
     };
     // O botão de animação do tráfego é opcional na barra: sem ele, o fluxo

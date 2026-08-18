@@ -9,6 +9,7 @@ Thumbs.db
 .dev.vars
 .dev.vars.*
 .dev.vars
+.collector.env
 .wrangler/
 backend/data/*.db
 backend/data/*.db-*

@@ -6,7 +6,7 @@
    1. Autenticação (login / nova senha)
    --------------------------------------------------------- */
 .auth {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 1.05fr .95fr;
 }
@@ -25,12 +25,19 @@
     linear-gradient(150deg, #030b16 0%, #04152a 52%, #061d31 100%);
   color: #eaf6ff;
 }
-.auth-visual h1 {
+/* Classe, não a tag `h1`: é a manchete decorativa do painel de marca, e a
+   página já tem seu próprio `<h1>` no formulário — duas por página quebra a
+   hierarquia de títulos para quem navega por leitor de tela. */
+.auth-tagline {
+  display: block;
   font-size: clamp(var(--fs-32), 3.4vw, var(--fs-44));
+  font-weight: 700;
+  letter-spacing: -.035em;
+  line-height: var(--lh-tight);
   max-width: 12ch;
   margin: var(--s-5) 0 var(--s-4);
 }
-.auth-visual h1 em {
+.auth-tagline em {
   font-style: normal;
   background: linear-gradient(90deg, #ffffff, #6adfff);
   -webkit-background-clip: text;
@@ -142,10 +149,16 @@
 /* ---------------------------------------------------------
    2. Topologia
    --------------------------------------------------------- */
+/* A tela da topologia é desenhada para caber exatamente na janela, sem rolagem.
+   Por isso a altura desconta as duas barras fixas: o appbar em cima e, no
+   celular, a navegação inferior (`--mobile-nav-h` vale 0 no desktop). Com
+   `100vh` os últimos ~70px — onde ficam os controles de zoom — ficavam atrás
+   da barra inferior; `dvh` ainda evita o mesmo corte quando a barra de
+   endereço do navegador móvel se recolhe. */
 .topo-layout {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: calc(100vh - var(--appbar-h));
+  height: calc(100dvh - var(--appbar-h) - var(--mobile-nav-h));
 }
 .topo-toolbar {
   display: flex;
@@ -174,9 +187,32 @@
 }
 .topo-side-scroll { overflow: auto; margin: 0 calc(var(--s-2) * -1); padding: 0 var(--s-2); }
 
+/* Abaixo de 1100px a lista deixa de ser coluna e vira painel sobreposto ao
+   mapa, aberto e fechado pelo mesmo botão da barra de ferramentas. Antes ela
+   era simplesmente escondida: no tablet e no celular não havia caminho nenhum
+   para a lista de equipamentos, e o botão de mostrar/ocultar não fazia nada. */
 @media (max-width: 1100px) {
-  .topo-main { grid-template-columns: minmax(0, 1fr); }
-  .topo-side { display: none; }
+  .topo-main { position: relative; grid-template-columns: minmax(0, 1fr); }
+  .topo-side {
+    position: absolute;
+    z-index: 8;
+    top: 0; left: 0; bottom: 0;
+    width: min(320px, 86vw);
+    border-right: 1px solid var(--line-strong);
+    background: var(--surface-1);
+    box-shadow: var(--shadow-3);
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+  /* Fechado: sai da tela e sai também da ordem de tabulação. O `visibility`
+     não entra na transição — ele espera o deslize terminar para virar
+     `hidden` (`0s var(--dur-2)`) e volta a `visible` na hora ao abrir. Deixá-lo
+     interpolando faria o painel sumir antes de deslizar. */
+  .topo-main.is-side-hidden .topo-side {
+    display: flex;
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition: transform var(--dur-2) var(--ease-out), visibility 0s var(--dur-2);
+  }
 }
 
 .topo-stage {
@@ -540,7 +576,10 @@
   color: var(--text-3);
   font-size: var(--fs-10);
 }
-.topo-attrib a { color: inherit; }
+/* `display: inline-block` + preenchimento vertical: sem isso a área de toque
+   do link herdava só a altura da linha de texto (~14px), abaixo do mínimo
+   utilizável no celular. */
+.topo-attrib a { color: inherit; display: inline-block; padding: 5px 0; }
 
 /* Barra de edição (sequência de POPs, anel) */
 .edit-bar {
@@ -710,8 +749,14 @@ body.tv-mode .appbar, body.tv-mode .sidebar, body.tv-mode .mobile-nav { display:
 body.tv-mode .shell { grid-template-columns: minmax(0, 1fr); }
 body.tv-mode { --fs-32: 3.2rem; --fs-24: 2rem; --fs-16: 1.15rem; --fs-14: 1rem; --fs-13: .95rem; }
 body.tv-mode .content { padding: var(--s-6) var(--s-8); }
+/* O telão é a exceção, não o padrão: `.tv-only` some fora do modo TV e volta
+   com ele. A regra de esconder precisa ser mais específica que a de qualquer
+   componente marcado como `.tv-only` — sem isso, o `display:flex` do próprio
+   componente (`.tv-bar`, logo abaixo) vencia por vir depois na folha, e a
+   faixa do telão ficava permanentemente visível no dashboard, duplicando o
+   título da página. */
+body:not(.tv-mode) .tv-only { display: none !important; }
 body.tv-mode .tv-only { display: flex; }
-.tv-only { display: none; }
 .tv-bar {
   display: flex;
   align-items: center;
@@ -967,6 +1012,23 @@ body.tv-mode .tv-only { display: flex; }
    O painel é quem cede largura quando o espaço aperta: encolhe até 260 px em
    vez de manter 320 fixos e espremer os cartões da lista. */
 .split-aside { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); }
+
+/* Mesma razão do comentário acima, para as outras duas proporções que as
+   telas precisam: dashboard.html e pops.html traziam essas colunas em
+   style="grid-template-columns:…", que vence a media query de empilhamento
+   de `.split` — em pops.html a coluna de 340px sozinha já era mais larga que
+   a tela toda de um celular. */
+.split-wide-aside { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.split-fixed-aside { grid-template-columns: minmax(0, 1fr) 340px; }
+@media (max-width: 1100px) {
+  /* `minmax(0, 1fr)`, não `1fr` puro: uma track `1fr` sozinha tem piso `auto`
+     (a largura mínima do conteúdo) — é o mesmo estouro que o comentário do
+     `.split-aside` já registra, só que reintroduzido aqui ao empilhar. Com
+     `minmax(0, 1fr)` a track aceita encolher abaixo do conteúdo, e é isso que
+     deixa o `flex-wrap` dos cartões (badge + botões) realmente quebrar linha
+     em vez de vazar da tela. */
+  .split-wide-aside, .split-fixed-aside { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* Em tela alta o painel acompanha a rolagem — fica sempre visível sem custar
    mais largura para a lista. */

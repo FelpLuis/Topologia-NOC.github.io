@@ -1,1 +1,184 @@
-.agenda-head{align-items:flex-end}.agenda-toolbar{display:flex;align-items:center;gap:16px;padding:12px 16px;margin-bottom:16px}.google-state{font-size:12px;color:var(--text-3);white-space:nowrap}.agenda-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}.agenda-calendar{overflow:hidden}.calendar-weekdays,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}.calendar-weekdays{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface-2)}.calendar-weekdays span{padding:9px;text-align:center;font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase}.calendar-day{min-height:126px;padding:8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface-1);overflow:hidden}.calendar-day:nth-child(7n){border-right:0}.calendar-day.is-outside{background:color-mix(in srgb,var(--surface-2) 68%,transparent);color:var(--text-3)}.calendar-day.is-today{box-shadow:inset 0 0 0 2px var(--cyan-400)}.day-number{display:flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:50%;font-size:12px;font-weight:700;margin-bottom:5px}.is-today .day-number{background:var(--cyan-400);color:#05131b}.day-event{display:block;width:100%;margin:3px 0;padding:5px 6px;border:0;border-left:3px solid var(--event-color);border-radius:5px;background:color-mix(in srgb,var(--event-color) 17%,var(--surface-2));color:var(--text-1);text-align:left;font-size:11px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}.day-event:hover{filter:brightness(1.15)}.agenda-upcoming{align-self:start;position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto}.upcoming-item{display:grid;grid-template-columns:44px 1fr;gap:10px;padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;background:var(--surface-1)}.upcoming-item:hover{border-color:var(--event-color)}.upcoming-date{text-align:center;border-right:1px solid var(--line);padding-right:8px}.upcoming-date b{display:block;font-size:18px}.upcoming-date small{font-size:10px;text-transform:uppercase;color:var(--text-3)}.calendar-owner{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--text-3)}.calendar-owner i{width:8px;height:8px;border-radius:50%;background:var(--event-color)}.agenda-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.agenda-alerts{display:flex;gap:16px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}@media(max-width:1100px){.agenda-layout{grid-template-columns:1fr}.agenda-upcoming{position:static;max-height:none}}@media(max-width:720px){.calendar-day{min-height:82px;padding:4px}.day-event{font-size:0;height:8px;padding:0;border-radius:4px}.calendar-weekdays span{font-size:9px;padding:7px 2px}.agenda-form-grid{grid-template-columns:1fr}.agenda-toolbar{align-items:flex-start;flex-direction:column}.agenda-upcoming{display:none}}
+/* ============================================================
+   UPDOWN NOC — Agenda
+   Calendário mensal + lista de próximos compromissos. Só esta tela
+   usa este arquivo; os tokens, botões e cartões vêm do design
+   system (tokens/base/components).
+   ============================================================ */
+
+.agenda-head { align-items: flex-end; }
+
+.agenda-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-4);
+}
+.google-state { font-size: var(--fs-12); color: var(--text-3); white-space: nowrap; }
+
+.agenda-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--s-4);
+}
+.agenda-calendar { overflow: hidden; }
+
+.calendar-weekdays,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.calendar-weekdays {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.calendar-weekdays span {
+  padding: var(--s-2) 4px;
+  text-align: center;
+  font-size: var(--fs-11);
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+}
+
+/* Célula do dia. A altura é um valor próprio do componente, como as caixas
+   de equipamento do mapa — não existe token de espaçamento nessa escala. */
+.calendar-day {
+  min-height: 126px;
+  padding: var(--s-2);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.calendar-day:nth-child(7n) { border-right: 0; }
+.calendar-day.is-outside { background: color-mix(in srgb, var(--surface-2) 68%, transparent); color: var(--text-3); }
+.calendar-day.is-today { box-shadow: inset 0 0 0 2px var(--cyan-400); }
+
+.day-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-12);
+  font-weight: 700;
+  margin-bottom: var(--s-1);
+}
+.is-today .day-number { background: var(--cyan-400); color: #05131b; }
+
+.day-event {
+  display: block;
+  width: 100%;
+  margin: 3px 0;
+  padding: var(--s-1) 6px;
+  border: 0;
+  border-left: 3px solid var(--event-color);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--event-color) 17%, var(--surface-2));
+  color: var(--text-1);
+  text-align: left;
+  font-size: var(--fs-11);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.day-event:hover { filter: brightness(1.15); }
+
+.agenda-upcoming {
+  align-self: start;
+  position: sticky;
+  top: 76px;
+  max-height: calc(100dvh - 96px);
+  overflow: auto;
+}
+.upcoming-item {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: var(--surface-1);
+}
+.upcoming-item:hover { border-color: var(--event-color); }
+.upcoming-date { text-align: center; border-right: 1px solid var(--line); padding-right: var(--s-2); }
+.upcoming-date b { display: block; font-size: var(--fs-16); }
+.upcoming-date small { font-size: var(--fs-10); text-transform: uppercase; color: var(--text-3); }
+
+.calendar-owner { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-10); color: var(--text-3); }
+.calendar-owner i { width: 8px; height: 8px; border-radius: var(--r-full); background: var(--event-color); }
+
+.agenda-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.agenda-alerts {
+  display: flex;
+  gap: var(--s-4);
+  align-items: center;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+@media (max-width: 1100px) {
+  .agenda-layout { grid-template-columns: 1fr; }
+  .agenda-upcoming { position: static; max-height: none; }
+}
+
+/* ---------- Celular ----------
+   A versão anterior reduzia cada compromisso a uma barra de 8px sem rótulo
+   nenhum — cor sozinha dizendo que ali existe algo, contra a própria regra 5
+   deste design system ("estado não depende só de cor"). E escondia o painel
+   "Próximos" inteiro, tirando do celular o único jeito de ler a agenda como
+   lista.
+
+   A correção: o evento no mês vira um traço colorido (ainda compacto, porque
+   sete dias por linha não cabem um rótulo de texto) com nome acessível via
+   `aria-label` no próprio botão —​quem usa leitor de tela ouve o compromisso
+   mesmo sem o texto visível. E o painel "Próximos" para de ser escondido:
+   ele desce para debaixo do calendário (a mesma pilha que `.agenda-layout`
+   já produz em qualquer tela estreita) e continua sendo o caminho real para
+   ver os compromissos do mês em lista. */
+@media (max-width: 720px) {
+  .calendar-day { min-height: 68px; padding: var(--s-1); }
+  .day-number { width: 20px; height: 20px; font-size: var(--fs-10); }
+  /* O botão continua sendo a área de toque real — sem truque de pseudo-
+     elemento estourando os limites da célula, que a própria célula recorta
+     com `overflow: hidden` e, se não recortasse, invadiria o toque do dia
+     vizinho. Em vez de simular alcance, o padding vertical do próprio botão
+     é o alcance: o traço colorido de 6px fica centralizado num alvo de
+     ~18px, compacto pela grade de sete colunas mas ainda maior que o fio de
+     8px de antes. */
+  /* O texto continua no DOM e legível por leitor de tela — só não ocupa
+     espaço visual, que uma célula de ~48px não tem para uma segunda linha. */
+  .day-event {
+    display: flex;
+    align-items: center;
+    height: 18px;
+    min-height: 18px;
+    margin: 1px 0;
+    padding: 0 2px;
+    border-left-width: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+  }
+  .day-event::before {
+    content: "";
+    width: 100%;
+    height: 6px;
+    border-radius: var(--r-full);
+    background: var(--event-color);
+  }
+  .calendar-weekdays span { font-size: var(--fs-10); padding: 6px 2px; }
+  .agenda-form-grid { grid-template-columns: 1fr; }
+  .agenda-toolbar { align-items: flex-start; flex-direction: column; }
+}

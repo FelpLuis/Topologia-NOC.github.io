@@ -57,6 +57,11 @@
 
   /* Layout ------------------------------------------------- */
   --appbar-h: 64px;
+  /* Altura da barra de navegação do celular. Vale 0 no desktop, onde ela não
+     existe, e passa a valer no celular (regra em components.css). Toda tela de
+     altura cheia desconta este valor: sem ele, o rodapé da tela — controles de
+     zoom do mapa, botões de ação — fica atrás da barra fixa. */
+  --mobile-nav-h: 0px;
   --sidebar-w: 288px;
   --sidebar-w-collapsed: 72px;
   --page-max: 1560px;

@@ -6,6 +6,8 @@
 <title>Entrar — UPDOWN TELECOM NOC</title>
 <meta name="description" content="Acesso à plataforma de topologia e operação de rede da UPDOWN TELECOM.">
 <link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/css/noc/tokens.css">
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
@@ -52,11 +54,15 @@
     </div>
 
 
+    <!-- Recursos da plataforma, não métricas: um número fixo aqui ("12
+         equipamentos") ficaria desatualizado a cada cadastro novo e mostraria
+         dado que não foi medido — o mesmo princípio que a tela interna segue
+         em "Sem dado inventado" (FRONT-NOC-V2.md). -->
     <div class="auth-stats">
-      <div><strong>12</strong><small>Equipamentos</small></div>
-      <div><strong>5</strong><small>POPs no anel</small></div>
-      <div><strong>275</strong><small>Portas mapeadas</small></div>
-      <div><strong>100%</strong><small>Ações auditadas</small></div>
+      <div><strong>Zabbix</strong><small>Status em tempo real</small></div>
+      <div><strong>RBAC</strong><small>Perfis e permissões</small></div>
+      <div><strong>Anel óptico</strong><small>Rotas entre POPs</small></div>
+      <div><strong>Auditoria</strong><small>Toda ação registrada</small></div>
     </div>
   </section>
 

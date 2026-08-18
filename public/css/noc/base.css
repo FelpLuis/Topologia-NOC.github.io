@@ -109,7 +109,14 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s-5) 0; }
 [hidden] { display: none !important; }
 
 /* ---------- Utilitários ---------- */
+/* Grid de uma coluna. Sem `min-width: 0` no item, a track de um grid não
+   encolhe além do conteúdo mais largo que ela tem — um `.row` de botões que
+   não cabe na tela vira o motivo de a página inteira ganhar rolagem
+   horizontal, porque é `.stack` que empilha cartão sobre cartão em quase toda
+   tela do sistema. Mesma correção que `.split > *` já documentava aqui perto;
+   faltava só no utilitário mais usado. */
 .stack { display: grid; gap: var(--s-4); }
+.stack > * { min-width: 0; }
 .row { display: flex; align-items: center; gap: var(--s-3); }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); }
 .wrap { flex-wrap: wrap; }

@@ -4,7 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UPDOWN • Gerenciar Plataforma</title>
+<meta name="description" content="Perfis, permissões, telas, usuários e auditoria da plataforma.">
 <link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
 <link rel="stylesheet" href="/css/noc/tokens.css">
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
@@ -60,7 +63,7 @@
       <div class="card">
         <div class="card-head"><div><h2>Setores e agendas</h2><p>Cada setor possui sua própria agenda. O vínculo do usuário libera a consulta e o cadastro de compromissos.</p></div>
           <button class="btn btn-sm btn-primary" id="newSector" type="button">Novo setor</button></div>
-        <div class="card-body"><div class="table-wrap"><table class="table">
+        <div class="card-body"><div class="table-wrap"><table class="table" aria-label="Setores e agendas">
           <thead><tr><th>Setor</th><th>Código</th><th>Descrição</th><th>Menus</th><th>Usuários</th><th>Status</th><th></th></tr></thead>
           <tbody id="sectorRows"></tbody>
         </table></div></div>
@@ -87,7 +90,7 @@
             </div>
           </div>
           <div class="table-wrap">
-            <table class="table">
+            <table class="table" aria-label="Contas de acesso">
               <thead><tr><th>Usuário</th><th>Perfil</th><th>Setores</th><th>Status</th><th>Último acesso</th><th></th></tr></thead>
               <tbody id="userRows"></tbody>
             </table>
@@ -104,7 +107,7 @@
         </div>
         <div class="card-body">
           <div class="table-wrap">
-            <table class="table">
+            <table class="table" aria-label="Telas do sistema">
               <thead><tr><th>Tela</th><th>Rota</th><th>Descrição</th><th>Ações</th><th>Perfis com acesso</th><th>Ativa</th></tr></thead>
               <tbody id="screenRows"></tbody>
             </table>

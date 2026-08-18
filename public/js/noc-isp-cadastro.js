@@ -526,7 +526,7 @@
               Eles continuam na PARTE ISP, sem ISP vinculado, e podem ser ligados a outro cliente depois.
               Os enlaces são preservados.</p>
           </div>
-          <div class="card" style="padding:var(--s-3);border-color:var(--danger)">
+          <div class="card" style="padding:var(--s-3);border-color:var(--danger-500)">
             <b style="font-size:var(--fs-13)">Excluir tudo junto</b>
             <p class="dim" style="font-size:var(--fs-12);margin-top:4px">
               Os ${list.length} equipamento(s)${enlaces ? ` e os ${enlaces} enlace(s) deles` : ""} saem da topologia

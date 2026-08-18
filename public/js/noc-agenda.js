@@ -87,8 +87,13 @@
       const isToday = day.toDateString()===today.toDateString();
       return `<div class="calendar-day ${sameMonth?"":"is-outside"} ${isToday?"is-today":""}" data-day="${day.toISOString()}">
         <span class="day-number">${day.getDate()}</span>
-        ${list.map(e=>`<button class="day-event" style="--event-color:${esc(colorOf(e))}" data-event="${esc(e.id)}" title="${esc(e.title)}">
-          ${e.all_day?"":eventDate(e,"start").toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "}${esc(e.title)}</button>`).join("")}
+        ${list.map(e=>{
+          const rotulo=(e.all_day?"":eventDate(e,"start").toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · ")+e.title;
+          // `aria-label` porque no celular o texto do botão fica visualmente
+          // invisível (a célula não tem altura para um rótulo por evento) —
+          // sem ele, o leitor de tela também não teria o que anunciar.
+          return `<button class="day-event" style="--event-color:${esc(colorOf(e))}" data-event="${esc(e.id)}" title="${esc(e.title)}" aria-label="${esc(rotulo)}">${esc(rotulo)}</button>`;
+        }).join("")}
         ${events.filter(e=>eventDate(e,"start")<next&&eventDate(e,"end")>day).length>4?'<small class="dim">mais compromissos…</small>':""}
       </div>`;
     }).join("");

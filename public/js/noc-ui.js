@@ -66,6 +66,11 @@ window.UI = (() => {
 
   /* ---------------- tema ---------------- */
   const THEME_KEY = "updown.theme";
+  // Mesma cor de --bg em tokens.css para cada tema. Repetida aqui porque o
+  // navegador lê a cor da barra do sistema (Android, PWA instalada) direto do
+  // <meta>, antes mesmo de qualquer CSS carregar — não dá para apontar para
+  // uma custom property.
+  const THEME_COLOR = { dark: "#050d17", light: "#eef3f9" };
   function applyTheme(mode) {
     document.documentElement.dataset.theme = mode;
     try { localStorage.setItem(THEME_KEY, mode); } catch (e) { /* modo privado */ }
@@ -74,6 +79,13 @@ window.UI = (() => {
       b.setAttribute("aria-label", mode === "dark" ? "Usar tema claro" : "Usar tema escuro");
       b.title = mode === "dark" ? "Tema claro" : "Tema escuro";
     });
+    let meta = $('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "theme-color";
+      document.head.appendChild(meta);
+    }
+    meta.content = THEME_COLOR[mode] || THEME_COLOR.dark;
   }
   function initTheme() {
     let saved = null;
@@ -91,12 +103,19 @@ window.UI = (() => {
   const initials = (n) => String(n || "?").trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
 
   /* ---------------- avisos ---------------- */
+  /* O host dos avisos é criado junto com o shell, e não no primeiro aviso.
+     Região `aria-live` inserida no DOM ao mesmo tempo que o conteúdo dela
+     costuma não ser anunciada: o leitor de tela precisa já estar observando o
+     elemento quando o texto chega. `role="status"` dá a mesma garantia em
+     leitores que ignoram `aria-live` isolado. */
   function toastHost() {
     let host = $(".toasts");
     if (!host) {
       host = document.createElement("div");
       host.className = "toasts";
+      host.setAttribute("role", "status");
       host.setAttribute("aria-live", "polite");
+      host.setAttribute("aria-atomic", "false");
       document.body.appendChild(host);
     }
     return host;
@@ -267,6 +286,7 @@ window.UI = (() => {
           </div>
         </div>
         <div class="appbar-actions">
+          <button class="btn btn-ghost btn-icon appbar-search-btn" data-palette-open type="button" aria-label="Buscar equipamento, POP ou tela">${icon("search")}</button>
           <button class="btn btn-ghost btn-icon" data-palette-open type="button" title="Paleta de comandos (Ctrl+K)" aria-label="Abrir paleta de comandos">${icon("keyboard")}</button>
           <button class="btn btn-ghost btn-icon" data-theme-toggle type="button"></button>
           <div style="position:relative">
@@ -299,6 +319,7 @@ window.UI = (() => {
     $$("[data-shortcuts]").forEach((b) => (b.onclick = openShortcuts));
     $$("[data-palette-open]").forEach((b) => (b.onclick = () => openPalette()));
     $$("[data-theme-toggle]").forEach((b) => (b.onclick = toggleTheme));
+    toastHost();
     bindGlobalKeys();
     applyAccess(window.UPDOWN_ACCESS);
   }
@@ -342,12 +363,75 @@ window.UI = (() => {
       $$("[data-shortcuts]", side).forEach((b) => (b.onclick = openShortcuts));
     }
 
+    /* Barra inferior do celular: quatro telas e o botão do menu completo.
+       A barra não tenta caber todas as telas — com dez itens cada alvo ficava
+       com menos de 44px e o rótulo, cortado na primeira palavra, repetia
+       "Topologia" e "Cadastro" em linhas diferentes. A tela aberta sempre
+       aparece entre as quatro, mesmo quando não está no topo da lista. */
     const mobile = $("[data-mobile-nav]");
     if (mobile) {
       mobile.className = "mobile-nav";
-      mobile.innerHTML = itens.map((n) => `
-        <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${esc(n.label.split(" ")[0])}</span></a>`).join("");
+      const atual = itens.find((n) => ehAtual(n.href));
+      const principais = itens.slice(0, 4);
+      if (atual && !principais.includes(atual)) principais.splice(3, 1, atual);
+      const rotulos = rotulosCurtos(principais);
+
+      mobile.innerHTML =
+        principais.map((n, i) => `
+          <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" title="${esc(n.label)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
+            ${icon(n.icon)}<span>${esc(rotulos[i])}</span>
+          </a>`).join("") +
+        `<button type="button" data-nav-sheet aria-haspopup="dialog">
+           ${icon("menu")}<span>Menu</span>
+         </button>`;
+      $("[data-nav-sheet]", mobile).onclick = openNavSheet;
     }
+  }
+
+  /* Rótulos da barra inferior. O nome cadastrado da tela ("Cadastro de POPs
+     Backbone") não cabe em um sexto da largura do telefone, e cortar na
+     primeira palavra — como era feito — dava dois itens "Topologia" e dois
+     "Cadastro" lado a lado. A regra aqui tira só o que não diferencia:
+
+     1. o verbo genérico do começo ("Cadastro de", "Gerenciar");
+     2. a primeira palavra, quando ela se repete entre os itens visíveis —
+        se duas telas começam com "Topologia", é o que vem depois que as
+        distingue.
+
+     O nome completo continua no `title` e no menu lateral. */
+  function rotulosCurtos(itens) {
+    const primeira = (label) => String(label || "").trim().split(/\s+/)[0].toLowerCase();
+    const repetidas = new Map();
+    itens.forEach((n) => repetidas.set(primeira(n.label), (repetidas.get(primeira(n.label)) || 0) + 1));
+
+    return itens.map((n) => {
+      const semVerbo = String(n.label || "").trim().replace(/^(cadastro|gerenciar)\s+(de\s+|da\s+|do\s+)?/i, "");
+      const palavras = semVerbo.split(/\s+/);
+      if (palavras.length > 1 && repetidas.get(primeira(n.label)) > 1) palavras.shift();
+      const curto = palavras.join(" ");
+      return curto.length > 13 ? `${curto.slice(0, 12)}…` : curto;
+    });
+  }
+
+  /* Gaveta com a navegação completa: os mesmos setores e telas do menu lateral,
+     que no celular fica oculto. Sem ela, as telas fora das quatro primeiras não
+     teriam caminho de navegação nenhum no telefone. */
+  function openNavSheet() {
+    const nav = $("[data-sidebar] .nav");
+    return drawer({
+      labelledBy: "navSheetTitle",
+      html: `
+        <div class="drawer-head row-between">
+          <h2 id="navSheetTitle" style="font-size:var(--fs-16)">Navegação</h2>
+          <button class="btn btn-ghost btn-icon btn-sm" data-close type="button" aria-label="Fechar navegação">${icon("close")}</button>
+        </div>
+        <div class="drawer-body nav-sheet">${nav ? nav.outerHTML : ""}</div>`,
+      onMount(host, close) {
+        // Fecha ao escolher uma tela: sem isto a gaveta fica por cima durante
+        // o carregamento da página seguinte.
+        $$(".nav-item", host).forEach((a) => a.addEventListener("click", close));
+      },
+    });
   }
 
   /* O RBAC continua mandando: tela sem acesso some do menu. */
