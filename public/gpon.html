@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>UPDOWN • Topologia GPON</title>
-<meta name="description" content="Mapa da topologia da rede GPON da UPDOWN TELECOM.">
+<meta name="description" content="Mapa e lista operacional de clientes, ONUs, caixas e POPs da rede GPON da UPDOWN TELECOM.">
 <link rel="icon" href="/assets/brand/updown-symbol.png">
 <meta name="theme-color" content="#050d17">
 <meta name="color-scheme" content="dark light">
@@ -12,129 +12,129 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<link rel="stylesheet" href="/css/noc/gpon-map.css?v=20260818-2">
 <script src="/js/auth-guard.js"></script>
 </head>
-<body class="topology-no-sidebar">
-<a class="skip-link" href="#stage">Ir para o mapa da topologia GPON</a>
+<body>
+<a class="skip-link" href="#gponContent">Ir para a topologia GPON</a>
 <header data-appbar></header>
 
 <div class="shell">
   <aside data-sidebar></aside>
-
-  <main class="content content-wide" id="main">
-    <div class="topo-layout">
-      <div class="topo-toolbar">
-        <div class="row" style="gap:var(--s-2)">
-          <div>
-            <span class="kicker" id="topoKicker">Rede de acesso óptico — clique para expandir</span>
-            <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Topologia GPON</h1>
-          </div>
+  <main class="content gpon-page" id="main">
+    <header class="gpon-head">
+      <div>
+        <span class="kicker">REDE DE ACESSO ÓPTICO • VISÃO OPERACIONAL</span>
+        <h1>Topologia GPON</h1>
+        <p class="page-sub">Clientes autenticados, ONUs, caixas, POPs e caminho de atendimento de ponta a ponta.</p>
+      </div>
+      <div class="gpon-head-actions">
+        <div class="segmented" role="group" aria-label="Modo de visualização da topologia GPON">
+          <button type="button" data-gpon-view="map" aria-pressed="true">Mapa</button>
+          <button type="button" data-gpon-view="list" aria-pressed="false">Lista</button>
         </div>
-
-        <div class="row wrap grow" style="justify-content:flex-end;gap:var(--s-2)">
-          <div class="segmented" role="group" aria-label="Modo de visualização">
-            <button type="button" data-view="mapa" aria-pressed="true" title="Mapa esquemático, sem fundo geográfico">Esquema</button>
-            <button type="button" data-view="geo" aria-pressed="false" title="POPs e equipamentos GPON sobre o mapa do OpenStreetMap, na localização cadastrada">Mapa</button>
-            <button type="button" data-view="lista" aria-pressed="false">Lista</button>
-          </div>
-          <button class="btn btn-sm topo-filter-toggle" id="toggleFilters" type="button" aria-expanded="false" aria-controls="filterPanel">
-            <span id="filterButtonIcon" aria-hidden="true"></span><span>Filtros</span>
-            <span class="topo-filter-count" id="activeFilterCount" hidden>0</span>
-          </button>
-          <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
-          <button class="btn btn-sm" id="btnFlow" type="button" aria-pressed="true">Tráfego</button>
-          <button class="btn btn-sm" id="btnLayout" type="button" aria-pressed="false"
-                  data-action="topology.edit topology.layout">Editar layout</button>
-          <button class="btn btn-sm btn-primary" id="btnManage" type="button"
-                  data-action="topology.edit">Gerenciar rede</button>
-        </div>
-
-        <div class="topo-filter-panel" id="filterPanel" aria-hidden="true" inert>
-          <div class="topo-filter-panel-inner">
-            <div class="input-affix topo-filter-search">
-              <span class="affix-icon" id="iconSearch"></span>
-              <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
-            </div>
-            <div class="row wrap topo-filter-categories" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
-            <div class="topo-filter-summary">
-              <span class="dim" id="listCount">—</span>
-              <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
-            </div>
-            <div class="topo-filter-results">
-              <div class="device-list" id="deviceList"></div>
-            </div>
-          </div>
+        <div class="row wrap gpon-sync">
+          <span class="badge" id="sourceBadge">Fonte OLT: verificando…</span>
+          <span class="dim" id="syncTime">—</span>
+          <button class="btn btn-sm" id="refreshMap" type="button" aria-label="Atualizar topologia GPON"></button>
         </div>
       </div>
+    </header>
 
-      <div class="topo-main" id="topoMain">
-        <section class="topo-stage" id="stage" tabindex="0" role="application"
-                 aria-label="Mapa da topologia GPON. Use as setas para deslocar e as teclas mais e menos para aproximar.">
-          <div class="topo-world" id="world">
-            <!-- Fundo geográfico: só recebe tiles no modo "Mapa OSM". -->
-            <div class="topo-basemap" id="basemap" aria-hidden="true" hidden></div>
-            <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
-            <div id="nodes"></div>
+    <section id="gponContent" class="gpon-panel">
+      <div class="gpon-kpis" id="gponKpis" aria-live="polite"></div>
+
+      <div class="gpon-workspace" id="gponMapView">
+        <aside class="gpon-side">
+          <div class="input-affix">
+            <span class="affix-icon" id="searchIcon"></span>
+            <input class="input" id="mapSearch" type="search" placeholder="Cliente, serial, OLT, PON ou endereço…" aria-label="Buscar na Topologia GPON">
           </div>
 
-          <div class="panel topo-legend" id="legend">
-            <div class="row"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
-            <div class="row"><i class="dot"></i><span>Porta livre e disponível</span></div>
-            <div class="row"><i class="dot" style="background:var(--purple-400)"></i><span>Rota da rede óptica</span></div>
+          <div class="gpon-layers" role="group" aria-label="Camadas do mapa">
+            <label><input type="checkbox" data-layer="clients" checked> Clientes</label>
+            <label><input type="checkbox" data-layer="boxes" checked> Caixas</label>
+            <label><input type="checkbox" data-layer="pops" checked> POPs</label>
+            <label><input type="checkbox" data-layer="drops" checked> Drops</label>
           </div>
 
-          <!-- POPs ainda sem localização cadastrada não têm onde ser desenhados. -->
-          <div class="panel topo-hud topo-missing" id="geoMissing" hidden></div>
-
-          <p class="topo-attrib" id="geoAttrib" hidden>
-            Fundo do mapa:
-            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
-          </p>
-
-          <div class="panel topo-hud topo-layout-bar" id="layoutBar" hidden>
-            <span class="row" style="gap:6px">
-              <b style="font-size:var(--fs-12)">Editando o layout</b>
-              <span class="dim" id="layoutStatus" style="font-size:var(--fs-11)"></span>
-            </span>
-            <span style="width:1px;height:20px;background:var(--line)"></span>
-            <button class="btn btn-sm" id="layoutAuto" type="button" title="Volta todos os POPs para o posicionamento automático">Layout automático</button>
-            <button class="btn btn-sm" id="layoutDiscard" type="button">Descartar</button>
-            <button class="btn btn-sm btn-primary" id="layoutSave" type="button">Salvar posições</button>
+          <div class="gpon-side-head">
+            <b>Clientes / ONUs</b><span class="badge" id="clientListCount">0</span>
           </div>
+          <div class="gpon-clients" id="clientList"></div>
 
-          <div class="panel topo-hud">
-            <button class="btn btn-ghost btn-icon btn-sm" id="zoomOut" type="button" aria-label="Afastar" title="Afastar (−)"></button>
-            <span class="mono dim" id="zoomLabel" style="min-width:44px;text-align:center">100%</span>
-            <button class="btn btn-ghost btn-icon btn-sm" id="zoomIn" type="button" aria-label="Aproximar" title="Aproximar (+)"></button>
-            <span style="width:1px;height:20px;background:var(--line)"></span>
-            <button class="btn btn-ghost btn-icon btn-sm" id="zoomFit" type="button" aria-label="Ajustar à tela" title="Ajustar à tela (0)"></button>
+          <div class="gpon-side-head">
+            <b>Alertas ativos</b><span class="badge badge-danger" id="alertCount">0</span>
           </div>
+          <div class="gpon-alerts" id="alertsList"></div>
+
+          <div class="gpon-legend card">
+            <b>Legenda</b>
+            <div><i class="gpon-swatch sw-client"></i> Cliente online</div>
+            <div><i class="gpon-swatch sw-client-off"></i> Cliente offline / sinal crítico</div>
+            <div><i class="gpon-swatch sw-box"></i> Caixa / CTO</div>
+            <div><i class="gpon-swatch sw-pop"></i> POP / OLT / SW</div>
+            <div><i class="gpon-line line-drop"></i> Caminho do drop</div>
+            <div><i class="gpon-line line-network"></i> Conexão de rede</div>
+          </div>
+        </aside>
+
+        <section class="gpon-map" id="gponMap" tabindex="0" aria-label="Mapa GPON. Arraste para mover e use a roda do mouse para aproximar.">
+          <div class="gpon-basemap" id="gponBasemap" aria-hidden="true"></div>
+          <svg class="gpon-routes" id="gponRoutes" aria-hidden="true"></svg>
+          <div class="gpon-markers" id="gponMarkers"></div>
+          <div class="gpon-map-message" id="mapMessage" hidden></div>
+          <div class="gpon-map-tools panel">
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapZoomOut" type="button" aria-label="Afastar"></button>
+            <span class="mono dim" id="mapZoomLabel">—</span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapZoomIn" type="button" aria-label="Aproximar"></button>
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapFit" type="button" aria-label="Enquadrar todos"></button>
+          </div>
+          <p class="gpon-attrib"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a></p>
         </section>
 
-        <section id="listView" hidden style="padding:var(--s-5);overflow:auto">
-          <div class="table-wrap">
-            <table class="table" aria-label="Equipamentos da topologia GPON">
-              <thead>
-                <tr>
-                  <th>Equipamento</th><th>POP</th><th>Categoria</th>
-                  <th class="num">Portas</th><th class="num">Em uso</th><th class="num">Livres</th>
-                  <th style="min-width:150px">Ocupação</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="listBody"></tbody>
-            </table>
+        <aside class="gpon-detail" id="gponDetail" aria-live="polite">
+          <div class="empty gpon-detail-empty">
+            <span class="empty-icon" id="detailIcon"></span>
+            <b>Selecione um cliente</b>
+            <p>Veja autenticação, sinal, localização, drop, caixa, PON, OLT e o caminho completo até a rede.</p>
           </div>
-        </section>
+        </aside>
       </div>
-    </div>
+
+      <section class="gpon-list-view" id="gponListView" hidden aria-label="Lista de clientes e ONUs GPON">
+        <div class="gpon-list-toolbar">
+          <div class="input-affix gpon-list-search">
+            <span class="affix-icon" id="listSearchIcon"></span>
+            <input class="input" id="gponListSearch" type="search" placeholder="Cliente, serial, OLT, PON ou endereço…" aria-label="Filtrar lista da Topologia GPON">
+          </div>
+          <span class="dim" id="gponTableCount">0 clientes</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table" aria-label="Clientes e ONUs da Topologia GPON">
+            <thead>
+              <tr>
+                <th>Cliente / ONU</th><th>Estado</th><th>OLT / PON</th><th>Caixa / CTO</th>
+                <th>RX óptico</th><th>Endereço</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="gponListBody"></tbody>
+          </table>
+        </div>
+        <div class="gpon-pagination" id="gponPagination" hidden>
+          <button class="btn btn-sm" id="gponPrevPage" type="button">Anterior</button>
+          <span class="mono dim" id="gponPageLabel">Página 1</span>
+          <button class="btn btn-sm" id="gponNextPage" type="button">Próxima</button>
+        </div>
+      </section>
+    </section>
   </main>
 </div>
 
 <nav data-mobile-nav aria-label="Navegação"></nav>
-
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
-<script src="/js/noc-topology.js?v=20260818-3"></script>
+<script src="/js/noc-gpon-map.js?v=20260818-2"></script>
 </body>
 </html>

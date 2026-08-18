@@ -9,8 +9,11 @@
     topology: { equipamentos: [], conexoes: [], pops: [] },
     feed: { clients: [], boxes: [], alerts: [], configured: false },
     selected: null, query: "", layers: { clients: true, boxes: true, pops: true, drops: true },
-    map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null,
+    map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null, fitted: false,
+    view: "map", page: 0,
   };
+  const PAGE_SIZE = 250;
+  const VIEW_KEY = `updown.gpon.view.${location.pathname}`;
 
   const coord = (o) => o && GEO.isCoord(o.lat, o.lon);
   const statusOnline = (s) => !/offline|down|los|inativo|critical|critico|falha/i.test(String(s || "online"));
@@ -32,23 +35,43 @@
   function mount() {
     UI.mountShell({ search: () => clients().map((c) => ({
       label: c.name, meta: `${c.serial || "Sem serial"} • ${c.olt_id || "OLT não informada"}`,
-      icon: "user", action: () => select("client", c.id, true),
+      icon: "user", action: () => {
+        setView("map");
+        requestAnimationFrame(() => select("client", c.id, true));
+      },
     })) });
-    $("#tabIcon").innerHTML = icon("pops");
+    if ($("#tabIcon")) $("#tabIcon").innerHTML = icon("pops");
     $("#searchIcon").innerHTML = icon("search");
+    if ($("#listSearchIcon")) $("#listSearchIcon").innerHTML = icon("search");
     $("#detailIcon").innerHTML = icon("topology");
     $("#refreshMap").innerHTML = `${icon("refresh")} Atualizar`;
     $("#mapZoomOut").innerHTML = icon("zoomOut");
     $("#mapZoomIn").innerHTML = icon("zoomIn");
     $("#mapFit").innerHTML = icon("fit");
     $("#refreshMap").onclick = () => load(true);
-    $("#mapSearch").oninput = (e) => { state.query = e.target.value.trim().toLowerCase(); render(); };
+    const updateQuery = (value) => {
+      state.query = value.trim().toLowerCase();
+      state.page = 0;
+      if ($("#mapSearch")) $("#mapSearch").value = value;
+      if ($("#gponListSearch")) $("#gponListSearch").value = value;
+      render();
+    };
+    $("#mapSearch").oninput = (e) => updateQuery(e.target.value);
+    if ($("#gponListSearch")) $("#gponListSearch").oninput = (e) => updateQuery(e.target.value);
+    $$('[data-gpon-view]').forEach((el) => el.onclick = () => setView(el.dataset.gponView));
+    if ($("#gponPrevPage")) $("#gponPrevPage").onclick = () => { state.page = Math.max(0, state.page - 1); renderTable(); };
+    if ($("#gponNextPage")) $("#gponNextPage").onclick = () => { state.page += 1; renderTable(); };
     $$('[data-layer]').forEach((el) => el.onchange = () => { state.layers[el.dataset.layer] = el.checked; renderMap(); });
     $("#mapZoomIn").onclick = () => zoom(2);
     $("#mapZoomOut").onclick = () => zoom(.5);
     $("#mapFit").onclick = fit;
     bindMap();
     new ResizeObserver(() => renderMap()).observe($("#gponMap"));
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === "map" || saved === "list") state.view = saved;
+    } catch {}
+    applyView(false);
     load(false);
     setInterval(refreshIfChanged, 10000);
   }
@@ -73,13 +96,31 @@
     };
     button.disabled = false;
     render();
-    requestAnimationFrame(fit);
+    if (state.view === "map") requestAnimationFrame(fit);
     if (manual) toast("Mapa atualizado", { type: feed.status === "fulfilled" ? "ok" : "warn",
       text: feed.status === "fulfilled" ? "Topologia e clientes foram recarregados." : "A topologia abriu, mas a fonte da OLT não respondeu." });
   }
 
   function render() {
-    renderSource(); renderKpis(); renderClientList(); renderAlerts(); renderMap(); renderDetail();
+    renderSource(); renderKpis(); renderClientList(); renderAlerts(); renderTable(); renderMap(); renderDetail();
+  }
+
+  function setView(view) {
+    if (view !== "map" && view !== "list") return;
+    state.view = view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch {}
+    applyView(true);
+  }
+
+  function applyView(focus) {
+    const mapView = $("#gponMapView"), listView = $("#gponListView");
+    if (!listView) return;
+    const showMap = state.view === "map";
+    mapView.hidden = !showMap;
+    listView.hidden = showMap;
+    $$('[data-gpon-view]').forEach((el) => el.setAttribute("aria-pressed", String(el.dataset.gponView === state.view)));
+    if (showMap) requestAnimationFrame(() => state.fitted ? renderMap() : fit());
+    else if (focus) $("#gponListSearch")?.focus();
   }
 
   function renderSource() {
@@ -131,6 +172,39 @@
       <i></i><span><b>${esc(c.name)}</b><small>${esc(`${c.serial || c.onu_index || "Sem serial"} • ${c.olt_id}${c.pon ? ` • ${c.pon}` : ""}`)}</small></span></button>`).join("")
       + (list.length > shown.length ? `<div class="gpon-list-more">Mostrando 60 de ${list.length.toLocaleString("pt-BR")}. Refine a busca.</div>` : "");
     $$('[data-client-row]', $("#clientList")).forEach((el) => el.onclick = () => select("client", el.dataset.clientRow, false));
+  }
+
+  function renderTable() {
+    const body = $("#gponListBody");
+    if (!body) return;
+    const list = visibleClients();
+    const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    state.page = Math.min(state.page, pages - 1);
+    const start = state.page * PAGE_SIZE;
+    const rows = list.slice(start, start + PAGE_SIZE);
+    $("#gponTableCount").textContent = `${list.length.toLocaleString("pt-BR")} de ${clients().length.toLocaleString("pt-BR")} clientes`;
+    body.innerHTML = rows.length ? rows.map((c) => {
+      const alert = clientAlert(c);
+      const status = alert ? (!statusOnline(c.status) ? "Offline" : "Sinal crítico") : "Online";
+      return `<tr>
+        <td><b>${esc(c.name)}</b><br><small class="dim mono">${esc(c.serial || c.onu_index || "Sem serial")}</small></td>
+        <td><span class="badge ${alert ? "badge-danger" : "badge-ok"}">${esc(status)}</span></td>
+        <td><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b><br><small class="dim mono">${esc(c.pon || "PON não informada")}</small></td>
+        <td>${esc(boxById(c.box_id)?.name || c.box_id || "—")}</td>
+        <td class="mono">${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</td>
+        <td>${esc(c.address || "—")}</td>
+        <td><button class="btn btn-sm" type="button" data-client-map="${esc(c.id)}">Ver no mapa</button></td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="7"><div class="empty"><b>Nenhum cliente encontrado</b><p>Ajuste a busca para consultar a base GPON.</p></div></td></tr>`;
+    $$('[data-client-map]', body).forEach((el) => el.onclick = () => {
+      setView("map");
+      requestAnimationFrame(() => select("client", el.dataset.clientMap, true));
+    });
+    const pagination = $("#gponPagination");
+    pagination.hidden = pages <= 1;
+    $("#gponPageLabel").textContent = `Página ${state.page + 1} de ${pages}`;
+    $("#gponPrevPage").disabled = state.page === 0;
+    $("#gponNextPage").disabled = state.page >= pages - 1;
   }
 
   function renderAlerts() {
@@ -209,6 +283,7 @@
     let k = dx || dy ? Math.min((rect.width - pad * 2) / Math.max(dx, 1e-9), (rect.height - pad * 2) / Math.max(dy, 1e-9)) : 2 ** 15;
     k = GEO.clamp(k, 2 ** 4, 2 ** 18);
     state.map = { k, ox: (minX + maxX) / 2 * k - rect.width / 2, oy: (minY + maxY) / 2 * k - rect.height / 2 };
+    state.fitted = true;
     renderMap();
   }
 

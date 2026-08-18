@@ -16,6 +16,7 @@
 }
 .gpon-head h1 { font-size: var(--fs-24); margin-top: 4px; }
 .gpon-sync { justify-content: flex-end; font-size: var(--fs-11); }
+.gpon-head-actions { display: grid; justify-items: end; gap: var(--s-2); }
 
 /* ---------- Abas dos mapas ---------- */
 .gpon-tabs { display: flex; gap: var(--s-1); border-bottom: 1px solid var(--line); }
@@ -38,6 +39,32 @@
 .gpon-tab-icon { color: var(--cyan-400); flex: none; }
 
 .gpon-panel { min-height: 0; }
+
+/* ---------- Lista operacional ---------- */
+.gpon-list-view {
+  min-height: 560px;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.gpon-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+.gpon-list-search { width: min(520px, 100%); }
+.gpon-list-view .table td { vertical-align: middle; }
+.gpon-list-view .table td:nth-child(6) { max-width: 320px; }
+.gpon-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+}
 
 /* ---------- Indicadores ---------- */
 .gpon-kpis {
@@ -319,6 +346,10 @@
 /* ---------- Celular: tudo empilha ---------- */
 @media (max-width: 800px) {
   .gpon-head { align-items: flex-start; flex-direction: column; }
+  .gpon-head-actions { width: 100%; justify-items: start; }
+  .gpon-sync { justify-content: flex-start; }
+  .gpon-list-view { padding: var(--s-2); }
+  .gpon-list-toolbar { align-items: stretch; flex-direction: column; }
   .gpon-tabs { overflow-x: auto; scrollbar-width: none; }
   .gpon-tabs::-webkit-scrollbar { display: none; }
   .gpon-tab { flex: 0 0 auto; min-width: 220px; }
