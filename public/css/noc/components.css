@@ -31,12 +31,14 @@
 
 .brand-lg .brand-art { width: 180px; height: 52px; }
 
-/* No tema claro o logotipo branco some sobre as superfícies claras; a appbar
-   segue com gradiente escuro nos dois temas, então mantém a arte original. */
+/* No tema claro o logotipo branco some sobre as superfícies claras. A appbar e
+   o painel de marca do login seguem escuros nos dois temas, então continuam com
+   a arte original. */
 :root[data-theme="light"] .brand-art {
   background-image: url("/assets/brand/updown-internet-alpha-dark.png");
 }
-:root[data-theme="light"] .appbar .brand-art {
+:root[data-theme="light"] .appbar .brand-art,
+:root[data-theme="light"] .auth-visual .brand-art {
   background-image: url("/assets/brand/updown-internet-alpha.png");
 }
 

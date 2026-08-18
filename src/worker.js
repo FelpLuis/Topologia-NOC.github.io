@@ -3447,6 +3447,8 @@ const PUBLIC_ASSET_PATHS = new Set([
   "/js/noc-ui.js",
   "/favicon.ico",
   "/assets/brand/updown-internet.png",
+  "/assets/brand/updown-internet-alpha.png",
+  "/assets/brand/updown-internet-alpha-dark.png",
   "/assets/brand/updown-logo.png",
   "/assets/brand/updown-symbol.png",
   "/assets/brand/updown-logo-dark.png",
