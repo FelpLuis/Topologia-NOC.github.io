@@ -2,8 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "topologia-noc",
   "main": "src/worker.js",
-  "compatibility_date": "2026-08-17",
+  "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]
+  },
+  "placement": {
+    "mode": "targeted",
+    "region": "aws:us-east-1"
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -16,9 +23,13 @@
     "crons": ["*/5 * * * *"]
   },
   "vars": {
+    // Turso: TURSO_DATABASE_URL e TURSO_AUTH_TOKEN são Secrets, não vars.
     // Zabbix: ZABBIX_URL e ZABBIX_TOKEN são Secrets, não vars.
     //   npx wrangler secret put ZABBIX_URL
     //   npx wrangler secret put ZABBIX_TOKEN
+    // GPON/OLT: GPON_CLIENTS_URL e GPON_CLIENTS_TOKEN também são Secrets.
+    //   npx wrangler secret put GPON_CLIENTS_URL
+    //   npx wrangler secret put GPON_CLIENTS_TOKEN
     "OAUTH_ISSUER": "https://login.exemplo.com/tenant/v2.0",
     "OAUTH_CLIENT_ID": "SEU_CLIENT_ID",
     "OAUTH_ALLOWED_DOMAINS": "updown.com.br",

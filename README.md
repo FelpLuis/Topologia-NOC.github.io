@@ -37,8 +37,29 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/data/isp-*.json`: sementes da PARTE ISP, geradas do KMZ do backbone.
 - `backend/scripts/kmz-import.mjs`: importador do KMZ para essas sementes.
 - `src/worker.js`: API do sistema e intermediária entre a página e o Zabbix.
+- `src/turso-d1.js`: adaptador que mantém a API de consultas do Worker sobre o Turso.
 - `src/zabbix.js`, `src/zabbix-links.js`, `src/zabbix-topology.js`: integração Zabbix.
 - `wrangler.jsonc`: configuração do Worker.
+
+## Banco Turso
+
+O banco de produção é o `updown` no Turso. O Worker usa o cliente HTTP oficial
+e recebe as credenciais por Secrets da Cloudflare:
+
+```text
+TURSO_DATABASE_URL=libsql://updown-felpluis.aws-us-east-1.turso.io
+TURSO_AUTH_TOKEN=<token de leitura e escrita>
+```
+
+O arquivo local `.env.production` possui essas duas entradas e está ignorado
+pelo Git. Para cadastrar ou atualizar os Secrets sem expor os valores:
+
+```bash
+npx wrangler secret bulk .env.production
+```
+
+O `wrangler.jsonc` posiciona o código do Worker próximo à região
+`aws:us-east-1`, onde está o banco, e não declara mais binding D1.
 
 ## 1. Credenciais do Zabbix
 
@@ -469,16 +490,11 @@ A tela `/platform.html` concentra:
 Administrar perfis exige a ação `roles.manage` e ativar/desativar telas exige `screens.manage` — por padrão, só o perfil `administrador` tem as duas, mas agora isso é configurável como qualquer outra ação. As alterações são auditadas.
 
 
-## CORREÇÃO CLOUDFLARE D1
+## MIGRAÇÃO D1 PARA TURSO
 
-O `wrangler.jsonc` usa o D1 existente no seu Worker:
-
-- Binding: `bd`
-- Database: `topologia-noc`
-- Database ID: `b2559011-42bd-49d0-a22b-5c22efce1913`
-- Assets: `ASSETS`
-
-O erro `binding bd of type d1 must have a valid database_id` acontecia porque o projeto estava usando um placeholder de `database_id`. Isso foi corrigido.
+O `wrangler.jsonc` não declara mais o binding D1. As consultas existentes são
+encaminhadas ao Turso por `src/turso-d1.js`, preservando `prepare`, `bind`,
+`first`, `all`, `run` e `batch` usados pelo Worker.
 
 O projeto também não usa mais `better-sqlite3`, `express` ou `cookie-parser` no deploy do Worker.
 
@@ -491,7 +507,7 @@ Depois do deploy, abra:
 O resultado esperado é:
 
 ```json
-{"ok":true,"service":"topologia-noc","database":"D1","binding":"bd"}
+{"ok":true,"service":"topologia-noc","dependencies":{"database":"ok"}}
 ```
 
 Login inicial:

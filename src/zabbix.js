@@ -264,7 +264,7 @@ const INTERFACE_COLUMNS = [
 ];
 
 /**
- * Grava o inventário no D1.
+ * Grava o inventário no banco SQLite remoto (Turso).
  *
  * O upsert preserva `equipamento_id` quando ele foi ajustado manualmente
  * (match_source='manual'): a sincronização automática não desfaz o vínculo
@@ -322,7 +322,7 @@ export async function persistInventory(db, { hosts, interfaces }) {
     );
   }
 
-  // D1 limita o tamanho do batch; grava em blocos.
+  // Blocos pequenos mantêm cada transação e requisição HTTP previsíveis.
   const CHUNK = 50;
   for (let i = 0; i < statements.length; i += CHUNK) {
     await db.batch(statements.slice(i, i + CHUNK));

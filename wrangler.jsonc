@@ -2,8 +2,15 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "topologia-noc",
   "main": "src/worker.js",
-  "compatibility_date": "2026-08-14",
+  "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]
+  },
+  "placement": {
+    "mode": "targeted",
+    "region": "aws:us-east-1"
+  },
   "observability": {
     "enabled": true
   },
@@ -17,12 +24,5 @@
   // painel de tráfego e o histórico atualizados sozinhos no telão do NOC.
   "triggers": {
     "crons": ["*/5 * * * *"]
-  },
-  "d1_databases": [
-    {
-      "binding": "bd",
-      "database_name": "topologia-noc",
-      "database_id": "b2559011-42bd-49d0-a22b-5c22efce1913"
-    }
-  ]
+  }
 }

@@ -70,7 +70,7 @@
 
       <span class="kicker">Acesso seguro</span>
       <h1 class="page-title" style="font-size:var(--fs-32)">Entrar no NOC</h1>
-      <p class="page-sub">Use as credenciais corporativas. Sessões expiram em 7 dias ou ao encerrar o acesso.</p>
+      <p class="page-sub">Use as credenciais corporativas. A sessão dura 24 horas neste dispositivo ou 1 hora sem manter o acesso.</p>
 
       <!-- method="post": mesmo que o JS falhe e o navegador faça o envio nativo,
            usuário e senha vão no corpo, nunca na barra de endereço. -->
@@ -102,7 +102,7 @@
           <label class="switch">
             <input type="checkbox" id="remember" checked>
             <span class="switch-track"></span>
-            <span style="font-size:var(--fs-13)">Manter conectado</span>
+            <span style="font-size:var(--fs-13)">Manter conectado por 24 horas</span>
           </label>
           <button class="btn btn-ghost btn-sm" type="button" id="helpAccess">Esqueci a senha</button>
         </div>
@@ -219,7 +219,11 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ username: user.value.trim(), password: pass.value }),
+        body: JSON.stringify({
+          username: user.value.trim(),
+          password: pass.value,
+          remember: $("#remember").checked,
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(traduzir(d.error) || "Não foi possível entrar.");

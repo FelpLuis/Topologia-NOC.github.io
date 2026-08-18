@@ -198,6 +198,7 @@ window.UI = (() => {
   const NAV_PADRAO = [
     { code: "network", label: "Topologia BACKBONE", href: "/", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
     { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", sector: "noc", desc: "Mapa da topologia da rede GPON" },
+    { code: "gpon-mapa", label: "Mapas GPON", href: "/gpon-mapa.html", icon: "pops", sector: "noc", desc: "Clientes, caixas, POPs, drops e caminho ponta a ponta" },
     //{ code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
     { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "noc", sector: "noc", desc: "Clientes ISP e caminhos de fibra no mapa" },
     { code: "isp-cadastro", label: "Cadastro de POPs ISP", href: "/isp-cadastro.html", icon: "users", sector: "noc", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Mapas GPON</title>
+<link rel="icon" href="/assets/brand/updown-symbol-dark.png">
+<link rel="preconnect" href="/api" crossorigin>
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<link rel="stylesheet" href="/css/noc/gpon-map.css">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#gponMap">Ir para o Mapa GPON</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+  <main class="content content-wide gpon-page" id="main">
+    <header class="gpon-head">
+      <div>
+        <span class="kicker">NOC • VISÃO OPERACIONAL SOMENTE LEITURA</span>
+        <h1>Mapas</h1>
+        <p class="page-sub">Clientes autenticados, rede óptica e caminho de atendimento de ponta a ponta.</p>
+      </div>
+      <div class="row wrap gpon-sync">
+        <span class="badge" id="sourceBadge">Fonte OLT: verificando…</span>
+        <span class="dim" id="syncTime">—</span>
+        <button class="btn btn-sm" id="refreshMap" type="button" aria-label="Atualizar mapa"></button>
+      </div>
+    </header>
+
+    <div class="gpon-tabs" role="tablist" aria-label="Mapas do NOC">
+      <button class="gpon-tab" id="tabGpon" type="button" role="tab" aria-selected="true" aria-controls="panelGpon">
+        <span class="gpon-tab-icon" id="tabIcon"></span>
+        <span><b>MAPA GPON</b><small>Rede, clientes, caixas e POPs</small></span>
+      </button>
+    </div>
+
+    <section id="panelGpon" role="tabpanel" aria-labelledby="tabGpon" class="gpon-panel">
+      <div class="gpon-kpis" id="gponKpis" aria-live="polite"></div>
+
+      <div class="gpon-workspace">
+        <aside class="gpon-side">
+          <div class="input-affix">
+            <span class="affix-icon" id="searchIcon"></span>
+            <input class="input" id="mapSearch" type="search" placeholder="Cliente, serial, OLT, PON ou endereço…" aria-label="Buscar no Mapa GPON">
+          </div>
+
+          <div class="gpon-layers" role="group" aria-label="Camadas do mapa">
+            <label><input type="checkbox" data-layer="clients" checked> Clientes</label>
+            <label><input type="checkbox" data-layer="boxes" checked> Caixas</label>
+            <label><input type="checkbox" data-layer="pops" checked> POPs</label>
+            <label><input type="checkbox" data-layer="drops" checked> Drops</label>
+          </div>
+
+          <div class="gpon-side-head">
+            <b>Alertas ativos</b><span class="badge badge-danger" id="alertCount">0</span>
+          </div>
+          <div class="gpon-alerts" id="alertsList"></div>
+
+          <div class="gpon-legend card">
+            <b>Legenda</b>
+            <div><i class="gpon-swatch sw-client"></i> Cliente online</div>
+            <div><i class="gpon-swatch sw-client-off"></i> Cliente offline / sinal crítico</div>
+            <div><i class="gpon-swatch sw-box"></i> Caixa / CTO</div>
+            <div><i class="gpon-swatch sw-pop"></i> POP / OLT / SW</div>
+            <div><i class="gpon-line line-drop"></i> Caminho do drop</div>
+            <div><i class="gpon-line line-network"></i> Conexão de rede</div>
+          </div>
+        </aside>
+
+        <section class="gpon-map" id="gponMap" tabindex="0" aria-label="Mapa GPON. Arraste para mover e use a roda do mouse para aproximar.">
+          <div class="gpon-basemap" id="gponBasemap" aria-hidden="true"></div>
+          <svg class="gpon-routes" id="gponRoutes" aria-hidden="true"></svg>
+          <div class="gpon-markers" id="gponMarkers"></div>
+          <div class="gpon-map-message" id="mapMessage" hidden></div>
+          <div class="gpon-map-tools panel">
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapZoomOut" type="button" aria-label="Afastar"></button>
+            <span class="mono dim" id="mapZoomLabel">—</span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapZoomIn" type="button" aria-label="Aproximar"></button>
+            <button class="btn btn-ghost btn-icon btn-sm" id="mapFit" type="button" aria-label="Enquadrar todos"></button>
+          </div>
+          <p class="gpon-attrib"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a></p>
+        </section>
+
+        <aside class="gpon-detail" id="gponDetail" aria-live="polite">
+          <div class="empty gpon-detail-empty">
+            <span class="empty-icon" id="detailIcon"></span>
+            <b>Selecione um cliente</b>
+            <p>Veja autenticação, sinal, localização, drop, caixa, PON, OLT e o caminho completo até a rede.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-geo.js"></script>
+<script src="/js/noc-gpon-map.js"></script>
+</body>
+</html>

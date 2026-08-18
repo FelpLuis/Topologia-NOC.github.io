@@ -952,12 +952,41 @@ body.tv-mode .tv-only { display: flex; }
 .split > * { min-width: 0; }
 .texto-livre { overflow-wrap: anywhere; word-break: break-word; }
 
+/* Rede de proteção do cartão. `min-width: 0` impede a coluna de crescer, mas
+   sozinho não impede o texto de transbordar por cima do painel ao lado — o
+   cartão não recorta o conteúdo. Aqui a quebra vale para todo texto do cartão,
+   sem depender de a tela ter marcado o parágrafo com .texto-livre. */
+.split .card :is(p, h2, h3, b, small, span, td, summary) { overflow-wrap: anywhere; }
+.split .card { overflow: clip; }
+
 /* Conteúdo à esquerda, painel de apoio à direita — o inverso do .split, que
    nasceu com a lista à esquerda. Precisa ser classe, e não grid-template-columns
    no atributo style: estilo inline vence media query, e a tela ficaria com duas
-   colunas espremidas no tablet e no celular em vez de empilhar. */
-.split-aside { grid-template-columns: minmax(0, 1fr) 320px; }
-@media (max-width: 1100px) { .split-aside { grid-template-columns: minmax(0, 1fr); } }
+   colunas espremidas no tablet e no celular em vez de empilhar.
+
+   O painel é quem cede largura quando o espaço aperta: encolhe até 260 px em
+   vez de manter 320 fixos e espremer os cartões da lista. */
+.split-aside { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); }
+
+/* Em tela alta o painel acompanha a rolagem — fica sempre visível sem custar
+   mais largura para a lista. */
+@media (min-width: 1401px) {
+  .split-aside > :last-child { position: sticky; top: var(--s-5); align-self: start; }
+}
+
+/* O ponto de quebra sai da conta da tela, não de um número redondo: descontando
+   o menu lateral (288 px), o respiro da página e o painel, abaixo de 1400 px a
+   lista ficaria com menos de 700 px — estreito demais para um cartão com
+   estatísticas, botões e equipamentos. Aí o painel desce e a lista fica com a
+   largura inteira; lado a lado, os dois cartões de apoio não viram duas telas
+   de rolagem antes do primeiro ISP. */
+@media (max-width: 1400px) {
+  .split-aside { grid-template-columns: minmax(0, 1fr); }
+  .split-aside > :last-child {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-content: start;
+  }
+}
 
 /* Observação longa não pode dominar o cartão: fica recolhida atrás de um
    resumo, e o texto inteiro continua a um clique — e no formulário de edição. */

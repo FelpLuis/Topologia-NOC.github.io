@@ -16,18 +16,18 @@ import {
   sha256Base64Url as oauthSha256Base64Url
 } from "./oauth.js";
 import { parseIcsCalendar } from "./ics.js";
+import { getTursoD1 } from "./turso-d1.js";
 
 const COOKIE_NAME = "__Host-topologia_noc_session";
 const OAUTH_STATE_COOKIE = "__Host-topologia_noc_oauth";
-const SESSION_DAYS = 7;
+const REMEMBERED_SESSION_SECONDS = 24 * 60 * 60;
+const SHORT_SESSION_SECONDS = 60 * 60;
 const PBKDF2_ITERATIONS = 100000;
 const OAUTH_STATE_MINUTES = 10;
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
-// Compatível com o binding mostrado no Cloudflare:
-// D1 binding: "bd"
-// Assets binding: "ASSETS"
-// O código também aceita DB caso você prefira renomear o binding para DB.
+// Banco remoto Turso via TURSO_DATABASE_URL e TURSO_AUTH_TOKEN.
+// Assets continuam servidos pelo binding ASSETS da Cloudflare.
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS roles (
@@ -363,6 +363,7 @@ const NAV_SECTORS = [
 const SCREENS = [
   ["network", "Topologia BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
   ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
+  ["gpon-mapa", "Mapas GPON", "Mapa operacional somente leitura de clientes, caixas, POPs, drops e caminho ponta a ponta", "/gpon-mapa.html", 1, "pops", 16, 1],
   //["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
@@ -482,11 +483,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
-  analista: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  atendimento: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
-  tecnico: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  logistica: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
+  gerente: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
+  analista: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  atendimento: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
+  tecnico: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  logistica: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -535,8 +536,7 @@ function securityHeaders(base) {
 }
 
 function getDB(env) {
-  // Seu print mostra o binding D1 com nome "bd".
-  return env.bd || env.DB;
+  return getTursoD1(env);
 }
 
 function randomBytes(length = 32) {
@@ -806,7 +806,7 @@ async function ensureDatabase(env) {
   // Somente o sinal persistente de conclusão é mantido. A Promise e o binding
   // D1 nunca atravessam requisições, evitando I/O ligado ao contexto anterior.
   const db = getDB(env);
-  if (!db) throw new Error('Binding D1 "bd" não encontrado.');
+  if (!db) throw new Error("Conexão Turso não disponível.");
 
   // Caminho rápido: o isolate é reciclado com frequência e, sem isto, toda
   // partida a frio repetia a migração inteira antes de responder a primeira
@@ -830,7 +830,7 @@ async function ensureDatabase(env) {
 
 async function ensureDatabaseImpl(env) {
   const db = getDB(env);
-  if (!db) throw new Error('Binding D1 "bd" não encontrado.');
+  if (!db) throw new Error("Conexão Turso não disponível.");
 
   // A migração pode acrescentar colunas em audit_logs: o cache é refeito depois.
   auditColumnNames = null;
@@ -842,13 +842,16 @@ async function ensureDatabaseImpl(env) {
     db.prepare(`DROP TABLE IF EXISTS google_calendar_connections`)
   ]);
 
-  const schemaStatements = SCHEMA.split(/;\s*(?=CREATE TABLE|CREATE (?:UNIQUE )?INDEX)/)
+  // Cada item do SCHEMA é um CREATE independente. A divisão simples também
+  // funciona quando há comentários entre dois comandos, algo que o D1
+  // tolerava dentro de prepare(), mas o protocolo HTTP do Turso rejeita.
+  const schemaStatements = SCHEMA.replace(/\/\*[\s\S]*?\*\//g, "").split(";")
     .map(x => x.trim()).filter(Boolean);
 
   // Índices que usam colunas adicionadas por migração só podem ser criados
   // depois dos ALTER TABLE. Isso mantém compatibilidade com bancos antigos.
   const tableStatements = schemaStatements
-    .filter(x => !/^CREATE (?:UNIQUE )?INDEX\b/i.test(x))
+    .filter(x => !/\bCREATE (?:UNIQUE )?INDEX\b/i.test(x))
     .map(x => db.prepare(x));
   await db.batch(tableStatements);
 
@@ -901,7 +904,7 @@ async function ensureDatabaseImpl(env) {
   }
 
   const indexStatements = schemaStatements
-    .filter(x => /^CREATE (?:UNIQUE )?INDEX\b/i.test(x))
+    .filter(x => /\bCREATE (?:UNIQUE )?INDEX\b/i.test(x))
     .map(x => db.prepare(x));
   await db.batch(indexStatements);
 
@@ -917,8 +920,7 @@ async function ensureDatabaseImpl(env) {
       ON CONFLICT(name) DO NOTHING
     `).bind(name,description)),
     ...NAV_SECTORS.map(([code,name,description,color,icon,sort]) => db.prepare(`
-      INSERT INTO sectors(code,name,description,color,icon,sort) VALUES (?,?,?,?,?,?)
-      ON CONFLICT(code) DO NOTHING
+      INSERT OR IGNORE INTO sectors(code,name,description,color,icon,sort) VALUES (?,?,?,?,?,?)
     `).bind(code,name,description,color,icon,sort)),
     ...ACTIONS.map(([code,name,description,screenCode,module,sort]) => db.prepare(`
       INSERT INTO permissions(code,name,description,screen_code,module,sort) VALUES (?,?,?,?,?,?)
@@ -1018,6 +1020,15 @@ async function ensureDatabaseImpl(env) {
       SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
     `).all()).results || []).map(x => x.role_id);
     await runGrants(comRede.map(roleId => grantScreen(roleId, "gpon")));
+  });
+
+  // O mapa operacional acompanha, uma única vez, os perfis que já enxergam a
+  // GPON. Depois disso o acesso volta a ser administrado pela Plataforma.
+  await seedOnce(db, "seed.gpon_map_screen.v1", async () => {
+    const comGpon = ((await db.prepare(`
+      SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='gpon'
+    `).all()).results || []).map(x => x.role_id);
+    await runGrants(comGpon.map(roleId => grantScreen(roleId, "gpon-mapa")));
   });
 
   // Agenda acompanha os perfis que já possuem alguma tela operacional. O
@@ -1218,11 +1229,16 @@ async function ensureTopologyState(env, request, scope = DEFAULT_SCOPE) {
   return await ler();
 }
 
-async function createSession(env, request, user, authenticationMethod = "password") {
+export function sessionDurationSeconds(remember) {
+  return remember === true ? REMEMBERED_SESSION_SECONDS : SHORT_SESSION_SECONDS;
+}
+
+async function createSession(env, request, user, authenticationMethod = "password", remember = true) {
   const db = getDB(env);
   const rawToken = bytesToBase64Url(randomBytes(48));
   const tokenHash = await sha256Base64Url(rawToken);
-  const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
+  const durationSeconds = sessionDurationSeconds(remember);
+  const expires = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
   await db.prepare(`
     INSERT INTO sessions(token_hash, user_id, expires_at, ip, user_agent)
@@ -1232,7 +1248,7 @@ async function createSession(env, request, user, authenticationMethod = "passwor
   await audit(env, request, user, "LOGIN", "auth", String(user.id), null, {role:user.role}, {method:authenticationMethod});
 
   return {
-    cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`,
+    cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${durationSeconds}`,
     tokenHash
   };
 }
@@ -1335,7 +1351,7 @@ async function handleLogin(env, request) {
     WHERE id=?
   `).bind(user.id).run();
 
-  const session = await createSession(env, request, user);
+  const session = await createSession(env, request, user, "password", body.remember === true);
 
   return json({
     ok: true,
@@ -1872,7 +1888,7 @@ async function handleHealth(env) {
     return json({
       ok: false,
       service: "topologia-noc",
-      error: 'Binding D1 "bd" não encontrado.'
+      error: "Conexão Turso não disponível."
     }, 500);
   }
 
@@ -3327,6 +3343,92 @@ async function handleTargetCredentials(env, request, deviceId, targetId, reveal 
   return json({ok:true,credentials:after});
 }
 
+/* Clientes/ONUs autenticados vêm de um adaptador HTTP configurado no ambiente.
+   Normalizar a resposta aqui mantém a tela independente do fabricante da OLT. */
+const primeiroGpon = (...valores) => valores.find(v => v !== undefined && v !== null && v !== "");
+const numeroGpon = (v) => v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
+const pontosGpon = (valor) => (Array.isArray(valor) ? valor : []).map(p => ({
+  lat: numeroGpon(Array.isArray(p) ? p[0] : primeiroGpon(p?.lat, p?.latitude)),
+  lon: numeroGpon(Array.isArray(p) ? p[1] : primeiroGpon(p?.lon, p?.lng, p?.longitude))
+})).filter(p => p.lat !== null && p.lon !== null && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180);
+
+function normalizarClienteGpon(c, i) {
+  const loc = c?.location || c?.localizacao || {};
+  const caminho = primeiroGpon(c?.path, c?.caminho, c?.end_to_end, []);
+  return {
+    id: String(primeiroGpon(c?.id, c?.client_id, c?.onu_id, c?.serial, c?.sn, `cliente-${i + 1}`)),
+    name: String(primeiroGpon(c?.name, c?.nome, c?.customer_name, c?.cliente, c?.username, "Cliente sem nome")),
+    username: String(primeiroGpon(c?.username, c?.login, c?.pppoe, "")),
+    status: String(primeiroGpon(c?.status, c?.state, c?.estado, c?.online === false ? "offline" : "online")).toLowerCase(),
+    serial: String(primeiroGpon(c?.serial, c?.sn, c?.onu_serial, "")),
+    olt_id: String(primeiroGpon(c?.olt_id, c?.olt, c?.equipment_id, c?.equipamento_id, "")),
+    pon: String(primeiroGpon(c?.pon, c?.pon_port, c?.interface, c?.porta_pon, "")),
+    vlan: String(primeiroGpon(c?.vlan, c?.service_vlan, "")),
+    ip: String(primeiroGpon(c?.ip, c?.ip_address, c?.endereco_ip, "")),
+    address: String(primeiroGpon(c?.address, c?.endereco, loc?.address, loc?.endereco, "")),
+    lat: numeroGpon(primeiroGpon(c?.lat, c?.latitude, loc?.lat, loc?.latitude)),
+    lon: numeroGpon(primeiroGpon(c?.lon, c?.lng, c?.longitude, loc?.lon, loc?.lng, loc?.longitude)),
+    rx_power: numeroGpon(primeiroGpon(c?.rx_power, c?.rx, c?.signal, c?.sinal_rx)),
+    tx_power: numeroGpon(primeiroGpon(c?.tx_power, c?.tx, c?.sinal_tx)),
+    box_id: String(primeiroGpon(c?.box_id, c?.caixa_id, c?.cto_id, c?.cto, "")),
+    drop_path: pontosGpon(primeiroGpon(c?.drop_path, c?.caminho_drop, c?.route, c?.rota, [])),
+    path: Array.isArray(caminho) ? caminho : []
+  };
+}
+
+function normalizarCaixaGpon(c, i) {
+  const loc = c?.location || c?.localizacao || {};
+  return {
+    id: String(primeiroGpon(c?.id, c?.box_id, c?.cto_id, `caixa-${i + 1}`)),
+    name: String(primeiroGpon(c?.name, c?.nome, c?.label, c?.identificacao, `Caixa ${i + 1}`)),
+    type: String(primeiroGpon(c?.type, c?.tipo, "CTO")),
+    status: String(primeiroGpon(c?.status, c?.estado, "online")).toLowerCase(),
+    pop_id: String(primeiroGpon(c?.pop_id, c?.pop, "")),
+    address: String(primeiroGpon(c?.address, c?.endereco, loc?.address, loc?.endereco, "")),
+    lat: numeroGpon(primeiroGpon(c?.lat, c?.latitude, loc?.lat, loc?.latitude)),
+    lon: numeroGpon(primeiroGpon(c?.lon, c?.lng, c?.longitude, loc?.lon, loc?.lng, loc?.longitude))
+  };
+}
+
+async function handleGponClients(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+  const endpoint = String(env.GPON_CLIENTS_URL || "").trim();
+  if (!endpoint) return json({
+    configured: false, source: "Não configurada", synced_at: null,
+    clients: [], boxes: [], alerts: [],
+    message: "Configure GPON_CLIENTS_URL para importar clientes autenticados da OLT."
+  });
+  try {
+    const sourceUrl = new URL(endpoint);
+    const localDev = sourceUrl.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(sourceUrl.hostname);
+    if (sourceUrl.protocol !== "https:" && !localDev) throw new Error("GPON_CLIENTS_URL deve usar HTTPS");
+    const headers = { Accept: "application/json" };
+    if (env.GPON_CLIENTS_TOKEN) headers.Authorization = `Bearer ${env.GPON_CLIENTS_TOKEN}`;
+    const upstream = await fetch(sourceUrl, { headers, signal: AbortSignal.timeout(12000) });
+    if (!upstream.ok) throw new Error(`HTTP ${upstream.status}`);
+    const tamanho = Number(upstream.headers.get("content-length") || 0);
+    if (tamanho > 8 * 1024 * 1024) throw new Error("Resposta GPON maior que 8 MiB");
+    const raw = await upstream.json();
+    const data = raw?.data || raw;
+    const clients = primeiroGpon(data?.clients, data?.clientes, data?.onus, data?.subscribers, Array.isArray(data) ? data : []);
+    const boxes = primeiroGpon(data?.boxes, data?.caixas, data?.ctos, []);
+    const alerts = primeiroGpon(data?.alerts, data?.alertas, []);
+    return json({
+      configured: true,
+      source: String(primeiroGpon(data?.source, data?.fonte, "Integração OLT")),
+      synced_at: primeiroGpon(data?.synced_at, data?.updated_at, data?.atualizado_em, new Date().toISOString()),
+      clients: (Array.isArray(clients) ? clients : []).map(normalizarClienteGpon),
+      boxes: (Array.isArray(boxes) ? boxes : []).map(normalizarCaixaGpon),
+      alerts: Array.isArray(alerts) ? alerts : []
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Falha na integração GPON", error: error?.message || String(error) }));
+    return json({ configured: true, unavailable: true, source: "Integração OLT", synced_at: null,
+      clients: [], boxes: [], alerts: [], message: "A fonte da OLT não respondeu nesta atualização." });
+  }
+}
+
 async function handleTopologyPermissions(env,request){
   const user=await getCurrentUser(env,request);
   if(!user)return json({error:"AUTH_REQUIRED"},401);
@@ -3503,6 +3605,9 @@ export default {
 
         if (url.pathname === "/api/topology/permissions" && request.method === "GET")
           return await handleTopologyPermissions(env,request);
+
+        if (url.pathname === "/api/gpon/clients" && request.method === "GET")
+          return await handleGponClients(env,request);
 
         if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
           return await handleTrafegoSettings(env,request);
