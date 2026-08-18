@@ -1927,7 +1927,8 @@ async function agendaAttendees(db, sectorId, excludeEmail) {
 }
 
 async function syncAgendaEventToGoogle(env, user, event, existing = null) {
-  const row = await calendarConnection(env, user.id);
+  const syncUserId = Number(existing?.creator_user_id || user.id);
+  const row = await calendarConnection(env, syncUserId);
   if (!row) return { sync_error: "Vincule sua conta Google para sincronizar este compromisso." };
   const calendarId = existing?.google_calendar_id || selectedCalendarIds(row)[0];
   if (!calendarId) return { sync_error: "Escolha uma agenda Google nas configurações." };
@@ -2020,7 +2021,7 @@ async function handleAgendaEventDelete(env, request, id) {
   let syncError = null;
   if (before.google_event_id && before.google_calendar_id) {
     try {
-      const connection = await calendarConnection(env, gate.user.id);
+      const connection = await calendarConnection(env, before.creator_user_id);
       if (connection) {
         const access = await googleCalendarAccess(env, connection);
         await deleteGoogleEvent(access.access_token, before.google_calendar_id, before.google_event_id);

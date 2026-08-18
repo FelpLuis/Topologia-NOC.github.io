@@ -20,11 +20,13 @@ window.UI = (() => {
     pops: '<path d="M12 21s7-5.7 7-11a7 7 0 1 0-14 0c0 5.3 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     dashboard: '<path d="M3 12h4l2.5 7 4-15 2.5 8h5"/>',
     platform: '<path d="M12 3l8 3.5v5c0 5-3.4 8.6-8 9.5-4.6-.9-8-4.5-8-9.5v-5z"/><path d="M9.2 12.2l2 2 3.6-3.8"/>',
+    finance: '<circle cx="12" cy="12" r="8.5"/><path d="M12 6.5v11M15.2 8.5h-4.8a2.2 2.2 0 0 0 0 4.4h3.2a2.2 2.2 0 0 1 0 4.4H8.8"/>',
     guide: '<rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M9 4v16M13 9h4M13 13h4"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-3.6-3.6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
     bell: '<path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="16" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
     logout: '<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="M15 8l4 4-4 4M19 12H9"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     chevronLeft: '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
@@ -207,11 +209,11 @@ window.UI = (() => {
   /* Setores fixos do menu. As telas existentes (incluindo GPON e ISP) ficam
      reunidas em NOC; os demais blocos já estão prontos para receber telas. */
   const SETORES = [
-    { code: "atendimento", label: "Atendimento", icon: "user" },
-    { code: "logistica", label: "Logística", icon: "pops" },
-    { code: "comercial", label: "Comercial", icon: "dashboard" },
+    { code: "atendimento", label: "HELPDESK", icon: "user" },
+    { code: "logistica", label: "LOGÍSTICA", icon: "pops" },
+    { code: "comercial", label: "COMERCIAL", icon: "dashboard" },
     { code: "sac", label: "SAC", icon: "bell" },
-    { code: "analista", label: "Analista", icon: "platform" },
+    { code: "financeiro", label: "FINANCEIRO", icon: "finance" },
     { code: "noc", label: "NOC", icon: "topology" },
   ];
 

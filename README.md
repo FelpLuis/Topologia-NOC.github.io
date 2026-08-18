@@ -261,11 +261,19 @@ login por senha local.
 
 Cada usuário autenticado pode abrir o menu do perfil, escolher **Agenda Google**
 e vincular a própria conta pessoal Google (`@gmail.com`). Esse vínculo é
-independente do login corporativo usado para entrar no NOC: a conta Google serve
-somente para ler as agendas e gerar os avisos. A integração pede somente
-`calendar.readonly`, permite escolher quais agendas acompanhar e mostra um
-pop-up no NOC quando o compromisso entra na antecedência configurada. Se o
+independente do login corporativo usado para entrar no NOC. A integração pede
+acesso aos eventos e leitura da lista de agendas (`calendar.events` e
+`calendar.calendarlist.readonly`), permite escolher onde sincronizar e mostra
+um pop-up no NOC quando o compromisso entra na antecedência configurada. Se o
 usuário autorizar, o navegador também exibe uma notificação do sistema.
+
+A tela **Agenda** reúne a agenda pessoal do usuário e uma agenda para cada setor
+ao qual ele pertence. Os setores são cadastrados em **Gerenciar plataforma →
+Setores** e funcionam como grupos de autorização: no cadastro ou na edição de
+um usuário, marque um ou mais setores. Compromissos setoriais ficam visíveis
+somente aos membros, são gravados no Google Agenda do organizador e convidam os
+demais membros que possuem e-mail cadastrado. Cada compromisso pode ativar
+lembrete por e-mail, popup ou ambos.
 
 No Google Cloud, habilite a Google Calendar API e configure a tela de
 consentimento OAuth com o tipo de público **Externo**. O tipo **Interno** aceita

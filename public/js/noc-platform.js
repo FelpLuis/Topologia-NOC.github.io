@@ -9,7 +9,7 @@
 
   const state = {
     tab: "perfis",
-    model: { roles: [], permissions: [], screens: [], rolePermissions: [], roleScreens: [], can: {}, protectedRole: "administrador" },
+    model: { roles: [], permissions: [], screens: [], sectors: [], rolePermissions: [], roleScreens: [], can: {}, protectedRole: "administrador" },
     users: [],
     audit: [],
     role: null,
@@ -45,6 +45,7 @@
     renderRoles();
     renderRoleEditor();
     renderScreens();
+    renderSectors();
   }
   async function loadUsers() {
     state.users = await NOC.api("/api/users");
@@ -413,6 +414,7 @@
             ${state.model.roles.map((r) => `<option value="${esc(r.name)}" ${r.name === u.role ? "selected" : ""}>${esc(r.name)}</option>`).join("")}
           </select>
         </td>
+        <td><button class="btn btn-sm" type="button" data-sectors="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${(u.sectors || []).length ? (u.sectors || []).map((s) => esc(s.name)).join(", ") : "Sem setor"}</button></td>
         <td><span class="badge ${u.active ? "badge-ok" : "badge-danger"}"><i class="dot ${u.active ? "dot-ok" : "dot-danger"}"></i>${u.active ? "Ativo" : "Inativo"}</span></td>
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
@@ -422,7 +424,7 @@
             <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
           </div>
         </td>
-      </tr>`).join("") : `<tr><td colspan="5"><div class="empty">
+      </tr>`).join("") : `<tr><td colspan="6"><div class="empty">
         <span class="empty-icon">${icon("users")}</span><b>Nenhuma conta encontrada</b><p>Ajuste a busca ou o filtro de status.</p></div></td></tr>`;
 
     $$("[data-user-role]").forEach((sel) => (sel.onchange = async () => {
@@ -483,6 +485,27 @@
       const u = state.users.find((x) => x.id === +b.dataset.email);
       openOAuthEmail(u);
     }));
+    $$("[data-sectors]").forEach((b) => (b.onclick = () => openUserSectors(state.users.find((x) => x.id === +b.dataset.sectors))));
+  }
+
+  function openUserSectors(u) {
+    const selected = new Set((u.sectors || []).map((s) => s.id));
+    modal({
+      labelledBy: "usTitle",
+      html: `<div class="modal-head"><div><span class="kicker">Permissões por setor</span><h2 id="usTitle">Setores de ${esc(u.display_name || u.username)}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div>
+        <div class="modal-body stack"><p class="muted">O usuário poderá consultar e cadastrar compromissos nas agendas marcadas.</p>${(state.model.sectors || []).filter((s) => s.active).map((s) => `<label class="check-row"><input type="checkbox" data-user-sector="${s.id}" ${selected.has(s.id) ? "checked" : ""}><i class="dot" style="background:${esc(s.color)}"></i><span><b>${esc(s.name)}</b><small>${esc(s.description || "Agenda do setor")}</small></span></label>`).join("") || '<div class="empty"><b>Nenhum setor cadastrado</b><p>Crie um setor na aba Setores.</p></div>'}</div>
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save>Salvar setores</button></span></div>`,
+      onMount: (host, close) => {
+        $("[data-save]", host).onclick = async () => {
+          try {
+            const sector_ids = $$('[data-user-sector]:checked', host).map((x) => +x.dataset.userSector);
+            const updated = await NOC.api(`/api/users/${u.id}`, { method: "PATCH", body: JSON.stringify({ sector_ids }) });
+            u.sectors = updated.sectors || [];
+            close(); renderUsers(); toast("Setores atualizados", { type: "ok" });
+          } catch (err) { toast("Não foi possível atualizar", { text: err.message, type: "danger" }); }
+        };
+      },
+    });
   }
 
   function openOAuthEmail(u) {
@@ -585,6 +608,7 @@
             <select class="select" id="uRole">${state.model.roles.map((r) => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")}</select>
             <span class="field-hint" id="roleHint"></span>
           </div>
+          <div class="field"><label>Setores</label><div class="stack" style="gap:6px">${(state.model.sectors || []).filter((s) => s.active).map((s) => `<label class="check-row"><input type="checkbox" data-new-user-sector="${s.id}"><i class="dot" style="background:${esc(s.color)}"></i><span><b>${esc(s.name)}</b></span></label>`).join("") || '<span class="field-hint">Nenhum setor cadastrado ainda.</span>'}</div></div>
           <span class="field-error" id="nuErr" hidden></span>
         </div>
         <div class="modal-foot">
@@ -609,6 +633,7 @@
             email: $("#uEmail", host).value.trim(),
             password: $("#uPass", host).value,
             role: sel.value,
+            sector_ids: $$('[data-new-user-sector]:checked', host).map((x) => +x.dataset.newUserSector),
           };
           if (!payload.username || !payload.display_name || payload.password.length < 8) {
             err.hidden = false;
@@ -624,6 +649,28 @@
             err.hidden = false;
             err.innerHTML = icon("alert") + " " + esc(e2.message);
           }
+        };
+      },
+    });
+  }
+
+  /* ---------------- setores ---------------- */
+  function renderSectors() {
+    const rows = state.model.sectors || [], host = $("#sectorRows");
+    if (!host) return;
+    host.innerHTML = rows.length ? rows.map((s) => `<tr><td><span class="row" style="gap:8px"><i class="dot" style="background:${esc(s.color)}"></i><b>${esc(s.name)}</b></span></td><td class="mono dim">${esc(s.code)}</td><td class="dim">${esc(s.description || "—")}</td><td><span class="badge">${Number(s.users || 0)}</span></td><td><span class="badge ${s.active ? "badge-ok" : "badge-danger"}">${s.active ? "Ativo" : "Inativo"}</span></td></tr>`).join("") : '<tr><td colspan="5"><div class="empty"><b>Nenhum setor cadastrado</b><p>Crie o primeiro setor para liberar sua agenda.</p></div></td></tr>';
+  }
+
+  function openNewSector() {
+    modal({
+      labelledBy: "nsTitle",
+      html: `<div class="modal-head"><div><span class="kicker">Agenda e permissão</span><h2 id="nsTitle">Novo setor</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><div class="field"><label for="sectorName">Nome</label><input class="input" id="sectorName" placeholder="Ex.: NOC"></div><div class="field"><label for="sectorDescription">Descrição</label><textarea class="textarea" id="sectorDescription" rows="3"></textarea></div><div class="field"><label for="sectorColor">Cor da agenda</label><input id="sectorColor" type="color" value="#2563eb"></div></div><div class="modal-foot"><span></span><span class="row"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save>Criar setor</button></span></div>`,
+      onMount: (host, close) => {
+        $("[data-save]", host).onclick = async () => {
+          try {
+            await NOC.api("/api/platform/sectors", { method: "POST", body: JSON.stringify({ name: $("#sectorName", host).value.trim(), description: $("#sectorDescription", host).value.trim(), color: $("#sectorColor", host).value }) });
+            close(); await loadModel(); toast("Setor criado", { text: "A agenda do setor já está disponível para vincular aos usuários.", type: "ok" });
+          } catch (err) { toast("Não foi possível criar", { text: err.message, type: "danger" }); }
         };
       },
     });
@@ -712,7 +759,7 @@
   function setTab(tab) {
     state.tab = tab;
     $$("[data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
-    ["perfis", "usuarios", "telas", "auditoria"].forEach((id) => ($("#painel-" + id).hidden = id !== tab));
+    ["perfis", "usuarios", "setores", "telas", "auditoria"].forEach((id) => ($("#painel-" + id).hidden = id !== tab));
     if (tab === "auditoria" && !state.audit.length && can("viewAudit")) {
       loadAudit().catch((e) => toast("Falha ao carregar auditoria", { text: e.message, type: "danger" }));
     }
@@ -726,6 +773,7 @@
     $("#btnExport").innerHTML = icon("download") + " Exportar auditoria";
     $("#newRole").innerHTML = icon("plus") + " Criar perfil";
     $("#newUser").innerHTML = icon("plus") + " Novo usuário";
+    $("#newSector").innerHTML = icon("plus") + " Novo setor";
 
     NOC.skeleton($("#roleList"), 5);
     NOC.skeleton($("#roleEditor"), 6);
@@ -748,8 +796,10 @@
     $$("[data-tab]").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
     $("#newRole").onclick = openNewRole;
     $("#newUser").onclick = openNewUser;
+    $("#newSector").onclick = openNewSector;
     $("#newRole").disabled = !can("manageRoles");
     $("#newUser").disabled = !can("manageUsers");
+    $("#newSector").disabled = !can("manageSectors");
     $("#btnExport").disabled = !can("exportAudit");
     $("#roleSearch").addEventListener("input", (e) => {
       state.roleQuery = e.target.value.trim().toLowerCase();

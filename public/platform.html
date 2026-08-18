@@ -33,6 +33,7 @@
     <div class="tabs" role="tablist" aria-label="Módulos de administração" style="margin-bottom:var(--s-5)">
       <button class="tab" role="tab" aria-selected="true" data-tab="perfis" id="tab-perfis" aria-controls="painel-perfis">Perfis e ações</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="usuarios" id="tab-usuarios" aria-controls="painel-usuarios">Usuários <span class="badge" id="userCount">0</span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="setores" id="tab-setores" aria-controls="painel-setores">Setores</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="telas" id="tab-telas" aria-controls="painel-telas">Telas do sistema</button>
       <button class="tab" role="tab" aria-selected="false" data-tab="auditoria" id="tab-auditoria" aria-controls="painel-auditoria">Auditoria</button>
     </div>
@@ -51,6 +52,18 @@
           </div>
         </aside>
         <div class="card" id="roleEditor"></div>
+      </div>
+    </section>
+
+    <!-- Setores também são grupos de autorização das agendas. -->
+    <section id="painel-setores" role="tabpanel" aria-labelledby="tab-setores" hidden>
+      <div class="card">
+        <div class="card-head"><div><h2>Setores e agendas</h2><p>Cada setor possui sua própria agenda. O vínculo do usuário libera a consulta e o cadastro de compromissos.</p></div>
+          <button class="btn btn-sm btn-primary" id="newSector" type="button">Novo setor</button></div>
+        <div class="card-body"><div class="table-wrap"><table class="table">
+          <thead><tr><th>Setor</th><th>Código</th><th>Descrição</th><th>Usuários</th><th>Status</th></tr></thead>
+          <tbody id="sectorRows"></tbody>
+        </table></div></div>
       </div>
     </section>
 
@@ -75,7 +88,7 @@
           </div>
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>Usuário</th><th>Perfil</th><th>Status</th><th>Último acesso</th><th></th></tr></thead>
+              <thead><tr><th>Usuário</th><th>Perfil</th><th>Setores</th><th>Status</th><th>Último acesso</th><th></th></tr></thead>
               <tbody id="userRows"></tbody>
             </table>
           </div>
