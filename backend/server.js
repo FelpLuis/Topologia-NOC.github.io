@@ -376,7 +376,7 @@ app.get("/api/audit", requireAuth, requirePermission("audit.view"), (req,res) =>
 function defaultTopologyConfig() {
   return {
     subtitle: "Topologia de Rede • Ascenty / BGP / MPLS",
-    coreTitle: "NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
+    coreTitle: "BACKBONE • ANEL ÓPTICO",
     ringTitle: "ANEL ÓPTICO DOS POPs",
     ringLabel: "ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
     popSectionTitle: "EQUIPAMENTOS POR POP"
