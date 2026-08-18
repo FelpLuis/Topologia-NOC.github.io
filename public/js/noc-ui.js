@@ -209,7 +209,7 @@ window.UI = (() => {
 
   /* Setores fixos do menu. As telas existentes (incluindo GPON e ISP) ficam
      reunidas em NOC; os demais blocos já estão prontos para receber telas. */
-  const SETORES = [
+  const SETORES_PADRAO = [
     { code: "atendimento", label: "HELPDESK", icon: "user" },
     { code: "logistica", label: "LOGÍSTICA", icon: "pops" },
     { code: "comercial", label: "COMERCIAL", icon: "dashboard" },
@@ -217,6 +217,17 @@ window.UI = (() => {
     { code: "financeiro", label: "FINANCEIRO", icon: "finance" },
     { code: "noc", label: "NOC", icon: "topology" },
   ];
+
+  function SETORES() {
+    const setores = window.UPDOWN_ACCESS?.sectors;
+    if (!Array.isArray(setores) || !setores.length) return SETORES_PADRAO;
+    return setores.map((s) => ({
+      code: s.code,
+      label: s.name,
+      icon: s.icon || "circle",
+      color: s.color || ""
+    }));
+  }
 
   function NAV() {
     const telas = window.UPDOWN_ACCESS?.screens;
@@ -294,8 +305,10 @@ window.UI = (() => {
   /* Monta o menu lateral e o inferior com as telas liberadas para o perfil. */
   function renderNav() {
     const itens = NAV();
-    const porSetor = new Map(SETORES.map((setor) => [setor.code, []]));
-    itens.forEach((n) => (porSetor.get(n.sector) || porSetor.get("noc")).push(n));
+    const setores = SETORES();
+    const porSetor = new Map(setores.map((setor) => [setor.code, []]));
+    const setorPadrao = porSetor.get("noc") || porSetor.values().next().value || [];
+    itens.forEach((n) => (porSetor.get(n.sector) || setorPadrao).push(n));
     const item = (n) => `
       <a class="nav-item" data-nav="${n.code}" data-code="${n.code}" href="${n.href}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
         ${icon(n.icon)}<span>${esc(n.label)}</span>
@@ -305,7 +318,7 @@ window.UI = (() => {
       const contemTelaAtual = menus.some((n) => ehAtual(n.href));
       const aberto = s.code === "noc" || contemTelaAtual;
       return `
-        <details class="nav-sector" data-sector="${s.code}" ${aberto ? "open" : ""}>
+        <details class="nav-sector" data-sector="${s.code}" style="--sector-color:${esc(s.color || "var(--cyan-400)")}" ${aberto ? "open" : ""}>
           <summary class="nav-sector-trigger">
             ${icon(s.icon)}<span>${esc(s.label)}</span>${icon("chevronDown", "icon nav-sector-chevron")}
           </summary>
@@ -320,7 +333,7 @@ window.UI = (() => {
       side.className = "sidebar";
       side.innerHTML = `
         <nav class="nav" aria-label="Navegação principal">
-          ${SETORES.map(setor).join("")}
+          ${setores.map(setor).join("")}
         </nav>
         <div class="sidebar-foot stack" style="gap:var(--s-3)">
           <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
@@ -357,7 +370,7 @@ window.UI = (() => {
     initCalendarAlerts();
   });
 
-  /* ---------------- agenda pessoal vinculada pelo Gmail ---------------- */
+  /* ---------------- agenda pessoal importada por arquivo .ics ---------------- */
   async function calendarApi(url, options = {}) {
     const response = await fetch(url, {
       credentials: "same-origin",
@@ -374,78 +387,55 @@ window.UI = (() => {
     return data;
   }
 
-  const calendarReturnTo = () => `${location.pathname}${location.search}`.replace(/([?&])(calendar|calendar_error)=[^&]*&?/g, "$1").replace(/[?&]$/, "") || "/";
-
-  function openCalendarSettings() {
+  function openAgendaImport() {
     modal({
       labelledBy: "calendarSettingsTitle",
       wide: true,
       html: `
         <div class="modal-head">
-          <div><span class="kicker">${icon("bell")} Compromissos</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Agenda pessoal</h2>
-          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Entre no Gmail uma vez para importar sua agenda e receber os avisos no NOC.</p></div>
+          <div><span class="kicker">${icon("calendar")} Importação gratuita</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Importar agenda pessoal</h2>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Exporte sua agenda como arquivo .ics e selecione-o aqui. Nenhuma conta externa será vinculada.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
-        <div class="modal-body" data-calendar-body><div class="empty"><b>Consultando sua agenda…</b></div></div>
-        <div class="modal-foot"><span></span><button class="btn" data-close type="button">Fechar</button></div>`,
-      onMount: async (host, close) => {
-        const body = $("[data-calendar-body]", host);
-        const renderDisconnected = (configured) => {
-          body.innerHTML = configured ? `
-            <div class="empty">
-              <span style="display:inline-flex;margin-bottom:12px">${icon("bell", "icon icon-lg")}</span>
-              <b>Nenhuma agenda pessoal vinculada</b>
-              <p>Faça login com sua conta pessoal do Gmail. As agendas dessa conta serão importadas automaticamente.</p>
-              <button class="btn btn-primary" data-calendar-connect type="button">Entrar com Gmail e vincular</button>
-            </div>` : `
-            <div class="notice notice-warn">${icon("alert")}<span><b>Vínculo com Gmail ainda não disponível</b><br>Fale com o administrador da plataforma.</span></div>`;
-          $("[data-calendar-connect]", body)?.addEventListener("click", () => {
-            location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
-          });
-        };
-
-        try {
-          const status = await calendarApi("/api/calendar/status");
-          if (!status.connected) return renderDisconnected(status.configured);
-          if (status.needs_reconnect) {
-            body.innerHTML = `
-              <div class="notice notice-warn">${icon("alert")}<span><b>A conexão com ${esc(status.email || "Gmail")} expirou.</b><br>Entre novamente no Gmail para retomar a importação e os alertas.</span></div>
-              <button class="btn btn-primary" data-calendar-reconnect type="button">Entrar novamente no Gmail</button>`;
-            $("[data-calendar-reconnect]", body).onclick = () => {
-              location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
-            };
-            return;
+        <div class="modal-body stack">
+          <div class="notice notice-info">${icon("info")}<span><b>Como obter o arquivo</b><br>Na agenda da sua conta pessoal, abra Configurações → Importar e exportar → Exportar. Extraia o arquivo .zip e selecione aqui todos os arquivos .ics desejados.</span></div>
+          <div class="field"><label for="agendaIcsFile">Arquivo(s) da agenda (.ics)</label><input class="input" id="agendaIcsFile" type="file" accept=".ics,text/calendar" multiple></div>
+          <p class="muted" style="font-size:var(--fs-12)">Uma nova importação atualiza os compromissos importados anteriormente. Compromissos criados diretamente no NOC e agendas dos setores não são alterados.</p>
+          <span class="field-error" data-import-error hidden></span>
+        </div>
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-import-ics type="button">Importar agenda</button></span></div>`,
+      onMount: (host, close) => {
+        $("[data-import-ics]", host).onclick = async event => {
+          const files = [...($("#agendaIcsFile", host).files || [])];
+          const error = $("[data-import-error]", host);
+          if (!files.length || files.some(file => !file.name.toLowerCase().endsWith(".ics"))) {
+            error.hidden = false; error.textContent = "Selecione somente arquivos .ics exportados da sua agenda."; return;
           }
-          body.innerHTML = `
-            <div class="notice notice-info">${icon("check")}<span><b>${esc(status.email || "Gmail vinculado")}</b><br>${(status.calendars || []).length || 1} agenda(s) importada(s) automaticamente. Os avisos aparecem 10 minutos antes.</span></div>
-            <div class="row-between wrap" style="margin-top:var(--s-5);gap:var(--s-3)">
-              <button class="btn" data-notification-permission type="button">${icon("bell")} Ativar notificação do navegador</button>
-              <button class="btn btn-danger" data-calendar-disconnect type="button">Desvincular Gmail</button>
-            </div>`;
-
-          const permission = $("[data-notification-permission]", body);
-          if (!("Notification" in window)) permission.hidden = true;
-          else if (Notification.permission === "granted") { permission.textContent = "Notificações do navegador ativas"; permission.disabled = true; }
-          permission?.addEventListener("click", async () => {
-            const result = await Notification.requestPermission();
-            if (result === "granted") { permission.textContent = "Notificações do navegador ativas"; permission.disabled = true; }
-          });
-          $("[data-calendar-disconnect]", body).onclick = () => confirm({
-            title: "Desvincular o Gmail?",
-            text: "A agenda deixa de ser importada e os alertas são interrompidos.",
-            confirmLabel: "Desvincular",
-            danger: true,
-            onConfirm: async () => {
-              try {
-                await calendarApi("/api/calendar/google", { method: "DELETE" });
-                close();
-                toast("Gmail desvinculado", { type: "ok" });
-              } catch (error) { toast("Não foi possível desvincular", { text: error.message, type: "danger" }); }
-            }
-          });
-        } catch (error) {
-          body.innerHTML = `<div class="notice notice-danger">${icon("alert")}<span><b>Não foi possível abrir a agenda</b><br>${esc(error.message)}</span></div>`;
-        }
+          if (files.reduce((total, file) => total + file.size, 0) > 5 * 1024 * 1024) {
+            error.hidden = false; error.textContent = "Os arquivos devem somar no máximo 5 MB."; return;
+          }
+          event.currentTarget.disabled = true;
+          try {
+            const calendarText = (await Promise.all(files.map(file => file.text()))).join("\r\n");
+            const result = await calendarApi("/api/agenda/import-ics", {
+              method: "POST", headers: { "Content-Type": "text/calendar; charset=utf-8" }, body: calendarText
+            });
+            close();
+            toast("Agenda importada", { text: `${result.imported} compromisso(s) carregado(s).`, type: "ok", timeout: 7000 });
+            dispatchEvent(new CustomEvent("updown:agenda-imported", { detail: result }));
+            pollCalendarEvents(true);
+          } catch (failure) {
+            const messages = {
+              ARQUIVO_ICS_INVALIDO: "O arquivo selecionado não é uma agenda válida.",
+              ARQUIVO_ICS_SEM_COMPROMISSOS: "Nenhum compromisso foi encontrado nos arquivos.",
+              ARQUIVO_ICS_MUITO_GRANDE: "A agenda excede o limite de 5 MB.",
+              FORBIDDEN: "Seu perfil não tem acesso à agenda."
+            };
+            error.hidden = false;
+            error.textContent = messages[failure.message] || "Não foi possível importar a agenda. Tente exportar os arquivos novamente.";
+            event.currentTarget.disabled = false;
+          }
+        };
       }
     });
   }
@@ -488,12 +478,8 @@ window.UI = (() => {
           </div>`).join("")}
         </div>
         <div class="modal-foot"><span></span><span class="row">
-          ${first.html_link ? '<button class="btn" data-open-google type="button">Abrir compromisso</button>' : ""}
           <button class="btn btn-primary" data-close type="button">Entendi</button>
         </span></div>`,
-      onMount: host => {
-        $("[data-open-google]", host)?.addEventListener("click", () => window.open(first.html_link, "_blank", "noopener,noreferrer"));
-      }
     });
     if ("Notification" in window && Notification.permission === "granted") {
       try {
@@ -510,19 +496,22 @@ window.UI = (() => {
     if (calendarPolling || (!force && document.visibilityState === "hidden")) return;
     calendarPolling = true;
     try {
-      const data = await calendarApi("/api/calendar/events");
-      if (!data.connected) return;
-      const seen = seenCalendarAlerts();
       const now = Date.now();
-      const lead = Number(data.alert_minutes || 0) * 60_000;
-      const today = new Date().toLocaleDateString("en-CA");
+      const start = new Date(now - 5 * 60_000).toISOString();
+      const end = new Date(now + 24 * 60 * 60_000).toISOString();
+      const data = await calendarApi(`/api/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+      const seen = seenCalendarAlerts();
+      const current = new Date();
+      const today = `${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,"0")}-${String(current.getDate()).padStart(2,"0")}`;
       const due = (data.events || []).filter(event => {
-        const key = `${event.calendar_id}:${event.id}:${event.start}`;
+        if (!event.alert_popup) return false;
+        const key = `${event.source || "updown"}:${event.id}:${event.start}`;
         if (seen[key]) return false;
         if (event.all_day) {
           if (String(event.start).slice(0, 10) !== today) return false;
         } else {
           const starts = new Date(event.start).getTime();
+          const lead = Math.max(0, Number(event.alert_minutes || 0)) * 60_000;
           if (!Number.isFinite(starts) || starts < now - 5 * 60_000 || starts > now + lead) return false;
         }
         seen[key] = now;
@@ -539,13 +528,6 @@ window.UI = (() => {
   function initCalendarAlerts() {
     if (calendarAlertsStarted) return;
     calendarAlertsStarted = true;
-    const params = new URLSearchParams(location.search);
-    if (params.get("calendar") === "connected") toast("Agenda pessoal importada", { text: "O Gmail foi vinculado e os alertas já estão ativos.", type: "ok", timeout: 7000 });
-    if (params.has("calendar_error")) toast("Não foi possível vincular o Gmail", { text: "Tente novamente pelo menu do usuário.", type: "danger", timeout: 7000 });
-    if (params.has("calendar") || params.has("calendar_error")) {
-      params.delete("calendar"); params.delete("calendar_error");
-      history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`);
-    }
     pollCalendarEvents();
     setInterval(pollCalendarEvents, 60_000);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pollCalendarEvents(); });
@@ -579,14 +561,14 @@ window.UI = (() => {
         </div>
         <div class="menu-sep"></div>
         <a class="menu-item" href="/change-password.html">${icon("lock")} Trocar senha</a>
-        <button class="menu-item" data-calendar-menu type="button">${icon("bell")} Agenda pessoal</button>
+        <button class="menu-item" data-calendar-menu type="button">${icon("calendar")} Importar agenda (.ics)</button>
         <button class="menu-item" data-theme-menu type="button">${icon("moon")} Alternar tema</button>
         <button class="menu-item" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
         <div class="menu-sep"></div>
         <button class="menu-item is-danger" id="logoutBtn" type="button">${icon("logout")} Encerrar sessão</button>`;
       btn.parentElement.appendChild(menu);
       btn.setAttribute("aria-expanded", "true");
-      $("[data-calendar-menu]", menu).onclick = () => { close(); openCalendarSettings(); };
+      $("[data-calendar-menu]", menu).onclick = () => { close(); openAgendaImport(); };
       $("[data-theme-menu]", menu).onclick = () => { toggleTheme(); close(); };
       $("[data-shortcuts]", menu).onclick = () => { close(); openShortcuts(); };
       // Logout pela API: o Worker limpa o cookie HttpOnly.
@@ -746,6 +728,6 @@ window.UI = (() => {
   return {
     $, $$, esc, num, pct, icon, toast, modal, drawer, confirm, layer,
     mountShell, openPalette, openShortcuts, toggleTheme, applyTheme,
-    session, initials, clock, NAV, trapFocus,
+    session, initials, clock, openAgendaImport, NAV, trapFocus,
   };
 })();

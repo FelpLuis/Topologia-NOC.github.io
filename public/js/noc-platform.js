@@ -658,23 +658,87 @@
   function renderSectors() {
     const rows = state.model.sectors || [], host = $("#sectorRows");
     if (!host) return;
-    host.innerHTML = rows.length ? rows.map((s) => `<tr><td><span class="row" style="gap:8px"><i class="dot" style="background:${esc(s.color)}"></i><b>${esc(s.name)}</b></span></td><td class="mono dim">${esc(s.code)}</td><td class="dim">${esc(s.description || "—")}</td><td><span class="badge">${Number(s.users || 0)}</span></td><td><span class="badge ${s.active ? "badge-ok" : "badge-danger"}">${s.active ? "Ativo" : "Inativo"}</span></td></tr>`).join("") : '<tr><td colspan="5"><div class="empty"><b>Nenhum setor cadastrado</b><p>Crie o primeiro setor para liberar sua agenda.</p></div></td></tr>';
+    host.innerHTML = rows.length ? rows.map((s) => {
+      const menus = state.model.screens.filter((screen) => Number(screen.sector_id) === Number(s.id));
+      return `<tr>
+        <td><span class="row" style="gap:8px"><span style="color:${esc(s.color)}">${icon(s.icon || "circle")}</span><b>${esc(s.name)}</b></span></td>
+        <td class="mono dim">${esc(s.code)}</td>
+        <td class="dim">${esc(s.description || "—")}</td>
+        <td><span class="badge">${menus.length}</span></td>
+        <td><span class="badge">${Number(s.users || 0)}</span></td>
+        <td><span class="badge ${s.active ? "badge-ok" : "badge-danger"}">${s.active ? "Ativo" : "Inativo"}</span></td>
+        <td><button class="btn btn-sm" type="button" data-edit-sector="${s.id}" ${can("manageSectors") ? "" : "disabled"}>${icon("edit")} Editar</button></td>
+      </tr>`;
+    }).join("") : '<tr><td colspan="7"><div class="empty"><b>Nenhum setor cadastrado</b><p>Crie o primeiro setor para liberar sua agenda.</p></div></td></tr>';
+    $$('[data-edit-sector]',host).forEach((button) => {
+      button.onclick = () => openSectorEditor(rows.find((sector) => sector.id === Number(button.dataset.editSector)));
+    });
   }
 
-  function openNewSector() {
+  function openSectorEditor(sector = null) {
+    const editing = Boolean(sector);
+    const selectedScreens = new Set(editing
+      ? state.model.screens.filter((screen) => Number(screen.sector_id) === Number(sector.id)).map((screen) => Number(screen.id))
+      : []);
+    const iconOptions = [
+      ["user","Atendimento"],["users","Equipe"],["pops","Localização"],["dashboard","Indicadores"],
+      ["bell","SAC"],["finance","Financeiro"],["topology","Rede"],["calendar","Agenda"],
+      ["platform","Administração"],["circle","Padrão"]
+    ];
     modal({
       labelledBy: "nsTitle",
-      html: `<div class="modal-head"><div><span class="kicker">Agenda e permissão</span><h2 id="nsTitle">Novo setor</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><div class="field"><label for="sectorName">Nome</label><input class="input" id="sectorName" placeholder="Ex.: NOC"></div><div class="field"><label for="sectorDescription">Descrição</label><textarea class="textarea" id="sectorDescription" rows="3"></textarea></div><div class="field"><label for="sectorColor">Cor da agenda</label><input id="sectorColor" type="color" value="#2563eb"></div></div><div class="modal-foot"><span></span><span class="row"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save>Criar setor</button></span></div>`,
+      wide: true,
+      html: `<div class="modal-head"><div><span class="kicker">Menu, agenda e permissões</span><h2 id="nsTitle">${editing ? `Editar ${esc(sector.name)}` : "Novo setor"}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div>
+        <div class="modal-body stack">
+          <div class="grid-2">
+            <div class="field"><label for="sectorName">Nome</label><input class="input" id="sectorName" value="${esc(sector?.name || "")}" placeholder="Ex.: NOC"></div>
+            <div class="field"><label for="sectorCode">Código</label><input class="input mono" id="sectorCode" value="${esc(sector?.code || "")}" placeholder="Gerado pelo nome" ${editing ? "disabled" : ""}><span class="field-hint">Identificador interno; não muda depois da criação.</span></div>
+          </div>
+          <div class="field"><label for="sectorDescription">Descrição</label><textarea class="textarea" id="sectorDescription" rows="2">${esc(sector?.description || "")}</textarea></div>
+          <div class="grid-2">
+            <div class="field"><label for="sectorColor">Cor do setor e da agenda</label><input id="sectorColor" type="color" value="${esc(sector?.color || "#2563eb")}"></div>
+            <div class="field"><label for="sectorIcon">Ícone</label><select class="select" id="sectorIcon">${iconOptions.map(([value,label]) => `<option value="${value}" ${value === (sector?.icon || "circle") ? "selected" : ""}>${label}</option>`).join("")}</select></div>
+          </div>
+          <div class="grid-2">
+            <div class="field"><label for="sectorSort">Ordem no menu</label><input class="input" id="sectorSort" type="number" min="0" max="9999" value="${Number(sector?.sort || 0)}"></div>
+            <div class="row-between" style="align-self:end;min-height:42px"><div><b>Setor ativo</b><p class="dim" style="font-size:var(--fs-11)">Visível no menu e na agenda.</p></div><label class="switch"><input type="checkbox" id="sectorActive" ${sector?.active !== 0 ? "checked" : ""} ${sector?.code === "noc" ? "disabled" : ""}><span class="switch-track"></span><span class="sr-only">Setor ativo</span></label></div>
+          </div>
+          <fieldset><legend>Menus deste setor</legend><div class="permission-list">${state.model.screens.filter((screen) => screen.nav !== 0).map((screen) => `<label class="check-row"><input type="checkbox" data-sector-screen="${screen.id}" ${selectedScreens.has(Number(screen.id)) ? "checked" : ""}><span>${icon(screen.icon || "circle")}<b>${esc(screen.name)}</b><small>${esc(screen.route)}</small></span></label>`).join("")}</div></fieldset>
+          <div class="alert alert-danger" data-sector-error hidden></div>
+        </div>
+        <div class="modal-foot"><span class="dim">A alteração é registrada na auditoria.</span><span class="row"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save>${editing ? "Salvar alterações" : "Criar setor"}</button></span></div>`,
       onMount: (host, close) => {
         $("[data-save]", host).onclick = async () => {
+          const error = $("[data-sector-error]",host);
+          const payload = {
+            name: $("#sectorName",host).value.trim(),
+            description: $("#sectorDescription",host).value.trim(),
+            color: $("#sectorColor",host)?.value || sector?.color || "#2563eb",
+            icon: $("#sectorIcon",host).value,
+            sort: Number($("#sectorSort",host).value),
+            active: $("#sectorActive",host).checked,
+            screen_ids: $$('[data-sector-screen]:checked',host).map((screen) => Number(screen.dataset.sectorScreen))
+          };
+          if (!editing) payload.code = $("#sectorCode",host).value.trim();
+          if (!payload.name) {
+            error.hidden = false; error.textContent = "Informe o nome do setor."; return;
+          }
           try {
-            await NOC.api("/api/platform/sectors", { method: "POST", body: JSON.stringify({ name: $("#sectorName", host).value.trim(), description: $("#sectorDescription", host).value.trim(), color: $("#sectorColor", host).value }) });
-            close(); await loadModel(); toast("Setor criado", { text: "A agenda do setor já está disponível para vincular aos usuários.", type: "ok" });
-          } catch (err) { toast("Não foi possível criar", { text: err.message, type: "danger" }); }
+            await NOC.api(editing ? `/api/platform/sectors/${sector.id}` : "/api/platform/sectors", {
+              method: editing ? "PATCH" : "POST", body: JSON.stringify(payload)
+            });
+            close(); await loadModel(); toast(editing ? "Setor atualizado" : "Setor criado", {
+              text: "O menu lateral e a agenda já usam esta configuração.", type: "ok"
+            });
+          } catch (err) {
+            error.hidden = false; error.innerHTML = icon("alert") + " " + esc(err.message);
+          }
         };
       },
     });
   }
+
+  function openNewSector() { openSectorEditor(); }
 
   /* ---------------- telas ---------------- */
   function renderScreens() {

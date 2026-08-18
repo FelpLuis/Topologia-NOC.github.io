@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
 <link rel="stylesheet" href="/css/noc/screens.css">
-<link rel="stylesheet" href="/css/noc/agenda.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/agenda.css?v=20260818-2">
 <script src="/js/auth-guard.js"></script>
 </head>
 <body>
@@ -22,7 +22,7 @@
       <div>
         <span class="kicker">Compromissos e alertas</span>
         <h1 class="page-title">Agenda</h1>
-        <p class="page-sub">Seus compromissos pessoais são importados após você entrar no Gmail e vincular a conta.</p>
+        <p class="page-sub">Importe sua agenda pessoal em arquivo .ics e consulte também a agenda própria de cada setor.</p>
       </div>
       <div class="row wrap">
         <button class="btn" id="todayBtn" type="button">Hoje</button>
@@ -34,7 +34,7 @@
 
     <div class="agenda-toolbar card">
       <div class="row wrap grow" id="calendarFilters" aria-label="Filtrar agendas"></div>
-      <div class="google-state" id="googleState"></div>
+      <div class="google-state" id="importState"></div>
     </div>
 
     <div class="agenda-layout">
@@ -53,6 +53,6 @@
 <nav data-mobile-nav aria-label="Navegação"></nav>
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js"></script>
-<script src="/js/noc-agenda.js?v=20260818-1"></script>
+<script src="/js/noc-agenda.js?v=20260818-2"></script>
 </body>
 </html>

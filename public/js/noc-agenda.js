@@ -19,27 +19,12 @@
   const colorOf = e => e.sector_color || "#06b6d4";
   const filtered = () => state.events.filter(e => state.visible.has(ownerKey(e)));
 
-  function checkLocalAlerts() {
-    const now = Date.now();
-    let seen = {};
-    try { seen = JSON.parse(localStorage.getItem("updown.agenda.alerts") || "{}"); } catch { /* indisponível */ }
-    for (const event of state.events) {
-      if (!event.alert_popup) continue;
-      const diff = new Date(event.start).getTime() - now;
-      if (diff < 0 || diff > event.alert_minutes * 60000) continue;
-      const key = `${event.id}:${event.start}`;
-      if (seen[key]) continue;
-      seen[key] = now;
-      toast(`Agenda: ${event.title}`, { text: `${event.sector_name || "Minha agenda"} · começa em breve`, type: "info", timeout: 10000 });
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification(event.title, { body: `${event.sector_name || "Minha agenda"} · ${new Date(event.start).toLocaleString("pt-BR")}`, tag: `updown-agenda-${event.id}` });
-      }
-    }
-    try {
-      const recent = Object.fromEntries(Object.entries(seen).filter(([,when]) => now - Number(when) < 7 * 86400000));
-      localStorage.setItem("updown.agenda.alerts", JSON.stringify(recent));
-    } catch { /* indisponível */ }
-  }
+  const eventDate = (event, field) => {
+    const value = event[field];
+    if (!event.all_day) return new Date(value);
+    const [year, month, day] = String(value).slice(0, 10).split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
 
   async function load() {
     const range = monthRange();
@@ -50,7 +35,6 @@
       (state.data.sectors || []).forEach(s => state.visible.add(`sector:${s.id}`));
     }
     render();
-    checkLocalAlerts();
   }
 
   function renderFilters() {
@@ -63,11 +47,10 @@
       if (input.checked) state.visible.add(input.dataset.calendarFilter); else state.visible.delete(input.dataset.calendarFilter);
       renderCalendar(); renderUpcoming();
     });
-    const google = state.data.google || {};
-    $("#googleState").innerHTML = google.connected
-      ? `<span class="badge badge-ok">${icon("check")} Gmail vinculado</span> ${esc(google.email || "")}${google.import_error ? ` <span class="dim">· importação temporariamente indisponível</span>` : ` <span class="dim">· ${Number(google.imported || 0)} importado(s)</span>`}`
-      : `<span class="badge">Agenda pessoal não importada</span> <button class="btn btn-sm" data-link-google type="button">Entrar com Gmail e vincular</button>`;
-    $("[data-link-google]")?.addEventListener("click", () => location.href=`/api/calendar/google/start?return_to=${encodeURIComponent(location.pathname)}`);
+    const imported = state.data.import || {};
+    $("#importState").innerHTML = `<span class="badge ${Number(imported.total) ? "badge-ok" : ""}">${icon("calendar")} ${Number(imported.total || 0)} importado(s)</span>
+      <button class="btn btn-sm" data-import-agenda type="button">Importar .ics</button>`;
+    $("[data-import-agenda]")?.addEventListener("click", UI.openAgendaImport);
   }
 
   function renderCalendar() {
@@ -81,14 +64,14 @@
     $("#calendarGrid").innerHTML = Array.from({length:42},(_,i) => {
       const day = new Date(gridStart); day.setDate(gridStart.getDate()+i);
       const next = new Date(day); next.setDate(day.getDate()+1);
-      const list = events.filter(e => new Date(e.start)<next && new Date(e.end)>day).slice(0,4);
+      const list = events.filter(e => eventDate(e,"start")<next && eventDate(e,"end")>day).slice(0,4);
       const sameMonth = day.getMonth()===state.cursor.getMonth();
       const isToday = day.toDateString()===today.toDateString();
       return `<div class="calendar-day ${sameMonth?"":"is-outside"} ${isToday?"is-today":""}" data-day="${day.toISOString()}">
         <span class="day-number">${day.getDate()}</span>
         ${list.map(e=>`<button class="day-event" style="--event-color:${esc(colorOf(e))}" data-event="${esc(e.id)}" title="${esc(e.title)}">
-          ${e.all_day?"":new Date(e.start).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "}${esc(e.title)}</button>`).join("")}
-        ${events.filter(e=>new Date(e.start)<next&&new Date(e.end)>day).length>4?'<small class="dim">mais compromissos…</small>':""}
+          ${e.all_day?"":eventDate(e,"start").toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "}${esc(e.title)}</button>`).join("")}
+        ${events.filter(e=>eventDate(e,"start")<next&&eventDate(e,"end")>day).length>4?'<small class="dim">mais compromissos…</small>':""}
       </div>`;
     }).join("");
     $$('[data-event]').forEach(b=>b.onclick=e=>{e.stopPropagation();openEvent(state.events.find(x=>String(x.id)===b.dataset.event));});
@@ -96,9 +79,9 @@
   }
 
   function renderUpcoming() {
-    const list=filtered().filter(e=>new Date(e.end)>=new Date()).slice(0,20);
+    const list=filtered().filter(e=>eventDate(e,"end")>=new Date()).slice(0,20);
     $("#upcomingList").innerHTML=list.length?list.map(e=>{
-      const d=new Date(e.start);
+      const d=eventDate(e,"start");
       return `<button class="upcoming-item" style="--event-color:${esc(colorOf(e))}" data-upcoming="${esc(e.id)}" type="button">
         <span class="upcoming-date"><b>${d.getDate()}</b><small>${d.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")}</small></span>
         <span style="text-align:left"><b>${esc(e.title)}</b><br><small class="dim">${e.all_day?"Dia todo":d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}${e.location?" · "+esc(e.location):""}</small><br>
@@ -143,9 +126,8 @@
     });
   }
 
-  function openDetails(e){modal({labelledBy:"eventDetailsTitle",html:`<div class="modal-head"><div><span class="kicker">${esc(e.sector_name||"Agenda pessoal")}</span><h2 id="eventDetailsTitle">${esc(e.title)}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><p><b>Quando:</b> ${new Date(e.start).toLocaleString("pt-BR")} até ${new Date(e.end).toLocaleString("pt-BR")}</p>${e.location?`<p><b>Local:</b> ${esc(e.location)}</p>`:""}${e.description?`<p>${esc(e.description)}</p>`:""}<p class="dim">Criado por ${esc(e.creator_name||"usuário do setor")}</p></div><div class="modal-foot"><span></span><span class="row">${e.html_link?'<a class="btn" target="_blank" rel="noopener" href="'+esc(e.html_link)+'">Abrir compromisso</a>':""}<button class="btn btn-primary" data-close>Fechar</button></span></div>`});}
+  function openDetails(e){const start=eventDate(e,"start"),end=eventDate(e,"end");const when=e.all_day?`${start.toLocaleDateString("pt-BR")} · dia inteiro`:`${start.toLocaleString("pt-BR")} até ${end.toLocaleString("pt-BR")}`;modal({labelledBy:"eventDetailsTitle",html:`<div class="modal-head"><div><span class="kicker">${esc(e.sector_name||"Agenda pessoal")}</span><h2 id="eventDetailsTitle">${esc(e.title)}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><p><b>Quando:</b> ${esc(when)}</p>${e.location?`<p><b>Local:</b> ${esc(e.location)}</p>`:""}${e.description?`<p>${esc(e.description)}</p>`:""}<p class="dim">${e.source==="ics"?"Importado de arquivo .ics":`Criado por ${esc(e.creator_name||"usuário do setor")}`}</p></div><div class="modal-foot"><span></span><span class="row"><button class="btn btn-primary" data-close>Fechar</button></span></div>`});}
 
-  async function boot(){UI.mountShell();$("#prevBtn").innerHTML=icon("chevronLeft");$("#nextBtn").innerHTML=icon("chevronRight");$("#newEventBtn").innerHTML=icon("plus")+" Novo compromisso";$("#prevBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()-1);load()};$("#nextBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()+1);load()};$("#todayBtn").onclick=()=>{state.cursor=new Date();state.cursor.setDate(1);load()};$("#newEventBtn").onclick=()=>openEvent();try{await NOC.loadAccess();NOC.applyActions();await load()}catch(err){toast("Não foi possível carregar a agenda",{text:err.message,type:"danger",timeout:8000})}}
+  async function boot(){UI.mountShell();$("#prevBtn").innerHTML=icon("chevronLeft");$("#nextBtn").innerHTML=icon("chevronRight");$("#newEventBtn").innerHTML=icon("plus")+" Novo compromisso";$("#prevBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()-1);load()};$("#nextBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()+1);load()};$("#todayBtn").onclick=()=>{state.cursor=new Date();state.cursor.setDate(1);load()};$("#newEventBtn").onclick=()=>openEvent();addEventListener("updown:agenda-imported",load);try{await NOC.loadAccess();NOC.applyActions();await load()}catch(err){toast("Não foi possível carregar a agenda",{text:err.message,type:"danger",timeout:8000})}}
   boot();
-  setInterval(checkLocalAlerts, 30000);
 })();

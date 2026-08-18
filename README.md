@@ -257,46 +257,23 @@ uma identidade precisa corresponder ao e-mail verificado de um usuário existent
 Depois de validar o acesso corporativo, `PASSWORD_LOGIN_ENABLED=false` desativa o
 login por senha local.
 
-### Importação da agenda pessoal pelo Gmail
+### Importação gratuita da agenda pessoal
 
-Cada usuário autenticado abre **Agenda pessoal**, escolhe **Entrar com Gmail e
-vincular** e faz login na própria conta `@gmail.com`. Não há seleção ou
-configuração adicional: as agendas acessíveis nessa conta são importadas
-automaticamente e os avisos aparecem 10 minutos antes do compromisso. Esse
-vínculo é independente do login corporativo usado para entrar no NOC. Se o
-usuário autorizar, o navegador também exibe uma notificação do sistema.
+Cada usuário autenticado abre **Importar agenda (.ics)** e seleciona o arquivo
+exportado de sua agenda pessoal. No Gmail, abra a Agenda e use **Configurações →
+Importar e exportar → Exportar**; depois, extraia do arquivo `.zip` os calendários
+`.ics` e selecione todos os desejados de uma só vez. A importação não usa Google Cloud, OAuth, credenciais pagas, assinatura
+ou período de teste. Os alertas em popup ficam configurados para 10 minutos
+antes do compromisso. Se o usuário autorizar, o navegador também exibe uma
+notificação do sistema.
 
 A tela **Agenda** reúne a agenda pessoal do usuário e uma agenda para cada setor
 ao qual ele pertence. Os setores são cadastrados em **Gerenciar plataforma →
 Setores** e funcionam como grupos de autorização: no cadastro ou na edição de
 um usuário, marque um ou mais setores. Compromissos setoriais ficam visíveis
-somente aos membros e ficam armazenados no NOC. A agenda importada do Gmail é
+somente aos membros e ficam armazenados no NOC. Todo setor cadastrado já possui
+uma agenda, mesmo que ainda esteja vazia. A agenda pessoal importada é
 somente leitura e cada compromisso interno pode ativar um alerta em popup.
-
-Nos bastidores, o administrador precisa habilitar a API de agenda no Google
-Cloud e configurar a tela de
-consentimento OAuth com o tipo de público **Externo**. O tipo **Interno** aceita
-somente contas da organização e, portanto, não serve para contas pessoais Gmail.
-Depois, crie um cliente do tipo **Aplicativo da Web** e cadastre a URI de
-redirecionamento autorizada exatamente como:
-
-```text
-https://SEU-DOMINIO/api/calendar/google/callback
-```
-
-Configure as credenciais e uma chave aleatória estável no Worker:
-
-```bash
-npx wrangler secret put GOOGLE_CALENDAR_CLIENT_ID
-npx wrangler secret put GOOGLE_CALENDAR_CLIENT_SECRET
-npx wrangler secret put GOOGLE_CALENDAR_TOKEN_KEY
-```
-
-`GOOGLE_CALENDAR_TOKEN_KEY` precisa ter pelo menos 32 caracteres. Ela cifra os
-refresh tokens antes de gravá-los no D1 e não deve ser trocada enquanto houver
-contas vinculadas. Defina também `GOOGLE_CALENDAR_REDIRECT_URI` com a URI acima.
-Enquanto o aplicativo estiver em modo de teste no Google Cloud, inclua em
-**Usuários de teste** cada endereço Gmail que poderá vincular sua agenda.
 
 ### Perfis RBAC
 

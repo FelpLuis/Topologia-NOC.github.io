@@ -849,7 +849,7 @@ table.table { width: 100%; border-collapse: collapse; }
 }
 .nav-sector-trigger::-webkit-details-marker { display: none; }
 .nav-sector-trigger:hover { background: var(--surface-2); color: var(--text-1); }
-.nav-sector-trigger .icon:first-child { color: var(--cyan-400); }
+.nav-sector-trigger .icon:first-child { color: var(--sector-color, var(--cyan-400)); }
 .nav-sector-chevron {
   margin-left: auto;
   transition: transform var(--dur-1) var(--ease);
