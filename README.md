@@ -546,6 +546,39 @@ e é esse vínculo que organiza o Dashboard. Vincular/desvincular fica em
 **Topologia → Gerenciar rede → Vínculo com POP** e é gravado por `PUT /api/topology`,
 com auditoria. Equipamento sem vínculo aparece em "Sem POP vinculado", nunca some.
 
+### Mapa geográfico (OpenStreetMap)
+
+A tela de topologia tem três modos, no seletor da barra superior:
+
+| Modo | O que mostra |
+| --- | --- |
+| **Esquema** | o mapa de sempre, com as caixas posicionadas à mão (`config.layout`) |
+| **Mapa OSM** | os mesmos POPs, equipamentos e enlaces sobre o mapa do OpenStreetMap |
+| **Lista** | tabela de equipamentos |
+
+O modo escolhido fica lembrado por navegador (`localStorage`).
+
+O POP ganhou os campos opcionais `lat`, `lon` e `endereco`, gravados no próprio
+cadastro do POP dentro da topologia — portanto passam pelo mesmo `PUT /api/topology`,
+pela mesma auditoria e pela mesma ação `pops.edit`. Sem coordenada, o POP continua
+inteiro no modo Esquema e aparece na lista "fora do mapa" no modo Mapa OSM.
+
+Há dois caminhos para cadastrar a localização:
+
+- **Gerenciar rede → POPs → Editar**: nome, endereço, rotas e latitude/longitude,
+  com um campo que aceita o par colado de um mapa (`-23.960833, -46.333611`);
+- **Definir localização** (o botão de layout no modo Mapa OSM): arraste o POP até
+  o ponto dele e salve — o arrasto vira latitude e longitude.
+
+Não há biblioteca de mapa de terceiros: `public/js/noc-geo.js` implementa a projeção
+Web Mercator e a camada de tiles em ~180 linhas, porque o CSP do Worker só libera
+script próprio (`script-src 'self'`) e porque os tiles precisam viver dentro do
+mesmo `transform` de zoom/pan que as caixas dos POPs. O CSP libera apenas as
+**imagens** de `tile.openstreetmap.org` (`img-src`). O zoom do mapa anda de um nível
+inteiro por vez, para o tile ser sempre desenhado em 256 px, e as caixas dos POPs
+mantêm o tamanho na tela, como marcadores. A atribuição do OpenStreetMap fica no
+canto do mapa, como exige a licença ODbL.
+
 Detalhes de arquitetura, decisões de UX e o que ainda vive no editor clássico:
 [FRONT-NOC-V2.md](FRONT-NOC-V2.md).
 
@@ -657,6 +690,12 @@ abria com três chamadas — `interfaces`, `links` e `status` — e cada uma rel
 `zabbix_interfaces` inteira. Aqui a leitura acontece uma vez e alimenta os dois
 recortes. Os endpoints antigos continuam publicados e sem alteração.
 
+Com `realtime=1`, o mesmo endpoint consulta o Zabbix antes de responder e entrega
+as métricas atuais diretamente ao painel. A leitura fica por poucos segundos no
+cache da borda para que vários telões no mesmo local não repitam a mesma consulta.
+Ela não regrava todas as interfaces no D1; o espelho persistente e o histórico
+continuam sob responsabilidade do cron.
+
 `/api/zabbix/history?horas=N` devolve a série agregada da rede
 (`zabbix_traffic_snapshots`): **uma linha por sincronização**, com entrada,
 saída, interfaces no ar, saturadas e erros. A série por interface continua no
@@ -688,10 +727,10 @@ curl "http://127.0.0.1:8788/cdn-cgi/local/scheduled"
 ```
 
 No front, `NOC.zabbix` (`public/js/noc-api.js`) cobre todos eles, junto de
-`NOC.formatBps()` e `NOC.interfaceStatus()` para exibição. O painel é atualizado
-automaticamente a cada 1 segundo enquanto a opção “Atualizar sozinho” estiver
-ativada. Essa leitura não dispara uma nova coleta no Zabbix; ela apenas busca o
-espelho mais recente já salvo no D1.
+`NOC.formatBps()` e `NOC.interfaceStatus()` para exibição. Com “Atualizar sozinho”
+ativado, o painel solicita uma coleta atual do Zabbix no intervalo configurado
+(15 segundos por padrão). Se a coleta falhar, a tela continua disponível com o
+último espelho persistido e marca a leitura como atrasada.
 
 
 ## Catálogo de telas e ações

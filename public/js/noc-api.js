@@ -182,6 +182,18 @@ window.NOC = (() => {
   /* ---------------- POPs e vínculo ---------------- */
   const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+  /* Localização geográfica do POP. É opcional: sem ela o POP continua no mapa
+     esquemático e só não aparece no mapa com fundo do OpenStreetMap, que
+     precisa saber onde desenhá-lo. */
+  /* Number(null) e Number("") valem 0: sem descartar vazio antes, todo POP sem
+     localização seria desenhado no ponto 0°,0°, no golfo da Guiné. */
+  const numeroInformado = (v) =>
+    v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v));
+
+  const temCoordenadas = (p) =>
+    numeroInformado(p?.lat) && numeroInformado(p?.lon) &&
+    Math.abs(Number(p.lat)) <= 90 && Math.abs(Number(p.lon)) <= 180;
+
   const pops = () => {
     const c = passe();
     if (!c.pops) {
@@ -191,12 +203,22 @@ window.NOC = (() => {
         nome: p.nome || p.id,
         rotas: Array.isArray(p.rotas) ? p.rotas : [],
         equipamentos: Array.isArray(p.equipamentos) ? p.equipamentos : [],
+        lat: temCoordenadas(p) ? Number(p.lat) : null,
+        lon: temCoordenadas(p) ? Number(p.lon) : null,
+        endereco: typeof p.endereco === "string" ? p.endereco : "",
       }));
     }
     return c.pops;
   };
 
   const popById = (id) => pops().find((p) => p.id === id) || null;
+
+  // null quando o POP ainda não tem localização cadastrada.
+  const popCoords = (p) => (temCoordenadas(p) ? { lat: Number(p.lat), lon: Number(p.lon) } : null);
+
+  /* O registro gravável — o de NOC.data().pops. `pops()` devolve cópias de
+     leitura, então quem edita o cadastro precisa pedir o original. */
+  const popRecord = (id) => (state.topology?.pops || []).find((p) => p.id === id) || null;
 
   /* Sugestão de POP a partir do cadastro antigo (campo local/nome).
      É só sugestão: o vínculo válido é o campo popId. */
@@ -327,7 +349,12 @@ window.NOC = (() => {
     /* Tudo o que o painel de tráfego desenha na abertura, em uma requisição:
        ajustes, status, hosts, interfaces, enlaces e histórico. O servidor lê o
        inventário uma vez só para montar os dois recortes. */
-    overview: (horas) => api(`/api/zabbix/overview${horas ? `?horas=${Number(horas)}` : ""}`),
+    overview(horas, { tempoReal = false } = {}) {
+      const qs = new URLSearchParams();
+      if (horas) qs.set("horas", Number(horas));
+      if (tempoReal) qs.set("realtime", "1");
+      return api(`/api/zabbix/overview${qs.size ? `?${qs}` : ""}`);
+    },
 
     /* Série agregada do tráfego da rede (uma amostra por sincronização). */
     history: (horas = 6) => api(`/api/zabbix/history?horas=${Number(horas)}`),
@@ -434,7 +461,7 @@ window.NOC = (() => {
   return {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
     loadTopologyOnce, trafego,
-    pops, popById, suggestPop, effectivePop, isSuggested,
+    pops, popById, popCoords, popRecord, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, skeleton, errorState,
     zabbix, interfaceStatus, formatBps, deviceConnection,

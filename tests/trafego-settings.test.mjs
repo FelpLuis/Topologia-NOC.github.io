@@ -50,3 +50,8 @@ test("intervalo automático e painéis do telão permanecem configuráveis", () 
   assert.equal(settings.intervaloSegundos, 45);
   assert.deepEqual(settings.tvPaineis, ["kpis", "enlaces", "equipamentos"]);
 });
+
+test("painel novo consulta o Zabbix em tempo real a cada 15 segundos", () => {
+  const settings = normalizeTrafegoSettings({});
+  assert.equal(settings.intervaloSegundos, 15);
+});

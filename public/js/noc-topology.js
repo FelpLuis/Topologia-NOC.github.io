@@ -9,6 +9,7 @@
 
   const SEM_POP = "__sem-pop__";
   const GRID = 8; // arrasto encaixa nesta malha, para o mapa não ficar torto
+  const VIEW_KEY = "updown.topo.view";
   const state = {
     query: "", cats: new Set(), selected: null,
     expanded: new Set(),
@@ -17,7 +18,14 @@
     /* layout: posições manuais dos POPs, gravadas em config.layout e válidas
        para todos os usuários. Vazio = posicionamento automático. */
     editLayout: false, layout: {}, layoutDirty: false, dragEndAt: 0,
+    /* Modo geográfico: as caixas saem da coordenada cadastrada em cada POP e o
+       fundo vem dos tiles do OpenStreetMap. `k` é o fator de escala do mapa
+       (2^zoom, podendo ser fracionário) e ox/oy a origem do mundo em px.
+       geoDraft guarda as coordenadas arrastadas e ainda não gravadas. */
+    geo: { k: 0, ox: 0, oy: 0 }, geoDraft: {}, geoDirty: false,
   };
+  let basemap = null; // camada de tiles, criada na primeira vez que o mapa OSM abre
+  const isGeo = () => state.view === "geo";
   let repaintDevice = null; // repinta a gaveta aberta depois de editar uma porta
 
   /* Cada funcionalidade da tela exige a sua ação, do mesmo jeito que o Worker
@@ -31,16 +39,32 @@
   const podeRemoverEnlace = () => NOC.canAll(["topology.delete", "topology.link.delete"]);
   const podeVincularPop = () => NOC.canAll(["topology.edit", "topology.pop.link"]);
   const podeCriarPop = () => NOC.canAll(["topology.edit", "pops.create"]);
+  /* Nome, endereço e localização são cadastro do POP; as rotas têm ação
+     própria, a mesma exigida pela tela POPs. */
+  const podeEditarPop = () => NOC.canAll(["topology.edit", "pops.edit"]);
+  const podeEditarRotas = () => NOC.canAll(["topology.edit", "pops.routes"]);
 
   const device = (id) => (NOC.data()?.equipamentos || []).find((e) => e.id === id);
   const sites = () => [
-    ...NOC.pops().map((p) => ({ id: p.id, nome: p.nome, local: (p.rotas || []).length + " rota(s)", tipo: "POP" })),
-    { id: SEM_POP, nome: "SEM POP VINCULADO", local: "Equipamentos aguardando vínculo", tipo: "Pendente" },
+    ...NOC.pops().map((p) => ({
+      id: p.id, nome: p.nome, tipo: "POP",
+      local: p.endereco || (p.rotas || []).length + " rota(s)",
+      coords: NOC.popCoords(p),
+    })),
+    { id: SEM_POP, nome: "SEM POP VINCULADO", local: "Equipamentos aguardando vínculo", tipo: "Pendente", coords: null },
   ];
   const siteById = (id) => sites().find((s) => s.id === id);
   const siteOf = (e) => NOC.effectivePop(e) || SEM_POP;
   const devicesOf = (siteId) => (NOC.data()?.equipamentos || []).filter((e) => siteOf(e) === siteId);
   const visibleSites = () => sites().filter((s) => s.id !== SEM_POP || devicesOf(SEM_POP).length);
+
+  /* Coordenada em vigor: a arrastada e ainda não gravada tem prioridade sobre
+     a do cadastro, para o arrasto responder na hora. */
+  const coordsOf = (siteId) => state.geoDraft[siteId] || NOC.popCoords(NOC.popById(siteId));
+  const geoSites = () => visibleSites().filter((s) => coordsOf(s.id));
+  const semLocal = () => visibleSites().filter((s) => !coordsOf(s.id));
+  // Sites desenhados no mapa: no modo geográfico, só os que têm onde ser postos.
+  const mapSites = () => (isGeo() ? geoSites() : visibleSites());
 
   const matches = (e) => {
     const okCat = !state.cats.size || state.cats.has(e.categoria || "Outros");
@@ -174,6 +198,9 @@
   /* ================= MAPA ================= */
   const SITE_W = 268, SITE_H = 156, DEV_W = 190, DEV_H = 118;
   const PAD = 18, HEAD = 92, GAP = 16, SITE_GAP = 92;
+  /* Modo geográfico: folga ao redor dos POPs ao enquadrar e limites do zoom
+     do mapa (nível 3 ≈ continente, nível 18 ≈ rua). */
+  const GEO_PAD = 190, GEO_Z_MIN = 3, GEO_Z_MAX = 18;
   const stage = () => $("#stage");
   const world = () => $("#world");
 
@@ -204,7 +231,142 @@
     });
   }
 
+  /* ---------------- posicionamento geográfico ----------------
+     O mundo do mapa é o Web Mercator: px = mercator(nível 0) × k − origem.
+     Zoom no modo geográfico muda `k` (o mapa aproxima e os POPs se afastam
+     entre si), e não a escala do transform — assim as caixas dos POPs mantêm
+     o mesmo tamanho na tela, como marcadores de mapa. */
+  const K_MIN = 2 ** GEO_Z_MIN, K_MAX = 2 ** GEO_Z_MAX;
+
+  const geoPoint = (siteId) => {
+    const c = coordsOf(siteId);
+    if (!c) return null;
+    const p = GEO.project(c.lat, c.lon);
+    return { x: p.x * state.geo.k - state.geo.ox, y: p.y * state.geo.k - state.geo.oy };
+  };
+  const geoCoordsAt = (x, y) => GEO.unproject((x + state.geo.ox) / state.geo.k, (y + state.geo.oy) / state.geo.k);
+
+  /* Enquadra todos os POPs com localização. É o "ajustar à tela" do modo
+     geográfico: escolhe o k que cabe na área útil e recoloca a origem. */
+  function geoFit() {
+    const st = stage().getBoundingClientRect();
+    const pontos = geoSites().map((s) => {
+      const c = coordsOf(s.id);
+      return GEO.project(c.lat, c.lon);
+    });
+    if (!pontos.length) {
+      state.geo = { k: 2 ** 12, ox: 0, oy: 0 };
+      state.scale = 1; state.tx = 0; state.ty = 0;
+      layout(); renderAll(); applyTransform();
+      return;
+    }
+    const minX = Math.min(...pontos.map((p) => p.x)), maxX = Math.max(...pontos.map((p) => p.x));
+    const minY = Math.min(...pontos.map((p) => p.y)), maxY = Math.max(...pontos.map((p) => p.y));
+    const dx = maxX - minX, dy = maxY - minY;
+    const util = { w: Math.max(320, st.width - GEO_PAD * 2), h: Math.max(240, st.height - GEO_PAD * 2) };
+    // Um POP só (ou POPs praticamente no mesmo ponto): zoom de bairro.
+    const bruto = dx > 1e-9 || dy > 1e-9
+      ? Math.min(dx > 1e-9 ? util.w / dx : Infinity, dy > 1e-9 ? util.h / dy : Infinity)
+      : 2 ** 14;
+    /* Arredonda para baixo até um nível inteiro: o tile sai no tamanho nativo
+       (nítido) e todos os POPs continuam dentro da área visível. */
+    const k = GEO.clamp(2 ** Math.floor(Math.log2(bruto)), K_MIN, K_MAX);
+    state.geo = { k, ox: minX * k - GEO_PAD, oy: minY * k - GEO_PAD };
+    state.scale = 1;
+    layout();
+    renderSites();
+    renderEdges();
+    state.tx = (st.width - state.world.w) / 2;
+    state.ty = (st.height - state.world.h) / 2;
+    applyTransform();
+  }
+
+  /* Aproxima/afasta o mapa mantendo fixo o ponto sob o cursor (ou o centro). */
+  function geoZoom(fator, originX, originY) {
+    const st = stage().getBoundingClientRect();
+    const cx = originX ?? st.width / 2, cy = originY ?? st.height / 2;
+    const k = GEO.clamp(state.geo.k * fator, K_MIN, K_MAX);
+    if (k === state.geo.k) return;
+    // ponto do mundo sob o cursor → coordenada mercator → nova origem
+    const wx = (cx - state.tx) / state.scale, wy = (cy - state.ty) / state.scale;
+    const mx = (wx + state.geo.ox) / state.geo.k, my = (wy + state.geo.oy) / state.geo.k;
+    state.geo = { k, ox: mx * k - wx, oy: my * k - wy };
+    layout();
+    renderAll();
+    applyTransform(false);
+  }
+
+  function layoutGeo() {
+    const st = stage().getBoundingClientRect();
+    if (!state.geo.k) state.geo.k = 2 ** 12;
+
+    const boxes = {};
+    geoSites().forEach((s) => {
+      const { w, h } = siteSize(s);
+      const p = geoPoint(s.id);
+      /* A caixa é centrada no ponto na horizontal e ancorada pelo cabeçalho na
+         vertical: ao expandir, ela cresce para baixo e o POP não "escorrega"
+         para longe da sua coordenada. */
+      boxes[s.id] = { x: Math.round(p.x - w / 2), y: Math.round(p.y - HEAD / 2), w, h, px: p.x, py: p.y, geo: true };
+    });
+
+    state.boxes = boxes;
+    state.nodes = {};
+    geoSites().forEach((s) => placeNodes(s.id));
+
+    const cantos = Object.values(boxes);
+    const maxW = cantos.length ? Math.max(...cantos.map((b) => b.x + b.w)) + GEO_PAD : Math.max(900, st.width);
+    const maxH = cantos.length ? Math.max(...cantos.map((b) => b.y + b.h)) + GEO_PAD : Math.max(600, st.height);
+    state.world = { w: Math.max(maxW, st.width), h: Math.max(maxH, st.height), fit: 1 };
+
+    const w = world();
+    w.style.width = state.world.w + "px";
+    w.style.height = state.world.h + "px";
+    $("#edges").setAttribute("viewBox", `0 0 ${state.world.w} ${state.world.h}`);
+  }
+
+  /* Tiles do OpenStreetMap para a janela visível. Só o que está na tela é
+     pedido — o mundo inteiro em px seria grande demais para desenhar.
+     Um quadro por vez: o arrasto do mapa dispara isto a cada movimento. */
+  let tilesAgendado = false;
+  function renderBasemap() {
+    if (tilesAgendado) return;
+    tilesAgendado = true;
+    // Vale o primeiro dos dois que chegar; o segundo vira operação vazia.
+    const executar = () => {
+      if (!tilesAgendado) return;
+      tilesAgendado = false;
+      pintarTiles();
+    };
+    /* requestAnimationFrame não dispara em aba oculta (o telão do NOC ao fundo,
+       um preview embutido): o temporizador garante que os tiles sejam montados
+       assim mesmo. */
+    requestAnimationFrame(executar);
+    setTimeout(executar, 120);
+  }
+
+  function pintarTiles() {
+    const host = $("#basemap");
+    if (!host) return;
+    if (!isGeo()) { host.hidden = true; if (basemap) basemap.clear(); return; }
+    // Antes do primeiro enquadramento não há escala de mapa: sem ela o cálculo
+    // do tile não tem sentido.
+    if (!Number.isFinite(state.geo.k) || state.geo.k <= 0) return;
+    host.hidden = false;
+    if (!basemap) basemap = GEO.basemap(host);
+    const st = stage().getBoundingClientRect();
+    const margem = 256; // uma faixa de tiles além da borda, para o pan não abrir buraco
+    basemap.render({
+      k: state.geo.k, ox: state.geo.ox, oy: state.geo.oy, escala: state.scale,
+      x0: (-state.tx) / state.scale - margem,
+      y0: (-state.ty) / state.scale - margem,
+      x1: (st.width - state.tx) / state.scale + margem,
+      y1: (st.height - state.ty) / state.scale + margem,
+    });
+  }
+
   function layout() {
+    if (isGeo()) return layoutGeo();
     const st = stage().getBoundingClientRect();
     const sizes = visibleSites().map((s) => ({ site: s, ...siteSize(s) }));
     if (!sizes.length) { state.boxes = {}; state.nodes = {}; return; }
@@ -244,9 +406,12 @@
     $("#edges").setAttribute("viewBox", `0 0 ${maxW} ${worldH}`);
   }
 
+  /* No modo geográfico a linha sai do ponto da coordenada, não do centro da
+     caixa: expandir um POP não deve deslocar a rota que chega até ele. */
   const boxCenter = (id) => {
     const b = state.boxes[id];
-    return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : null;
+    if (!b) return null;
+    return b.geo ? { x: b.px, y: b.py } : { x: b.x + b.w / 2, y: b.y + b.h / 2 };
   };
   const resolve = (key) => {
     if (key.startsWith("d:")) {
@@ -344,7 +509,7 @@
 
   function renderSites() {
     const host = $("#nodes");
-    host.innerHTML = visibleSites().map((s) => {
+    host.innerHTML = mapSites().map((s) => {
       const b = state.boxes[s.id];
       if (!b) return "";
       const st = siteStats(s.id);
@@ -370,10 +535,11 @@
         </button>`;
       }).join("") : "";
 
-      const posicionado = !!state.layout[s.id];
-      return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""}"
+      const posicionado = isGeo() ? !!state.geoDraft[s.id] : !!state.layout[s.id];
+      return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""} ${state.editLayout && posicionado && isGeo() ? "is-locating" : ""}"
                 data-box="${esc(s.id)}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
-        ${state.editLayout ? `<span class="site-grip">${icon("sort")} arraste</span>` : ""}
+        ${b.geo ? '<span class="site-pin"></span>' : ""}
+        ${state.editLayout ? `<span class="site-grip">${icon("sort")} ${isGeo() ? "arraste até o local" : "arraste"}</span>` : ""}
         <button class="site-head" type="button" data-site="${esc(s.id)}" aria-expanded="${aberto}"
                 ${temEquip ? "" : 'data-empty="1"'}
                 ${temEquip || state.editLayout ? "" : 'disabled title="Nenhum equipamento vinculado a este POP"'}>
@@ -435,8 +601,12 @@
       if (!b) return;
       if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) movido = true;
       // o mundo está escalado: o deslocamento da tela vira deslocamento do mapa
-      b.x = Math.max(0, Math.round((ox + (ev.clientX - sx) / state.scale) / GRID) * GRID);
-      b.y = Math.max(0, Math.round((oy + (ev.clientY - sy) / state.scale) / GRID) * GRID);
+      const livre = isGeo(); // no mapa geográfico não há malha nem canto de origem
+      b.x = livre ? Math.round(ox + (ev.clientX - sx) / state.scale)
+        : Math.max(0, Math.round((ox + (ev.clientX - sx) / state.scale) / GRID) * GRID);
+      b.y = livre ? Math.round(oy + (ev.clientY - sy) / state.scale)
+        : Math.max(0, Math.round((oy + (ev.clientY - sy) / state.scale) / GRID) * GRID);
+      if (livre) { b.px = b.x + b.w / 2; b.py = b.y + HEAD / 2; }
       el.style.left = b.x + "px";
       el.style.top = b.y + "px";
       placeNodes(siteId);
@@ -449,7 +619,14 @@
       el.classList.remove("is-dragging");
       if (!movido) return;
       const b = state.boxes[siteId];
-      state.layout[siteId] = { x: b.x, y: b.y };
+      if (isGeo()) {
+        /* Arrastar no mapa geográfico é cadastrar a localização: a posição da
+           caixa volta a ser latitude e longitude. */
+        const c = geoCoordsAt(b.px, b.py);
+        state.geoDraft[siteId] = { lat: c.lat, lon: c.lon };
+      } else {
+        state.layout[siteId] = { x: b.x, y: b.y };
+      }
       state.layoutDirty = true;
       state.dragEndAt = performance.now();
       layout();
@@ -464,17 +641,40 @@
     const bar = $("#layoutBar");
     if (!bar) return;
     bar.hidden = !state.editLayout;
-    const n = Object.keys(state.layout).length;
+    const geo = isGeo();
+    const n = geo ? Object.keys(state.geoDraft).length : Object.keys(state.layout).length;
+    $("#layoutTitle").textContent = geo ? "Definindo a localização" : "Editando o layout";
     $("#layoutStatus").textContent = state.layoutDirty
       ? "alterações ainda não salvas"
-      : n ? `${n} POP(s) com posição própria` : "arraste os POPs para posicionar";
+      : geo
+        ? "arraste o POP até o local dele no mapa"
+        : n ? `${n} POP(s) com posição própria` : "arraste os POPs para posicionar";
     $("#layoutSave").disabled = !state.layoutDirty;
+    $("#layoutSave").textContent = geo ? "Salvar localizações" : "Salvar posições";
     $("#layoutDiscard").disabled = !state.layoutDirty;
-    $("#layoutAuto").disabled = !n;
+    // "Layout automático" só faz sentido no mapa esquemático.
+    $("#layoutAuto").hidden = geo;
+    $("#layoutAuto").disabled = !Object.keys(state.layout).length;
     const b = $("#btnLayout");
     b.setAttribute("aria-pressed", String(state.editLayout));
-    b.textContent = state.editLayout ? "Sair do layout" : "Editar layout";
+    b.textContent = state.editLayout
+      ? (geo ? "Sair da localização" : "Sair do layout")
+      : (geo ? "Definir localização" : "Editar layout");
     stage().classList.toggle("is-editing-layout", state.editLayout);
+  }
+
+  /* O botão exige ações diferentes conforme o modo: no mapa esquemático ele
+     grava config.layout; no geográfico, o cadastro do POP. */
+  function syncLayoutButton() {
+    const b = $("#btnLayout");
+    if (!b) return;
+    const liberado = isGeo() ? podeEditarPop() : NOC.canAll(["topology.edit", "topology.layout"]);
+    b.disabled = !liberado;
+    b.classList.toggle("is-denied", !liberado);
+    b.title = liberado
+      ? (isGeo() ? "Arraste cada POP até o local dele no mapa" : "Posicione as caixas dos POPs no mapa")
+      : `Requer a ação ${isGeo() ? "topology.edit + pops.edit" : "topology.edit + topology.layout"} no seu perfil.`;
+    renderLayoutBar();
   }
 
   function setLayoutEdit(on) {
@@ -488,7 +688,7 @@
   function toggleLayoutEdit() {
     if (state.editLayout && state.layoutDirty) {
       askConfirm({
-        title: "Sair sem salvar as posições?",
+        title: isGeo() ? "Sair sem salvar as localizações?" : "Sair sem salvar as posições?",
         text: "Os POPs voltam para onde estavam na última gravação.",
         confirmLabel: "Descartar alterações",
         danger: true,
@@ -497,14 +697,18 @@
       return;
     }
     setLayoutEdit(!state.editLayout);
-    if (state.editLayout) toast("Modo de layout ativo", {
-      text: "Arraste a caixa de cada POP e depois clique em “Salvar posições”.",
+    if (state.editLayout) toast(isGeo() ? "Definindo a localização dos POPs" : "Modo de layout ativo", {
+      text: isGeo()
+        ? "Arraste cada POP até o ponto dele no mapa e clique em “Salvar localizações”. Para digitar as coordenadas, use Gerenciar rede → POPs."
+        : "Arraste a caixa de cada POP e depois clique em “Salvar posições”.",
       type: "info",
+      timeout: 8000,
     });
   }
 
   function discardLayout() {
     state.layout = { ...(NOC.data()?.config?.layout || {}) };
+    state.geoDraft = {};
     state.layoutDirty = false;
     layout();
     renderAll();
@@ -512,7 +716,44 @@
     fit();
   }
 
+  /* Grava as coordenadas arrastadas no cadastro dos POPs. Vai para a mesma
+     auditoria de sempre e exige pops.edit, como qualquer alteração de POP. */
+  async function saveGeoLayout() {
+    const alvos = Object.entries(state.geoDraft)
+      .map(([id, c]) => ({ pop: NOC.popRecord(id), c }))
+      .filter((x) => x.pop);
+    if (!alvos.length) { state.layoutDirty = false; renderLayoutBar(); return; }
+
+    const antes = alvos.map(({ pop }) => ({ pop, lat: pop.lat ?? null, lon: pop.lon ?? null }));
+    const rascunho = { ...state.geoDraft };
+    alvos.forEach(({ pop, c }) => { pop.lat = Number(c.lat.toFixed(6)); pop.lon = Number(c.lon.toFixed(6)); });
+    state.geoDraft = {};
+    state.layoutDirty = false;
+
+    const ok = await persist(
+      "TOPOLOGY_POP_LOCATION",
+      {
+        titulo: alvos.length === 1 ? "Localização gravada" : `${alvos.length} localizações gravadas`,
+        texto: "Os POPs passam a aparecer nesse ponto do mapa para todos os usuários.",
+      },
+      async () => {
+        antes.forEach(({ pop, lat, lon }) => { pop.lat = lat; pop.lon = lon; });
+        await persist("TOPOLOGY_POP_LOCATION", { titulo: "Localização anterior restaurada", tipo: "info" });
+      }
+    );
+    if (!ok) {
+      // O que o usuário arrastou não se perde: volta a ser rascunho na tela.
+      antes.forEach(({ pop, lat, lon }) => { pop.lat = lat; pop.lon = lon; });
+      state.geoDraft = rascunho;
+      state.layoutDirty = true;
+      layout();
+      renderAll();
+    }
+    renderLayoutBar();
+  }
+
   async function saveLayout() {
+    if (isGeo()) return saveGeoLayout();
     const antes = { ...(NOC.data()?.config?.layout || {}) };
     const depois = { ...state.layout };
     const gravar = async (posicoes) => {
@@ -544,7 +785,11 @@
     abrindo ? state.expanded.add(id) : state.expanded.delete(id);
     layout();
     renderAll();
-    if (abrindo) centerOnBox(id); else fit();
+    // No mapa geográfico o enquadramento é do usuário: recolher um POP não
+    // pode reposicionar o mapa inteiro embaixo dele.
+    if (abrindo) centerOnBox(id);
+    else if (isGeo()) applyTransform();
+    else fit();
   }
 
   /* ---------------- zoom / pan ---------------- */
@@ -552,9 +797,19 @@
     const w = world();
     w.classList.toggle("no-anim", !animate);
     w.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`;
-    $("#zoomLabel").textContent = Math.round(state.scale * 100) + "%";
+    if (isGeo()) {
+      renderBasemap();
+      $("#zoomLabel").textContent = "z" + GEO.tileZoom(state.geo.k, state.scale);
+    } else {
+      $("#zoomLabel").textContent = Math.round(state.scale * 100) + "%";
+    }
   }
   function setScale(next, originX, originY) {
+    /* No mapa geográfico o zoom é do mapa: muda a escala do Mercator, e as
+       caixas dos POPs continuam do mesmo tamanho na tela. O passo é de um
+       nível inteiro, como em qualquer mapa — assim o tile é sempre desenhado
+       no tamanho nativo, sem borrar. */
+    if (isGeo()) return geoZoom(next > state.scale ? 2 : 0.5, originX, originY);
     const s = Math.min(2, Math.max(0.25, next));
     const st = stage().getBoundingClientRect();
     const cx = originX ?? st.width / 2, cy = originY ?? st.height / 2;
@@ -564,6 +819,7 @@
     applyTransform(false);
   }
   function fit() {
+    if (isGeo()) return geoFit();
     layout();
     renderSites();
     renderEdges();
@@ -577,7 +833,7 @@
     const b = state.boxes[id];
     if (!b) return;
     const st = stage().getBoundingClientRect();
-    state.scale = Math.max(0.4, Math.min(0.9, (st.width - 120) / b.w, (st.height - 120) / b.h));
+    if (!isGeo()) state.scale = Math.max(0.4, Math.min(0.9, (st.width - 120) / b.w, (st.height - 120) / b.h));
     state.tx = st.width / 2 - (b.x + b.w / 2) * state.scale;
     state.ty = st.height / 2 - (b.y + b.h / 2) * state.scale;
     applyTransform();
@@ -587,7 +843,7 @@
     const a = n ? { x: n.x + DEV_W / 2, y: n.y + DEV_H / 2 } : boxCenter(siteOf(device(id) || {}));
     if (!a) return;
     const st = stage().getBoundingClientRect();
-    state.scale = Math.max(state.scale, 0.65);
+    if (!isGeo()) state.scale = Math.max(state.scale, 0.65);
     state.tx = st.width / 2 - a.x * state.scale;
     state.ty = st.height / 2 - a.y * state.scale;
     applyTransform();
@@ -1378,6 +1634,160 @@
     });
   }
 
+  /* ---------------- cadastro do POP ----------------
+     Nome, endereço, rotas e localização em um lugar só. A localização é o que
+     coloca o POP no ponto certo do mapa com fundo do OpenStreetMap. */
+  function openPopForm(popId, onSaved) {
+    const pop = NOC.popRecord(popId);
+    if (!pop) return;
+    const canEdit = podeEditarPop();
+    const canRotas = podeEditarRotas();
+    const c = NOC.popCoords(pop);
+
+    modal({
+      labelledBy: "popFormTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">Cadastro do ponto de presença</span>
+            <h2 id="popFormTitle" style="margin-top:6px">${esc(pop.nome || popId)}</h2>
+            <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(popId)}</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <form class="stack" id="popForm">
+            <div class="field"><label for="epNome">Nome</label>
+              <input class="input" id="epNome" value="${esc(pop.nome || "")}" ${canEdit ? "required" : "disabled"}></div>
+            <div class="field"><label for="epEndereco">Endereço ou referência</label>
+              <input class="input" id="epEndereco" value="${esc(pop.endereco || "")}"
+                placeholder="Rua, número, bairro — aparece no cabeçalho do POP" ${canEdit ? "" : "disabled"}></div>
+
+            <hr>
+            <div class="row-between">
+              <h3 style="font-size:var(--fs-13)">${icon("pops")} Localização no mapa</h3>
+              ${c ? `<a class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer"
+                href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(c.lat)}&mlon=${encodeURIComponent(c.lon)}#map=17/${encodeURIComponent(c.lat)}/${encodeURIComponent(c.lon)}">Ver no OpenStreetMap</a>` : ""}
+            </div>
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="epLat">Latitude</label>
+                <input class="input mono" id="epLat" inputmode="decimal" placeholder="-23.960833"
+                  value="${c ? esc(GEO.fmt(c.lat)) : ""}" ${canEdit ? "" : "disabled"}></div>
+              <div class="field grow"><label for="epLon">Longitude</label>
+                <input class="input mono" id="epLon" inputmode="decimal" placeholder="-46.333611"
+                  value="${c ? esc(GEO.fmt(c.lon)) : ""}" ${canEdit ? "" : "disabled"}></div>
+            </div>
+            <div class="field"><label for="epColar">Colar coordenadas</label>
+              <input class="input mono" id="epColar" placeholder="-23.960833, -46.333611" ${canEdit ? "" : "disabled"}>
+              <span class="field-hint">Cole o par copiado de um mapa; latitude e longitude acima são preenchidas sozinhas.
+                Deixe os dois campos vazios para remover a localização.</span></div>
+
+            <hr>
+            <div class="field"><label for="epRotas">Rotas do anel (separadas por vírgula)</label>
+              <input class="input" id="epRotas" value="${esc((pop.rotas || []).join(", "))}"
+                placeholder="Aérea → Santos, Subterrânea → Cubatão" ${canEdit && canRotas ? "" : "disabled"}>
+              ${canRotas ? "" : '<span class="field-hint">Alterar rotas exige as ações topology.edit + pops.routes.</span>'}</div>
+          </form>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">${canEdit
+            ? "A alteração vai para a auditoria com estado anterior e posterior."
+            : "Seu perfil tem acesso somente de leitura ao cadastro de POPs."}</span>
+          <span class="row">
+            <button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="button" data-save
+              ${canEdit ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>Salvar POP</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        const form = $("#popForm", host);
+        const lat = $("#epLat", form), lon = $("#epLon", form), colar = $("#epColar", form);
+
+        const espalhar = () => {
+          const par = GEO.parseCoords(colar.value);
+          if (!par) return;
+          lat.value = GEO.fmt(par.lat);
+          lon.value = GEO.fmt(par.lon);
+          colar.value = "";
+        };
+        colar.addEventListener("paste", () => setTimeout(espalhar, 0));
+        colar.addEventListener("change", espalhar);
+        // Colar no campo de latitude o par inteiro também resolve.
+        lat.addEventListener("paste", () => setTimeout(() => {
+          const par = GEO.parseCoords(lat.value);
+          if (par && /[,;\s]/.test(lat.value)) { lat.value = GEO.fmt(par.lat); lon.value = GEO.fmt(par.lon); }
+        }, 0));
+
+        $("[data-save]", host).onclick = async () => {
+          espalhar();
+          const nome = $("#epNome", form).value.trim();
+          if (!nome) { $("#epNome", form).focus(); return; }
+
+          const temLat = lat.value.trim() !== "", temLon = lon.value.trim() !== "";
+          let coords = null;
+          if (temLat || temLon) {
+            const n = (v) => Number(String(v).trim().replace(",", "."));
+            if (!temLat || !temLon || !GEO.isCoord(n(lat.value), n(lon.value))) {
+              toast("Localização inválida", {
+                text: "Informe latitude (−90 a 90) e longitude (−180 a 180), ou deixe os dois campos vazios.",
+                type: "warn",
+              });
+              return;
+            }
+            coords = { lat: Number(n(lat.value).toFixed(6)), lon: Number(n(lon.value).toFixed(6)) };
+          }
+
+          const antes = {
+            nome: pop.nome, endereco: pop.endereco ?? "",
+            lat: pop.lat ?? null, lon: pop.lon ?? null, rotas: [...(pop.rotas || [])],
+          };
+          const aplicar = (v) => {
+            pop.nome = v.nome;
+            pop.endereco = v.endereco;
+            pop.lat = v.lat;
+            pop.lon = v.lon;
+            pop.rotas = v.rotas;
+            // Coordenada ausente não fica gravada como null no cadastro.
+            if (pop.lat === null) { delete pop.lat; delete pop.lon; }
+            if (!pop.endereco) delete pop.endereco;
+          };
+          const depois = {
+            nome,
+            endereco: $("#epEndereco", form).value.trim(),
+            lat: coords ? coords.lat : null,
+            lon: coords ? coords.lon : null,
+            rotas: canRotas
+              ? $("#epRotas", form).value.split(",").map((s) => s.trim()).filter(Boolean)
+              : [...(pop.rotas || [])],
+          };
+
+          aplicar(depois);
+          // O rascunho de arrasto deste POP perde a validade: quem manda agora
+          // é o que acabou de ser digitado.
+          delete state.geoDraft[popId];
+          if (isGeo() && !Object.keys(state.geoDraft).length) state.layoutDirty = false;
+
+          const ok = await persist(
+            "TOPOLOGY_UPDATE_POP",
+            {
+              titulo: `${nome} atualizado`,
+              texto: coords
+                ? `Localização gravada em ${GEO.label(coords.lat, coords.lon)}.`
+                : "Cadastro gravado. Este POP ainda não tem localização no mapa.",
+            },
+            async () => {
+              aplicar(antes);
+              await persist("TOPOLOGY_UPDATE_POP", { titulo: "Cadastro anterior restaurado", tipo: "info" });
+              if (onSaved) onSaved();
+            }
+          );
+          if (!ok) { aplicar(antes); return; }
+          close();
+          renderLayoutBar();
+          if (onSaved) onSaved();
+        };
+      },
+    });
+  }
+
   /* ---------------- gerenciar rede ---------------- */
   function openManage() {
     const canEdit = podeVincularPop();
@@ -1454,27 +1864,43 @@
                 <button class="btn btn-primary" type="submit" ${podeCriarEquipamento() ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.create'"}>Cadastrar equipamento</button></span>
               </div>
             </form>`,
-          pops: () => `
+          pops: () => {
+            const semCoord = NOC.pops().filter((p) => !NOC.popCoords(p)).length;
+            return `
             <div class="stack">
-              <form class="row" style="gap:var(--s-3);align-items:flex-end" id="newPop">
-                <div class="field grow"><label for="pNome">Novo POP</label><input class="input" id="pNome" placeholder="Ex.: POP ASCENTY"></div>
-                <div class="field grow"><label for="pRotas">Rotas (separadas por vírgula)</label><input class="input" id="pRotas" placeholder="Aérea → Santos, Subterrânea → Cubatão"></div>
+              <form class="row wrap" style="gap:var(--s-3);align-items:flex-end" id="newPop">
+                <div class="field grow" style="min-width:180px"><label for="pNome">Novo POP</label><input class="input" id="pNome" placeholder="Ex.: POP ASCENTY"></div>
+                <div class="field grow" style="min-width:200px"><label for="pRotas">Rotas (separadas por vírgula)</label><input class="input" id="pRotas" placeholder="Aérea → Santos, Subterrânea → Cubatão"></div>
+                <div class="field" style="width:210px"><label for="pCoord">Localização (lat, lon)</label>
+                  <input class="input mono" id="pCoord" placeholder="-23.9608, -46.3336"></div>
                 <button class="btn btn-primary" type="submit" ${podeCriarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.create'"}>Criar POP</button>
               </form>
+              ${semCoord ? `<div class="alert alert-info" style="animation:none">${icon("info")}
+                <span><b>${semCoord} POP(s) sem localização.</b> Sem latitude e longitude eles não aparecem no modo “Mapa OSM” —
+                use <b>Editar</b> abaixo para cadastrar, ou arraste o POP no mapa com “Definir localização”.</span></div>` : ""}
               <div class="table-wrap"><table class="table">
-                <thead><tr><th>POP</th><th>Rotas</th><th class="num">Equipamentos</th><th class="num">Portas</th><th></th></tr></thead>
+                <thead><tr><th>POP</th><th>Localização</th><th>Rotas</th><th class="num">Equip.</th><th class="num">Portas</th><th></th></tr></thead>
                 <tbody>${NOC.pops().map((p) => {
                   const st = siteStats(p.id);
+                  const c = NOC.popCoords(p);
                   return `<tr>
                     <td><b>${esc(p.nome)}</b><br><small class="dim mono">${esc(p.id)}</small></td>
+                    <td>${c
+                      ? `<span class="mono" style="font-size:var(--fs-11)">${esc(GEO.label(c.lat, c.lon))}</span>${p.endereco ? `<br><small class="dim">${esc(p.endereco)}</small>` : ""}`
+                      : '<span class="badge badge-warn">sem localização</span>'}</td>
                     <td class="dim">${p.rotas.map(esc).join(" • ") || "—"}</td>
                     <td class="num">${st.list.length}</td>
                     <td class="num">${st.portas}</td>
-                    <td><a class="btn btn-sm" href="/pops.html?pop=${encodeURIComponent(p.id)}">Abrir</a></td>
+                    <td><span class="row" style="gap:6px">
+                      <button class="btn btn-sm" type="button" data-editpop="${esc(p.id)}"
+                        ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar</button>
+                      <a class="btn btn-sm" href="/pops.html?pop=${encodeURIComponent(p.id)}">Abrir</a>
+                    </span></td>
                   </tr>`;
                 }).join("")}</tbody>
               </table></div>
-            </div>`,
+            </div>`;
+          },
           enlaces: () => `
             <div class="table-wrap" style="max-height:420px"><table class="table">
               <thead><tr><th>Origem</th><th>Destino</th><th>Tipo</th><th>Capacidade</th><th></th></tr></thead>
@@ -1502,6 +1928,7 @@
             await vincular(b.dataset.unlink, null);
             paint();
           }));
+          $$("[data-editpop]", body).forEach((b) => (b.onclick = () => openPopForm(b.dataset.editpop, paint)));
           $$("[data-editconn]", body).forEach((b) => (b.onclick = () => {
             const c = NOC.data().conexoes[+b.dataset.editconn];
             const origem = c && device(c.origem);
@@ -1555,16 +1982,31 @@
             const nome = $("#pNome", popForm).value.trim();
             if (!nome) return $("#pNome", popForm).focus();
             const rotas = $("#pRotas", popForm).value.split(",").map((s) => s.trim()).filter(Boolean);
+            const bruto = $("#pCoord", popForm).value.trim();
+            const coords = bruto ? GEO.parseCoords(bruto) : null;
+            if (bruto && !coords) {
+              toast("Localização inválida", {
+                text: "Informe o par no formato “-23.9608, -46.3336”, ou deixe o campo vazio.",
+                type: "warn",
+              });
+              return;
+            }
             // "POP ASCENTY" → pop-ascenty (sem duplicar o prefixo)
             const slug = nome.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
               .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").replace(/^pop-?/, "");
             const novo = { id: "pop-" + slug, nome, rotas, equipamentos: [] };
+            if (coords) { novo.lat = Number(coords.lat.toFixed(6)); novo.lon = Number(coords.lon.toFixed(6)); }
             if (NOC.popById(novo.id)) {
               toast("Este POP já existe", { text: `Já há um POP com o identificador ${novo.id}.`, type: "warn" });
               return;
             }
             NOC.data().pops.push(novo);
-            const ok = await persist("TOPOLOGY_CREATE_POP", { titulo: "POP criado", texto: `${nome} já pode receber equipamentos.` });
+            const ok = await persist("TOPOLOGY_CREATE_POP", {
+              titulo: "POP criado",
+              texto: coords
+                ? `${nome} já pode receber equipamentos e aparece no mapa em ${GEO.label(coords.lat, coords.lon)}.`
+                : `${nome} já pode receber equipamentos. Cadastre a localização para vê-lo no mapa OSM.`,
+            });
             if (!ok) NOC.data().pops = NOC.data().pops.filter((p) => p.id !== novo.id);
             paint();
           };
@@ -1575,12 +2017,74 @@
     });
   }
 
+  /* POPs sem coordenada não têm onde ser desenhados no mapa geográfico: em vez
+     de sumirem sem explicação, viram uma lista com atalho para o cadastro. */
+  function renderMissing() {
+    const box = $("#geoMissing");
+    if (!box) return;
+    const faltando = isGeo() ? semLocal() : [];
+    box.hidden = !faltando.length;
+    if (!faltando.length) { box.innerHTML = ""; return; }
+
+    const pendente = faltando.find((s) => s.id === SEM_POP);
+    const pops = faltando.filter((s) => s.id !== SEM_POP);
+    box.innerHTML = `
+      <b style="font-size:var(--fs-12)">${faltando.length} fora do mapa</b>
+      ${pops.map((s) => `<div class="row-between">
+        <span class="truncate" title="${esc(s.nome)}">${esc(s.nome)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-locate="${esc(s.id)}"
+          ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>Localizar</button>
+      </div>`).join("")}
+      ${pendente ? `<div class="dim" style="font-size:var(--fs-10)">
+        ${devicesOf(SEM_POP).length} equipamento(s) sem POP vinculado só aparecem no modo Esquema.</div>` : ""}`;
+    $$("[data-locate]", box).forEach((b) => (b.onclick = () => openPopForm(b.dataset.locate, () => {
+      layout(); renderAll();
+      const alvo = state.boxes[b.dataset.locate];
+      if (alvo) centerOnBox(b.dataset.locate); else applyTransform();
+    })));
+  }
+
   /* ---------------- render + início ---------------- */
   function renderAll() {
     renderList();
     renderSites();
     renderEdges();
     renderTable();
+    renderMissing();
+  }
+
+  /* Troca entre mapa esquemático, mapa geográfico e lista. */
+  function setView(view) {
+    const antes = state.view;
+    if (antes === view) return;
+    // Sair do modo geográfico com localizações arrastadas e não salvas seria
+    // perdê-las em silêncio.
+    if (antes === "geo" && state.editLayout && state.layoutDirty) {
+      askConfirm({
+        title: "Sair sem salvar as localizações?",
+        text: "Os POPs voltam para as coordenadas da última gravação.",
+        confirmLabel: "Descartar alterações",
+        danger: true,
+        onConfirm: () => { state.geoDraft = {}; state.layoutDirty = false; setLayoutEdit(false); setView(view); },
+      });
+      return;
+    }
+
+    state.view = view;
+    try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* modo privado */ }
+    $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.view === view)));
+
+    const mapa = view !== "lista";
+    $("#stage").hidden = !mapa;
+    $(".topo-side").hidden = !mapa;
+    $("#listView").hidden = mapa;
+    $("#geoAttrib").hidden = view !== "geo";
+    if (state.editLayout) setLayoutEdit(false);
+    syncLayoutButton();
+    renderBasemap();
+    if (!mapa) return;
+    // Cada modo tem o seu enquadramento: trocar de modo reenquadra.
+    setTimeout(() => { layout(); renderAll(); fit(); }, 30);
   }
 
   async function boot() {
@@ -1640,7 +2144,12 @@
     let resizeTimer = null;
     addEventListener("resize", () => {
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { if (state.view === "mapa") fit(); }, 160);
+      // No mapa geográfico o enquadramento é do usuário: redimensionar a janela
+      // só precisa repintar os tiles da nova área visível.
+      resizeTimer = setTimeout(() => {
+        if (state.view === "mapa") fit();
+        else if (isGeo()) { layout(); renderAll(); applyTransform(false); }
+      }, 160);
     });
 
     $("#deviceSearch").addEventListener("input", (e) => { state.query = e.target.value.trim().toLowerCase(); renderAll(); });
@@ -1653,19 +2162,22 @@
       const hidden = $("#topoMain").classList.toggle("is-side-hidden");
       $("#toggleSide").innerHTML = icon(hidden ? "chevronRight" : "chevronLeft");
       $("#toggleSide").setAttribute("aria-label", hidden ? "Mostrar lista de equipamentos" : "Ocultar lista de equipamentos");
-      setTimeout(fit, 60);
+      setTimeout(() => { if (isGeo()) { layout(); renderAll(); applyTransform(false); } else fit(); }, 60);
     };
-    $("#btnFlow").onclick = () => {
+    // O botão de animação do tráfego é opcional na barra: sem ele, o fluxo
+    // fica no padrão e o resto da tela continua funcionando.
+    const btnFlow = $("#btnFlow");
+    if (btnFlow) btnFlow.onclick = () => {
       state.flow = !state.flow;
-      $("#btnFlow").setAttribute("aria-pressed", String(state.flow));
+      btnFlow.setAttribute("aria-pressed", String(state.flow));
       renderEdges();
     };
     $("#expandAll").onclick = () => {
-      const comEquip = visibleSites().filter((s) => devicesOf(s.id).length);
+      const comEquip = mapSites().filter((s) => devicesOf(s.id).length);
       const abrir = state.expanded.size < comEquip.length;
       state.expanded = abrir ? new Set(comEquip.map((s) => s.id)) : new Set();
       $("#expandAll").textContent = abrir ? "Recolher tudo" : "Expandir tudo";
-      fit();
+      if (isGeo()) { layout(); renderAll(); applyTransform(); } else fit();
       renderList();
     };
     $("#btnManage").onclick = openManage;
@@ -1687,15 +2199,14 @@
     });
     renderLayoutBar();
 
-    $$("[data-view]").forEach((b) => (b.onclick = () => {
-      state.view = b.dataset.view;
-      $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-      const mapa = state.view === "mapa";
-      $("#stage").hidden = !mapa;
-      $(".topo-side").hidden = !mapa;
-      $("#listView").hidden = mapa;
-      if (mapa) setTimeout(fit, 30);
-    }));
+    $$("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+
+    /* O modo escolhido é lembrado por navegador: quem trabalha com o mapa
+       geográfico não precisa selecioná-lo a cada abertura. */
+    let inicial = "mapa";
+    try { inicial = localStorage.getItem(VIEW_KEY) || "mapa"; } catch (e) { /* modo privado */ }
+    if (inicial === "geo" || inicial === "lista") setView(inicial);
+    else syncLayoutButton();
 
     const params = new URLSearchParams(location.search);
     const wanted = params.get("device");

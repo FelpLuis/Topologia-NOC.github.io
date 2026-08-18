@@ -37,8 +37,11 @@ window.GEO = (() => {
     };
   }
 
+  /* Number(null) e Number("") valem 0: sem descartar vazio antes, um campo em
+     branco viraria a coordenada 0°,0°. */
+  const informado = (v) => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v));
   const isCoord = (lat, lon) =>
-    Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) &&
+    informado(lat) && informado(lon) &&
     Math.abs(Number(lat)) <= 90 && Math.abs(Number(lon)) <= 180;
 
   /* Aceita o que o operador consegue copiar de um mapa: "-23.99, -46.30",
@@ -103,6 +106,7 @@ window.GEO = (() => {
     /* view: { k, ox, oy, escala, x0, y0, x1, y1 } — a janela visível já em
        coordenadas do mundo. Devolve o nível de tile desenhado. */
     function render(view) {
+      if (!Number.isFinite(view.k) || view.k <= 0 || !Number.isFinite(view.escala) || view.escala <= 0) return null;
       const z = tileZoom(view.k, view.escala);
       const n = 2 ** z;
       const lado = TILE * view.k / n;           // lado do tile em px do mundo

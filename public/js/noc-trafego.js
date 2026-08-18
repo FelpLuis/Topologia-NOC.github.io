@@ -1,6 +1,6 @@
 /* ============================================================
    UPDOWN NOC — Painel de tráfego
-   Lê o espelho do Zabbix no D1 (/api/zabbix/overview). Nada é
+   Atualiza o espelho no Zabbix e o lê pelo /api/zabbix/overview. Nada é
    inventado aqui: os números vêm do SNMP, e o que esta tela
    calcula é só utilização, agregados e a série do período.
 
@@ -39,7 +39,7 @@
     titulo: "Tráfego da rede",
     limiteAtencao: 70,
     limiteCritico: 85,
-    intervaloSegundos: 60,
+    intervaloSegundos: 15,
     toleranciaLeitura: 1.05,
     topN: 10,
     historicoHoras: 6,
@@ -59,7 +59,15 @@
     historico: [],
     guia: "visao",
     densidade: "confortavel",
-    grafico: { equipamento: "", quantidade: 10 },
+    grafico: {
+      pagina: 0,
+      porPagina: 6,
+      intervaloSegundos: 12,
+      timer: null,
+      pausado: false,
+      inicio: Date.now(),
+      pausaDecorrida: 0,
+    },
     /* Janela do gráfico em uso agora. Começa no valor salvo, mas os botões de
        período a mudam só para esta sessão — sem isto, a recarga automática
        devolvia a janela salva 60 s depois de a pessoa escolher outra. Salvar
@@ -773,68 +781,81 @@
     },
 
     grafico() {
-      const equipamento = state.grafico.equipamento;
-      const quantidade = state.grafico.quantidade;
-      const candidatas = contabilizadas()
-        .filter((i) => !equipamento || rotuloEquipamento(i) === equipamento)
-        .sort((a, b) => carga(b) - carga(a));
-      const lista = candidatas.slice(0, quantidade);
+      const todas = contabilizadas().sort((a, b) => {
+        const equipamento = collator.compare(rotuloEquipamento(a), rotuloEquipamento(b));
+        return equipamento || collator.compare(rotuloInterface(a), rotuloInterface(b));
+      });
+      const paginas = Math.max(1, Math.ceil(todas.length / state.grafico.porPagina));
+      state.grafico.pagina %= paginas;
+      const inicio = state.grafico.pagina * state.grafico.porPagina;
+      const lista = todas.slice(inicio, inicio + state.grafico.porPagina);
 
       if (!lista.length) {
         return `<div class="empty">
           <span class="empty-icon">${icon("trafego")}</span>
           <b>Nenhum tráfego disponível</b>
-          <p>Não há interfaces com leitura consistente para o equipamento escolhido.</p>
+          <p>Não há interfaces com leitura consistente para apresentar no telão.</p>
         </div>`;
       }
 
       const maximo = Math.max(...lista.map((i) => Math.max(Number(i.in_bps) || 0, Number(i.out_bps) || 0)), 1);
-      const totalEntrada = lista.reduce((a, i) => a + (Number(i.in_bps) || 0), 0);
-      const totalSaida = lista.reduce((a, i) => a + (Number(i.out_bps) || 0), 0);
-      const pico = Math.max(...lista.map((i) => utilizacao(i) || 0));
-
-      return `<div class="if-chart-summary" aria-label="Resumo das interfaces exibidas">
-        <div><span>Interfaces</span><strong>${inteiro(lista.length)}</strong></div>
-        <div><span>Entrada</span><strong>${esc(bps(totalEntrada))}</strong></div>
-        <div><span>Saída</span><strong>${esc(bps(totalSaida))}</strong></div>
-        <div><span>Pico de uso</span><strong>${pico ? `${pico.toFixed(1)}%` : "—"}</strong></div>
-      </div>
-      <div class="if-chart" role="list" aria-label="Comparação do tráfego de entrada e saída por interface">
-        <div class="if-chart-scale" aria-hidden="true">
-          <span>0</span><span>${esc(bps(maximo / 2))}</span><span>${esc(bps(maximo))}</span>
-        </div>
-        ${lista.map((i) => {
+      const t = totais();
+      const cards = lista.map((i) => {
           const entrada = Number(i.in_bps) || 0;
           const saida = Number(i.out_bps) || 0;
           const entradaPct = (entrada / maximo) * 100;
           const saidaPct = (saida / maximo) * 100;
           const u = utilizacao(i);
-          return `<article class="if-chart-row" role="listitem">
-            <div class="if-chart-label">
-              <strong title="${esc(rotuloInterface(i))}">${esc(rotuloInterface(i))}</strong>
-              <small>${esc(rotuloEquipamento(i))}${descricaoInterface(i) ? ` • ${esc(descricaoInterface(i))}` : ""}</small>
+          const st = NOC.interfaceStatus(i);
+          return `<article class="if-wall-card ${nivel(u)}" role="listitem">
+            <div class="if-wall-card-head">
+              <span class="badge"><i class="dot ${st.dot}"></i>${esc(rotuloEquipamento(i))}</span>
+              <strong class="if-wall-use">${u === null ? "—" : `${u.toFixed(1)}%`}</strong>
             </div>
-            <div class="if-chart-bars">
-              <div class="if-chart-line">
-                <span class="if-chart-kind is-in">Entrada</span>
-                <span class="if-chart-track"><i class="is-in" style="width:${entradaPct.toFixed(2)}%"></i></span>
-                <strong>${esc(bps(entrada))}</strong>
+            <div class="if-wall-name">
+              <h3 title="${esc(rotuloInterface(i))}">${esc(rotuloInterface(i))}</h3>
+              <p title="${esc(descricaoInterface(i) || "Sem descrição")}">${esc(descricaoInterface(i) || "Sem descrição")}</p>
+            </div>
+            <div class="if-wall-values">
+              <div><span><i class="in"></i>Entrada</span><strong>${esc(bps(entrada))}</strong></div>
+              <div><span><i class="out"></i>Saída</span><strong>${esc(bps(saida))}</strong></div>
+            </div>
+            <div class="if-wall-bars" aria-label="Entrada ${esc(bps(entrada))}; saída ${esc(bps(saida))}">
+              <div>
+                <span class="if-wall-track"><i class="is-in" style="width:${entradaPct.toFixed(2)}%"></i></span>
               </div>
-              <div class="if-chart-line">
-                <span class="if-chart-kind is-out">Saída</span>
-                <span class="if-chart-track"><i class="is-out" style="width:${saidaPct.toFixed(2)}%"></i></span>
-                <strong>${esc(bps(saida))}</strong>
+              <div>
+                <span class="if-wall-track"><i class="is-out" style="width:${saidaPct.toFixed(2)}%"></i></span>
               </div>
             </div>
-            <span class="if-chart-use ${nivel(u)}">${u === null ? "—" : `${u.toFixed(1)}%`}</span>
           </article>`;
-        }).join("")}
-      </div>
-      <div class="chart-legend if-chart-legend">
-        <span><i class="in"></i>Entrada</span>
-        <span><i class="out"></i>Saída</span>
-        <span class="dim">Escala comum: ${esc(bps(maximo))}</span>
-      </div>`;
+        });
+      while (cards.length < state.grafico.porPagina) cards.push('<div class="if-wall-card is-placeholder" aria-hidden="true"></div>');
+
+      return `<section class="if-wallboard">
+        <header class="if-wall-head">
+          <div>
+            <span class="kicker">Monitoramento ao vivo</span>
+            <h2>Tráfego das interfaces</h2>
+            <p><i class="live-dot"></i> Leitura atualizada automaticamente</p>
+          </div>
+          <div class="if-wall-totals" aria-label="Totais da rede">
+            <div><span>Entrada</span><strong>${esc(bps(t.entrada))}</strong></div>
+            <div><span>Saída</span><strong>${esc(bps(t.saida))}</strong></div>
+            <div><span>No ar</span><strong>${inteiro(t.up)} / ${inteiro(t.totalIfs)}</strong></div>
+          </div>
+          <div class="if-wall-clock"><strong id="graficoClock">—</strong><small id="graficoDate">—</small></div>
+        </header>
+        <div class="if-wall-grid" role="list" aria-label="Interfaces atualmente apresentadas">
+          ${cards.join("")}
+        </div>
+        <footer class="if-wall-foot">
+          <span>Interfaces ${inicio + 1}–${Math.min(inicio + lista.length, todas.length)} de ${inteiro(todas.length)}</span>
+          <div class="if-wall-progress" aria-hidden="true"><i id="graficoProgresso"></i></div>
+          <span id="graficoContagem">Próximo grupo em ${state.grafico.intervaloSegundos}s</span>
+          <span>Grupo ${state.grafico.pagina + 1} de ${paginas}</span>
+        </footer>
+      </section>`;
     },
   };
 
@@ -932,7 +953,7 @@
     const t = totais();
     $("#syncInfo").textContent = [
       run2
-        ? `Última sincronização: ${quando.toLocaleString("pt-BR")} • ${run2.hosts_count} hosts, ${run2.interfaces_count} interfaces (${run2.source === "cron" ? "automática" : "manual"}).`
+        ? `Última sincronização: ${quando.toLocaleString("pt-BR")} • ${run2.hosts_count} hosts, ${run2.interfaces_count} interfaces (${run2.source === "cron" ? "automática" : run2.source === "realtime" ? "tempo real" : "manual"}).`
         : "Nenhuma sincronização registrada ainda.",
       t.inconsistentes
         ? `${t.inconsistentes} interface(s) reportaram tráfego acima da capacidade da porta e ficaram fora dos totais.`
@@ -1052,25 +1073,15 @@
     }
 
     if (state.guia === "grafico") {
-      const ids = [...new Set(state.interfaces.map(rotuloEquipamento).filter(Boolean))].sort(collator.compare);
       painel("grafico").innerHTML = `
-        <section class="card">
-          <div class="card-head">
-            <div><h2>Tráfego por interface</h2>
-              <p>Comparação da entrada e saída da leitura mais recente, ordenada pelas interfaces com maior tráfego.</p></div>
-            <div class="row wrap" style="gap:6px">
-              <select class="select" id="gEquip" style="min-width:190px" aria-label="Filtrar gráfico por equipamento">
-                <option value="">Todos os equipamentos</option>
-                ${ids.map((id) => `<option value="${esc(id)}" ${id === state.grafico.equipamento ? "selected" : ""}>${esc(id)}</option>`).join("")}
-              </select>
-              <div class="segmented" id="gQuantidade" role="group" aria-label="Quantidade de interfaces no gráfico">
-                ${[10, 20, 50].map((n) => `<button class="tab ${state.grafico.quantidade === n ? "is-active" : ""}"
-                  type="button" data-quantidade="${n}" aria-pressed="${state.grafico.quantidade === n}">Top ${n}</button>`).join("")}
-              </div>
-            </div>
+        <div class="if-wall-actions" data-tv-hide>
+          <div><strong>Dashboard do telão</strong><small>O painel permanece fixo e troca somente as interfaces a cada ${state.grafico.intervaloSegundos} segundos.</small></div>
+          <div class="row" style="gap:6px">
+            <button class="btn btn-sm" id="btnGraficoPausa" type="button">${state.grafico.pausado ? "Retomar rotação" : "Pausar rotação"}</button>
+            <button class="btn btn-sm btn-primary" id="btnGraficoTela" type="button">${icon("tv")} Abrir no telão</button>
           </div>
-          <div class="card-body">${blocos.grafico()}</div>
-        </section>`;
+        </div>
+        ${blocos.grafico()}`;
     }
 
     if (state.guia === "equipamentos") {
@@ -1611,7 +1622,54 @@
       clearInterval(state.tv.timer);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       renderGuia();
+      agendarGrafico();
     }
+  }
+
+  function modoGraficoTelaCheia() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen?.().catch(() => {});
+  }
+
+  function atualizarGraficoDashboard() {
+    if (state.guia !== "grafico" || state.tv.ativo) return;
+    const agora = new Date();
+    const relogio = $("#graficoClock");
+    const data = $("#graficoDate");
+    if (relogio) relogio.textContent = agora.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (data) data.textContent = agora.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+
+    const duracao = state.grafico.intervaloSegundos * 1000;
+    const decorrido = state.grafico.pausado
+      ? state.grafico.pausaDecorrida
+      : Date.now() - state.grafico.inicio;
+
+    if (!state.grafico.pausado && decorrido >= duracao) {
+      const totalPaginas = Math.max(1, Math.ceil(contabilizadas().length / state.grafico.porPagina));
+      state.grafico.pagina = (state.grafico.pagina + 1) % totalPaginas;
+      state.grafico.inicio = Date.now();
+      renderGuia();
+      atualizarGraficoDashboard();
+      return;
+    }
+
+    const progresso = Math.min(100, (decorrido / duracao) * 100);
+    const barra = $("#graficoProgresso");
+    const contagem = $("#graficoContagem");
+    if (barra) barra.style.width = `${progresso.toFixed(1)}%`;
+    if (contagem) {
+      contagem.textContent = state.grafico.pausado
+        ? "Rotação pausada"
+        : `Próximo grupo em ${Math.max(1, Math.ceil((duracao - decorrido) / 1000))}s`;
+    }
+  }
+
+  function agendarGrafico() {
+    clearInterval(state.grafico.timer);
+    state.grafico.timer = null;
+    if (state.guia !== "grafico" || state.tv.ativo) return;
+    atualizarGraficoDashboard();
+    state.grafico.timer = setInterval(atualizarGraficoDashboard, 1000);
   }
 
   /* ============================================================
@@ -1637,12 +1695,12 @@
 
   let primeiraLeitura = true;
 
-  async function carregar() {
+  async function carregar({ tempoReal = false } = {}) {
     /* A primeira leitura vem do pedido disparado no <head>, antes de este
        arquivo terminar de baixar. As seguintes são pedidos normais. */
     const resposta = primeiraLeitura && window.__TRAFEGO_PREFETCH
-      ? await window.__TRAFEGO_PREFETCH.catch(() => NOC.zabbix.overview(state.horas))
-      : await NOC.zabbix.overview(state.horas);
+      ? await window.__TRAFEGO_PREFETCH.catch(() => NOC.zabbix.overview(state.horas, { tempoReal: true }))
+      : await NOC.zabbix.overview(state.horas, { tempoReal });
 
     if (state.interfaces.length) state.totaisAnteriores = totais();
     /* Ajustes e nomenclaturas são configuração do projeto, não telemetria.
@@ -1679,7 +1737,7 @@
       if (state.recarregando) return;
       state.recarregando = true;
       try {
-        await carregar();
+        await carregar({ tempoReal: true });
         renderTudo();
       } catch (err) {
         // Falha de recarga não derruba a tela: o próximo ciclo tenta de novo.
@@ -1733,13 +1791,18 @@
     if (location.hash.slice(1) !== id) history.replaceState(null, "", `#${id}`);
     renderTabs();
     renderGuia();
+    agendarGrafico();
     if (foco) $(`#tab-${id}`)?.focus();
   }
 
   function ligarEventosDoCabecalho() {
     $("#btnSync").onclick = sincronizar;
     $("#autoRefresh").onchange = agendar;
-    $("#btnTv").onclick = () => modoTv(!state.tv.ativo);
+    $("#btnTv").onclick = () => state.guia === "grafico" ? modoGraficoTelaCheia() : modoTv(!state.tv.ativo);
+
+    addEventListener("fullscreenchange", () => {
+      document.body.classList.toggle("grafico-tv", !!document.fullscreenElement && state.guia === "grafico");
+    });
 
     $("#tabs").addEventListener("click", (e) => {
       const b = e.target.closest("[data-guia]");
@@ -1762,7 +1825,11 @@
       const digitando = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
       if (digitando || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "Escape" && state.tv.ativo) { modoTv(false); return; }
-      if (e.key.toLowerCase() === "v") { modoTv(!state.tv.ativo); return; }
+      if (e.key.toLowerCase() === "v") {
+        if (state.guia === "grafico") modoGraficoTelaCheia();
+        else modoTv(!state.tv.ativo);
+        return;
+      }
       if (!state.tv.ativo) return;
       if (e.key === "ArrowRight") { state.tv.indice += 1; renderTv(); }
       if (e.key === "ArrowLeft") { state.tv.indice = Math.max(0, state.tv.indice - 1); renderTv(); }
@@ -1860,14 +1927,20 @@
     }
 
     if (state.guia === "grafico") {
-      $("#gEquip").onchange = (e) => {
-        state.grafico.equipamento = e.target.value;
+      $("#btnGraficoTela").onclick = modoGraficoTelaCheia;
+      $("#btnGraficoPausa").onclick = () => {
+        state.grafico.pausado = !state.grafico.pausado;
+        if (state.grafico.pausado) {
+          state.grafico.pausaDecorrida = Math.min(
+            Date.now() - state.grafico.inicio,
+            state.grafico.intervaloSegundos * 1000,
+          );
+        } else {
+          state.grafico.inicio = Date.now() - state.grafico.pausaDecorrida;
+        }
         renderGuia();
+        atualizarGraficoDashboard();
       };
-      $$("#gQuantidade [data-quantidade]").forEach((b) => (b.onclick = () => {
-        state.grafico.quantidade = Number(b.dataset.quantidade);
-        renderGuia();
-      }));
     }
 
     if (state.guia === "ajustes") {
@@ -1928,6 +2001,7 @@
     renderTudo();
     ligarEventosDoCabecalho();
     agendar();
+    agendarGrafico();
 
     state.relogio = setInterval(atualizarFrescor, 1000);
 

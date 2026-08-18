@@ -73,6 +73,22 @@ test("índice de portas devolve o mesmo que o find linear", async () => {
   assert.equal(NOC.portConnection("sw1", 1).id, "c1");
 });
 
+test("visão geral solicita leitura em tempo real do Zabbix", async () => {
+  let pedido = null;
+  const NOC = carregar({
+    onPut: async (url, metodo) => {
+      pedido = { url, metodo };
+      return {};
+    },
+  });
+
+  await NOC.zabbix.overview(6, { tempoReal: true });
+  assert.deepEqual(pedido, {
+    url: "/api/zabbix/overview?horas=6&realtime=1",
+    metodo: "GET",
+  });
+});
+
 test("ocupação e status continuam corretos", async () => {
   const t = topologia();
   const NOC = carregar({ onPut: async () => t });
@@ -119,6 +135,47 @@ test("projeção dos POPs preserva campos adicionais", async () => {
   const NOC = carregar({ onPut: async () => t });
   await NOC.load();
   assert.equal(NOC.popById("pop-centro").endereco, "Rua do NOC, 100");
+});
+
+test("localização do POP só existe quando as duas coordenadas foram informadas", async () => {
+  const t = topologia();
+  t.pops[0].lat = -23.9608;
+  t.pops[0].lon = -46.3336;
+  const NOC = carregar({ onPut: async () => t });
+  await NOC.load();
+
+  const centro = NOC.popCoords(NOC.popById("pop-centro"));
+  assert.equal(centro.lat, -23.9608);
+  assert.equal(centro.lon, -46.3336);
+  // POP sem cadastro de localização não pode virar a coordenada 0°,0°:
+  // Number(null) e Number("") valem 0, e o POP iria parar no golfo da Guiné.
+  assert.equal(NOC.popCoords(NOC.popById("pop-norte")), null);
+  for (const vazio of [null, undefined, ""]) {
+    assert.equal(NOC.popCoords({ lat: vazio, lon: vazio }), null, `vazio ${JSON.stringify(vazio)}`);
+    assert.equal(NOC.popCoords({ lat: -23.9, lon: vazio }), null, `só latitude, lon ${JSON.stringify(vazio)}`);
+  }
+  // Fora do intervalo válido também não é localização.
+  assert.equal(NOC.popCoords({ lat: 91, lon: 0 }), null);
+  assert.equal(NOC.popCoords({ lat: 0, lon: -181 }), null);
+  // Coordenada legítima no zero absoluto continua valendo.
+  const zero = NOC.popCoords({ lat: 0, lon: 0 });
+  assert.equal(zero.lat, 0);
+  assert.equal(zero.lon, 0);
+});
+
+test("popRecord entrega o POP gravável, e não a cópia de leitura", async () => {
+  const t = topologia();
+  const NOC = carregar({ onPut: async () => t });
+  await NOC.load();
+
+  const gravavel = NOC.popRecord("pop-centro");
+  assert.equal(gravavel, NOC.data().pops.find((p) => p.id === "pop-centro"));
+  gravavel.lat = -23.5;
+  gravavel.lon = -46.6;
+  const lido = NOC.popCoords(NOC.popById("pop-centro"));
+  assert.equal(lido.lat, -23.5);
+  assert.equal(lido.lon, -46.6);
+  assert.equal(NOC.popRecord("pop-inexistente"), null);
 });
 
 test("endereço, rotas e vínculo do POP sobrevivem a uma nova carga", async () => {

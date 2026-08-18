@@ -1686,7 +1686,7 @@ const DEFAULT_TRAFEGO_SETTINGS = {
   titulo: "Tráfego da rede",
   limiteAtencao: 70,
   limiteCritico: 85,
-  intervaloSegundos: 60,
+  intervaloSegundos: 15,
   toleranciaLeitura: 1.05,
   topN: 10,
   historicoHoras: 6,
@@ -1832,7 +1832,36 @@ async function handleZabbixOverview(env, request, url) {
   const settings = await loadTrafegoSettings(db);
   const horas = boundedInteger(url.searchParams.get("horas"), settings.historicoHoras, 1, 168);
 
-  const [inventory, lastRun, historico, permissoes] = await Promise.all([
+  const realtimeRequested = url.searchParams.get("realtime") === "1";
+  let realtime = null;
+  if (realtimeRequested && env.ZABBIX_URL && env.ZABBIX_TOKEN) {
+    try {
+      /* O cache da borda reúne telas abertas no mesmo local durante uma janela
+         curta. A coleta ao vivo não regrava centenas de interfaces no D1 a
+         cada 15 s; o cron continua cuidando do espelho persistente/histórico. */
+      const cacheKey = new Request(new URL("/__internal/zabbix-realtime", request.url), { method: "GET" });
+      const edgeCache = caches.default;
+      const cached = await edgeCache.match(cacheKey);
+      if (cached) {
+        realtime = await cached.json();
+      } else {
+        realtime = {
+          collected_at: new Date().toISOString(),
+          inventory: await fetchNetworkInventory(env)
+        };
+        await edgeCache.put(cacheKey, new Response(JSON.stringify(realtime), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${Math.max(10, settings.intervaloSegundos - 2)}`
+          }
+        }));
+      }
+    } catch (error) {
+      realtime = { error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  const [persistedInventory, lastRun, historico, permissoes] = await Promise.all([
     loadInventoryFromDb(db),
     db.prepare(`SELECT * FROM zabbix_sync_runs ORDER BY id DESC LIMIT 1`).first(),
     db.prepare(`
@@ -1845,6 +1874,22 @@ async function handleZabbixOverview(env, request, url) {
     permissionsOf(env, gate.user)
   ]);
 
+  let inventory = persistedInventory;
+  if (realtime?.inventory) {
+    /* Vínculos manuais pertencem à aplicação e não ao Zabbix. Eles precisam
+       prevalecer também sobre a leitura ao vivo, exatamente como no espelho. */
+    const persistedHosts = new Map(persistedInventory.hosts.map(h => [String(h.hostid), h]));
+    inventory = {
+      hosts: realtime.inventory.hosts.map(host => {
+        const persisted = persistedHosts.get(String(host.hostid));
+        return persisted?.match_source === "manual"
+          ? { ...host, equipamento_id: persisted.equipamento_id, match_source: "manual" }
+          : host;
+      }),
+      interfaces: realtime.inventory.interfaces
+    };
+  }
+
   const hostById = new Map(inventory.hosts.map(h => [String(h.hostid), h]));
   const interfaces = inventory.interfaces.map(i => {
     const host = hostById.get(String(i.hostid));
@@ -1855,7 +1900,14 @@ async function handleZabbixOverview(env, request, url) {
     settings,
     podeEditarSettings: permissoes.has("trafego.settings"),
     status: {
-      last_run: lastRun || null,
+      last_run: realtime?.inventory ? {
+        started_at: realtime.collected_at.replace("T", " ").replace(/\.\d{3}Z$/, ""),
+        finished_at: realtime.collected_at.replace("T", " ").replace(/\.\d{3}Z$/, ""),
+        ok: 1,
+        hosts_count: inventory.hosts.length,
+        interfaces_count: inventory.interfaces.length,
+        source: "realtime"
+      } : lastRun || null,
       totals: {
         hosts: inventory.hosts.length,
         hosts_vinculados: inventory.hosts.filter(h => h.equipamento_id).length,
@@ -1871,7 +1923,13 @@ async function handleZabbixOverview(env, request, url) {
     })),
     interfaces,
     enlaces: buildLinksPayload(inventory),
-    historico: { horas, amostras: historico.results || [] }
+    historico: { horas, amostras: historico.results || [] },
+    realtime: {
+      requested: realtimeRequested,
+      ok: Boolean(realtime?.inventory),
+      collected_at: realtime?.collected_at || null,
+      error: realtime?.error || null
+    }
   });
 }
 
