@@ -20,13 +20,16 @@ import {
   decryptGoogleRefreshToken,
   encryptGoogleRefreshToken,
   exchangeGoogleCalendarCode,
+  createGoogleEvent,
+  deleteGoogleEvent,
   fetchGoogleCalendars,
   fetchGoogleEvents,
   fetchGoogleProfile,
   googleCalendarEnabled,
   googleCalendarRedirectUri,
   refreshGoogleAccessToken,
-  sha256Base64Url as googleSha256Base64Url
+  sha256Base64Url as googleSha256Base64Url,
+  updateGoogleEvent
 } from "./google-calendar.js";
 
 const COOKIE_NAME = "__Host-topologia_noc_session";
@@ -124,6 +127,48 @@ CREATE TABLE IF NOT EXISTS google_calendar_connections (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_sync_at TEXT,
   last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sectors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '#2563eb',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_sectors (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, sector_id)
+);
+
+CREATE TABLE IF NOT EXISTS agenda_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_type TEXT NOT NULL CHECK(owner_type IN ('user','sector')),
+  owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  sector_id INTEGER REFERENCES sectors(id) ON DELETE CASCADE,
+  creator_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  location TEXT NOT NULL DEFAULT '',
+  start_at TEXT NOT NULL,
+  end_at TEXT NOT NULL,
+  all_day INTEGER NOT NULL DEFAULT 0,
+  alert_email INTEGER NOT NULL DEFAULT 1,
+  alert_popup INTEGER NOT NULL DEFAULT 1,
+  alert_minutes INTEGER NOT NULL DEFAULT 10 CHECK(alert_minutes BETWEEN 0 AND 1440),
+  google_calendar_id TEXT,
+  google_event_id TEXT,
+  google_html_link TEXT,
+  sync_error TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK((owner_type='user' AND owner_user_id IS NOT NULL AND sector_id IS NULL)
+     OR (owner_type='sector' AND sector_id IS NOT NULL AND owner_user_id IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS login_attempts (
@@ -310,6 +355,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_google_calendar_states_expires ON google_calendar_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_sectors_sector ON user_sectors(sector_id,user_id);
+CREATE INDEX IF NOT EXISTS idx_agenda_events_range ON agenda_events(start_at,end_at);
+CREATE INDEX IF NOT EXISTS idx_agenda_events_sector ON agenda_events(sector_id,start_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_key_time ON login_attempts(attempt_key,attempted_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
   ON users(oauth_issuer,oauth_subject)
@@ -348,6 +396,7 @@ const SCREENS = [
   ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
+  ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
   ["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
 ];
@@ -378,6 +427,11 @@ const ACTIONS = [
 
   ["trafego.settings", "Configurar o painel de tráfego", "Limites, nomes e descrições de interface, atualização e painéis do modo TV", "trafego", "Tráfego", 10],
 
+  ["agenda.view", "Consultar agendas", "Ver a própria agenda e as agendas dos setores vinculados", "agenda", "Agenda", 10],
+  ["agenda.create", "Cadastrar compromissos", "Criar compromissos pessoais e nos setores vinculados", "agenda", "Agenda", 20],
+  ["agenda.edit", "Editar compromissos", "Alterar compromissos próprios ou dos setores vinculados", "agenda", "Agenda", 30],
+  ["agenda.delete", "Excluir compromissos", "Excluir compromissos próprios ou dos setores vinculados", "agenda", "Agenda", 40],
+
   ["fibra.edit", "Editar caminhos de fibra", "Criar e alterar cabos, traçados e caixas ópticas no mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 10],
   ["fibra.delete", "Excluir caminhos de fibra", "Remover cabos, traçados e caixas ópticas do mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 20],
 
@@ -395,6 +449,7 @@ const ACTIONS = [
   ["users.view", "Consultar usuários", "Ver as contas de acesso", "platform", "Plataforma", 40],
   ["users.manage", "Gerenciar usuários", "Criar, alterar e ativar/desativar contas", "platform", "Plataforma", 50],
   ["users.password", "Redefinir senha", "Definir senha temporária para outras contas", "platform", "Plataforma", 60],
+  ["sectors.manage", "Gerenciar setores", "Criar setores e vincular usuários a um ou mais setores", "platform", "Plataforma", 65],
   ["audit.view", "Consultar auditoria", "Ver o histórico de ações da plataforma", "platform", "Plataforma", 70],
   ["audit.export", "Exportar auditoria", "Baixar o histórico em CSV", "platform", "Plataforma", 80],
   ["settings.manage", "Alterar configurações", "Configurações administrativas da plataforma", "platform", "Plataforma", 90]
@@ -427,35 +482,38 @@ const ROLE_PERMISSIONS = {
   administrador: ALL_ACTION_CODES,
   gerente: [
     ...TOPOLOGY_ACTIONS, "trafego.settings",
-    "roles.view","users.view","users.manage","users.password","audit.view","audit.export","settings.manage"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete",
+    "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
   ],
   analista: [
     "topology.view","topology.edit","topology.delete","topology.equipment.create","topology.equipment.edit",
     "topology.equipment.delete","topology.port.edit","topology.link.create","topology.link.delete",
     "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
-    "fibra.edit","fibra.delete","audit.view"
+    "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view"
   ],
-  atendimento: ["topology.view","zabbix.view"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
-    "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit"
+    "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
+    "agenda.view","agenda.create","agenda.edit","agenda.delete"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
-    "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order"
+    "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
+    "agenda.view","agenda.create","agenda.edit","agenda.delete"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","platform","legado"],
-  analista: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","legado"],
-  atendimento: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego"],
-  tecnico: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","legado"],
-  logistica: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard"]
+  gerente: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
+  analista: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  atendimento: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
+  tecnico: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  logistica: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -960,6 +1018,21 @@ async function ensureDatabaseImpl(env) {
       SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
     `).all()).results || []).map(x => x.role_id);
     await runGrants(comRede.map(roleId => grantScreen(roleId, "gpon")));
+  });
+
+  // Agenda acompanha os perfis que já possuem alguma tela operacional. O
+  // setor continua sendo a segunda camada de autorização para cada calendário.
+  await seedOnce(db, "seed.agenda.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.flatMap(roleId => [
+      grantScreen(roleId, "agenda"),
+      grantPermission(roleId, "agenda.view"),
+      grantPermission(roleId, "agenda.create"),
+      grantPermission(roleId, "agenda.edit"),
+      grantPermission(roleId, "agenda.delete")
+    ]));
+    if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "sectors.manage")]);
   });
 
   // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
@@ -1745,6 +1818,241 @@ async function handleGoogleCalendarEvents(env, request) {
   }
 }
 
+const SECTOR_CODE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
+const COLOR_HEX = /^#[0-9a-f]{6}$/i;
+
+function safeAgendaEvent(row) {
+  return {
+    id: Number(row.id), source: "updown", owner_type: row.owner_type,
+    owner_user_id: row.owner_user_id ? Number(row.owner_user_id) : null,
+    sector_id: row.sector_id ? Number(row.sector_id) : null,
+    sector_name: row.sector_name || null, sector_color: row.sector_color || null,
+    creator_user_id: Number(row.creator_user_id), creator_name: row.creator_name || "",
+    title: row.title, description: row.description || "", location: row.location || "",
+    start: row.start_at, end: row.end_at, all_day: Boolean(row.all_day),
+    alert_email: Boolean(row.alert_email), alert_popup: Boolean(row.alert_popup),
+    alert_minutes: Number(row.alert_minutes), html_link: row.google_html_link || null,
+    synced: Boolean(row.google_event_id), sync_error: row.sync_error || null,
+    can_edit: Boolean(row.can_edit)
+  };
+}
+
+async function agendaSectors(db, userId, all = false) {
+  const sql = all ? `
+    SELECT s.id,s.code,s.name,s.description,s.color,s.active,
+      (SELECT COUNT(*) FROM user_sectors us WHERE us.sector_id=s.id) AS users
+    FROM sectors s ORDER BY s.name
+  ` : `
+    SELECT s.id,s.code,s.name,s.description,s.color,s.active
+    FROM sectors s JOIN user_sectors us ON us.sector_id=s.id
+    WHERE us.user_id=? AND s.active=1 ORDER BY s.name
+  `;
+  const result = all ? await db.prepare(sql).all() : await db.prepare(sql).bind(userId).all();
+  return result.results || [];
+}
+
+function agendaRange(url) {
+  const now = new Date();
+  const fallbackStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const fallbackEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const start = new Date(url.searchParams.get("start") || fallbackStart.toISOString());
+  const end = new Date(url.searchParams.get("end") || fallbackEnd.toISOString());
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start
+    || end.getTime() - start.getTime() > 400 * 86400000) return null;
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+async function handleAgendaBootstrap(env, request) {
+  const gate = await requirePermission(env, request, "agenda.view");
+  if (gate.response) return gate.response;
+  const range = agendaRange(new URL(request.url));
+  if (!range) return json({ error: "PERIODO_INVALIDO" }, 400);
+  const db = getDB(env);
+  const sectors = await agendaSectors(db, gate.user.id);
+  const rows = (await db.prepare(`
+    SELECT e.*,s.name sector_name,s.color sector_color,u.display_name creator_name,
+      CASE WHEN e.owner_type='user' AND e.owner_user_id=? THEN 1
+           WHEN e.owner_type='sector' AND EXISTS(
+             SELECT 1 FROM user_sectors us WHERE us.user_id=? AND us.sector_id=e.sector_id
+           ) THEN 1 ELSE 0 END can_edit
+    FROM agenda_events e
+    LEFT JOIN sectors s ON s.id=e.sector_id
+    JOIN users u ON u.id=e.creator_user_id
+    WHERE e.start_at < ? AND e.end_at > ?
+      AND (e.owner_user_id=? OR EXISTS(
+        SELECT 1 FROM user_sectors us WHERE us.user_id=? AND us.sector_id=e.sector_id
+      ))
+    ORDER BY e.start_at,e.id
+  `).bind(gate.user.id, gate.user.id, range.end, range.start, gate.user.id, gate.user.id).all()).results || [];
+
+  const permissions = await permissionsOf(env, gate.user);
+  const connection = await calendarConnection(env, gate.user.id);
+  return json({
+    user: { id: gate.user.id, name: gate.user.display_name, email: gate.user.email || null },
+    sectors, events: rows.map(row => ({ ...safeAgendaEvent(row),
+      can_edit: Boolean(row.can_edit) && permissions.has("agenda.edit"),
+      can_delete: Boolean(row.can_edit) && permissions.has("agenda.delete")
+    })),
+    google: { configured: googleCalendarReady(env), connected: Boolean(connection), email: connection?.google_email || null },
+    can: { create: permissions.has("agenda.create"), edit: permissions.has("agenda.edit"), delete: permissions.has("agenda.delete") }
+  });
+}
+
+function normalizedAgendaInput(body, previous = null) {
+  const title = String(body.title ?? previous?.title ?? "").trim().slice(0, 300);
+  const description = String(body.description ?? previous?.description ?? "").trim().slice(0, 8000);
+  const location = String(body.location ?? previous?.location ?? "").trim().slice(0, 500);
+  const allDay = Boolean(body.all_day ?? previous?.all_day);
+  const start = new Date(body.start ?? previous?.start_at);
+  const end = new Date(body.end ?? previous?.end_at);
+  const alertMinutes = Number(body.alert_minutes ?? previous?.alert_minutes ?? 10);
+  if (!title || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return null;
+  if (!Number.isInteger(alertMinutes) || alertMinutes < 0 || alertMinutes > 1440) return null;
+  return {
+    title, description, location, all_day: allDay,
+    start_at: start.toISOString(), end_at: end.toISOString(),
+    alert_email: body.alert_email === undefined ? Boolean(previous?.alert_email ?? true) : Boolean(body.alert_email),
+    alert_popup: body.alert_popup === undefined ? Boolean(previous?.alert_popup ?? true) : Boolean(body.alert_popup),
+    alert_minutes: alertMinutes
+  };
+}
+
+async function agendaAttendees(db, sectorId, excludeEmail) {
+  if (!sectorId) return [];
+  const rows = (await db.prepare(`
+    SELECT lower(u.email) email FROM user_sectors us JOIN users u ON u.id=us.user_id
+    WHERE us.sector_id=? AND u.active=1 AND u.email IS NOT NULL AND instr(u.email,'@')>1
+  `).bind(sectorId).all()).results || [];
+  return [...new Set(rows.map(x => x.email).filter(email => email !== String(excludeEmail || "").toLowerCase()))];
+}
+
+async function syncAgendaEventToGoogle(env, user, event, existing = null) {
+  const row = await calendarConnection(env, user.id);
+  if (!row) return { sync_error: "Vincule sua conta Google para sincronizar este compromisso." };
+  const calendarId = existing?.google_calendar_id || selectedCalendarIds(row)[0];
+  if (!calendarId) return { sync_error: "Escolha uma agenda Google nas configurações." };
+  const access = await googleCalendarAccess(env, row);
+  const attendees = await agendaAttendees(getDB(env), event.sector_id, row.google_email);
+  const payload = { ...event, attendees, local_id: existing?.id || event.id };
+  const google = existing?.google_event_id
+    ? await updateGoogleEvent(access.access_token, calendarId, existing.google_event_id, payload)
+    : await createGoogleEvent(access.access_token, calendarId, payload);
+  return {
+    google_calendar_id: calendarId,
+    google_event_id: String(google.id || existing?.google_event_id || ""),
+    google_html_link: google.htmlLink || existing?.google_html_link || null,
+    sync_error: null
+  };
+}
+
+async function agendaEventForUser(db, userId, id) {
+  return db.prepare(`
+    SELECT e.* FROM agenda_events e WHERE e.id=? AND (
+      e.owner_user_id=? OR EXISTS(
+        SELECT 1 FROM user_sectors us WHERE us.user_id=? AND us.sector_id=e.sector_id
+      )
+    )
+  `).bind(id, userId, userId).first();
+}
+
+async function handleAgendaEventCreate(env, request) {
+  const gate = await requirePermission(env, request, "agenda.create");
+  if (gate.response) return gate.response;
+  let body; try { body = await readJson(request, 32768); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const event = normalizedAgendaInput(body);
+  if (!event) return json({ error: "COMPROMISSO_INVALIDO" }, 400);
+  const ownerType = body.owner_type === "sector" ? "sector" : "user";
+  const sectorId = ownerType === "sector" ? Number(body.sector_id) : null;
+  const db = getDB(env);
+  if (ownerType === "sector" && (!Number.isInteger(sectorId) || !(await db.prepare(`
+    SELECT 1 FROM user_sectors us JOIN sectors s ON s.id=us.sector_id
+    WHERE us.user_id=? AND us.sector_id=? AND s.active=1
+  `).bind(gate.user.id, sectorId).first()))) return json({ error: "SETOR_NAO_PERMITIDO" }, 403);
+
+  const result = await db.prepare(`
+    INSERT INTO agenda_events(owner_type,owner_user_id,sector_id,creator_user_id,title,description,location,
+      start_at,end_at,all_day,alert_email,alert_popup,alert_minutes)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(ownerType, ownerType === "user" ? gate.user.id : null, sectorId, gate.user.id,
+    event.title,event.description,event.location,event.start_at,event.end_at,event.all_day?1:0,
+    event.alert_email?1:0,event.alert_popup?1:0,event.alert_minutes).run();
+  const id = Number(result.meta.last_row_id);
+  let sync = {};
+  try { sync = await syncAgendaEventToGoogle(env, gate.user, { ...event, id, sector_id: sectorId }); }
+  catch (error) { sync = { sync_error: (error instanceof Error ? error.message : String(error)).slice(0, 500) }; }
+  await db.prepare(`UPDATE agenda_events SET google_calendar_id=?,google_event_id=?,google_html_link=?,sync_error=? WHERE id=?`)
+    .bind(sync.google_calendar_id || null,sync.google_event_id || null,sync.google_html_link || null,sync.sync_error || null,id).run();
+  const after = await agendaEventForUser(db, gate.user.id, id);
+  await audit(env,request,gate.user,"AGENDA_EVENT_CREATE","agenda_event",id,null,{...event,owner_type:ownerType,sector_id:sectorId,synced:Boolean(sync.google_event_id)});
+  return json(safeAgendaEvent({ ...after, can_edit: 1, creator_name: gate.user.display_name }),201);
+}
+
+async function handleAgendaEventUpdate(env, request, id) {
+  const gate = await requirePermission(env, request, "agenda.edit");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const before = await agendaEventForUser(db, gate.user.id, id);
+  if (!before) return json({ error: "COMPROMISSO_NAO_ENCONTRADO" }, 404);
+  let body; try { body = await readJson(request, 32768); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const event = normalizedAgendaInput(body, before);
+  if (!event) return json({ error: "COMPROMISSO_INVALIDO" }, 400);
+  let sync = {};
+  try { sync = await syncAgendaEventToGoogle(env, gate.user, { ...event, id, sector_id: before.sector_id }, before); }
+  catch (error) { sync = { sync_error: (error instanceof Error ? error.message : String(error)).slice(0, 500) }; }
+  await db.prepare(`
+    UPDATE agenda_events SET title=?,description=?,location=?,start_at=?,end_at=?,all_day=?,alert_email=?,alert_popup=?,
+      alert_minutes=?,google_calendar_id=COALESCE(?,google_calendar_id),google_event_id=COALESCE(?,google_event_id),
+      google_html_link=COALESCE(?,google_html_link),sync_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(event.title,event.description,event.location,event.start_at,event.end_at,event.all_day?1:0,event.alert_email?1:0,
+    event.alert_popup?1:0,event.alert_minutes,sync.google_calendar_id||null,sync.google_event_id||null,
+    sync.google_html_link||null,sync.sync_error||null,id).run();
+  const after = await agendaEventForUser(db, gate.user.id, id);
+  await audit(env,request,gate.user,"AGENDA_EVENT_UPDATE","agenda_event",id,safeAgendaEvent({...before,can_edit:1}),safeAgendaEvent({...after,can_edit:1}));
+  return json(safeAgendaEvent({ ...after, can_edit: 1, creator_name: gate.user.display_name }));
+}
+
+async function handleAgendaEventDelete(env, request, id) {
+  const gate = await requirePermission(env, request, "agenda.delete");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const before = await agendaEventForUser(db, gate.user.id, id);
+  if (!before) return json({ error: "COMPROMISSO_NAO_ENCONTRADO" }, 404);
+  let syncError = null;
+  if (before.google_event_id && before.google_calendar_id) {
+    try {
+      const connection = await calendarConnection(env, gate.user.id);
+      if (connection) {
+        const access = await googleCalendarAccess(env, connection);
+        await deleteGoogleEvent(access.access_token, before.google_calendar_id, before.google_event_id);
+      }
+    } catch (error) { syncError = error instanceof Error ? error.message : String(error); }
+  }
+  await db.prepare(`DELETE FROM agenda_events WHERE id=?`).bind(id).run();
+  await audit(env,request,gate.user,"AGENDA_EVENT_DELETE","agenda_event",id,safeAgendaEvent({...before,can_edit:1}),null,{google_sync_error:syncError});
+  return json({ ok: true, google_sync_error: syncError });
+}
+
+async function handleSectors(env, request) {
+  const gate = await requirePermission(env, request, "sectors.manage");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  if (request.method === "GET") return json(await agendaSectors(db, gate.user.id, true));
+  let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const name = String(body.name || "").trim().slice(0, 100);
+  const code = String(body.code || name).trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40);
+  const color = COLOR_HEX.test(body.color) ? String(body.color) : "#2563eb";
+  if (!name || !SECTOR_CODE.test(code)) return json({ error: "SETOR_INVALIDO" }, 400);
+  try {
+    const result = await db.prepare(`INSERT INTO sectors(code,name,description,color) VALUES(?,?,?,?)`)
+      .bind(code,name,String(body.description||"").trim().slice(0,500),color).run();
+    const sector = await db.prepare(`SELECT id,code,name,description,color,active FROM sectors WHERE id=?`)
+      .bind(result.meta.last_row_id).first();
+    await audit(env,request,gate.user,"SECTOR_CREATE","sector",sector.id,null,sector);
+    return json(sector,201);
+  } catch { return json({ error: "SETOR_JA_EXISTE" }, 409); }
+}
+
 async function handleMe(env, request) {
   const user = await getCurrentUser(env, request);
   if (!user) return json({ authenticated: false }, 401);
@@ -2474,6 +2782,7 @@ function safeUserRow(u) {
     id:u.id, username:u.username, display_name:u.display_name, email:u.email || null,
     oauth_linked:Boolean(u.oauth_subject),
     role:u.role, active:!!u.active, must_change_password:!!u.must_change_password,
+    sectors:Array.isArray(u.sectors)?u.sectors:[],
     created_at:u.created_at, updated_at:u.updated_at, last_login_at:u.last_login_at
   };
 }
@@ -2518,15 +2827,17 @@ async function handlePlatformRoles(env, request) {
   `).all()).results;
   const rolePermissions=(await db.prepare(`SELECT role_id,permission_id FROM role_permissions`).all()).results;
   const roleScreens=(await db.prepare(`SELECT role_id,screen_id FROM role_screens`).all()).results;
+  const sectors=await agendaSectors(db,gate.user.id,true);
   const permissoes=await permissionsOf(env,gate.user);
   return json({
-    roles,permissions,screens,rolePermissions,roleScreens,
+    roles,permissions,screens,rolePermissions,roleScreens,sectors,
     protectedRole:PERFIL_PROTEGIDO,
     can:{
       manageRoles:permissoes.has("roles.manage"),
       manageScreens:permissoes.has("screens.manage"),
       viewUsers:permissoes.has("users.view"),
       manageUsers:permissoes.has("users.manage"),
+      manageSectors:permissoes.has("sectors.manage"),
       resetPassword:permissoes.has("users.password"),
       viewAudit:permissoes.has("audit.view"),
       exportAudit:permissoes.has("audit.export")
@@ -2641,6 +2952,12 @@ async function handleUsers(env,request) {
     SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,u.created_at,u.updated_at,u.last_login_at,r.name role
     FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.username
   `).all()).results;
+  const memberships=(await db.prepare(`
+    SELECT us.user_id,s.id,s.code,s.name,s.color FROM user_sectors us JOIN sectors s ON s.id=us.sector_id
+    ORDER BY s.name
+  `).all()).results || [];
+  for(const row of rows) row.sectors=memberships.filter(x=>x.user_id===row.id)
+    .map(({id,code,name,color})=>({id,code,name,color}));
   return json(rows.map(safeUserRow));
 }
 
@@ -2652,6 +2969,7 @@ async function handleUserCreate(env,request) {
   const email=String(b.email||"").trim().toLowerCase();
   const password=String(b.password||"");
   const role=String(b.role||"atendimento");
+  const sectorIds=Array.isArray(b.sector_ids)?[...new Set(b.sector_ids.map(Number).filter(Number.isInteger))]:[];
   if(!/^[a-z0-9._-]{3,50}$/.test(username))return json({error:"USUARIO_INVALIDO"},400);
   if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({error:"EMAIL_INVALIDO"},400);
   if(email && await db.prepare(`SELECT 1 FROM users WHERE lower(email)=? LIMIT 1`).bind(email).first())
@@ -2659,15 +2977,24 @@ async function handleUserCreate(env,request) {
   if(password.length<8)return json({error:"SENHA_DEVE_TER_8_CARACTERES"},400);
   const rr=await db.prepare(`SELECT id,name FROM roles WHERE name=?`).bind(role).first();
   if(!rr)return json({error:"ROLE_INVALIDA"},400);
+  if(sectorIds.length){
+    const valid=(await db.prepare(`SELECT id FROM sectors WHERE active=1`).all()).results||[];
+    const allowed=new Set(valid.map(x=>x.id));
+    if(sectorIds.some(id=>!allowed.has(id)))return json({error:"SETOR_INVALIDO"},400);
+  }
   try{
     const result=await db.prepare(`
       INSERT INTO users(username,display_name,email,password_hash,role_id,active,must_change_password)
       VALUES(?,?,?,?,?,1,1)
     `).bind(username,displayName,email||null,await hashPassword(password),rr.id).run();
+    if(sectorIds.length)await db.batch(sectorIds.map(sectorId=>db.prepare(`
+      INSERT OR IGNORE INTO user_sectors(user_id,sector_id) VALUES(?,?)
+    `).bind(result.meta.last_row_id,sectorId)));
     const after=await db.prepare(`
       SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,r.name role
       FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?
     `).bind(result.meta.last_row_id).first();
+    after.sectors=sectorIds.length?(await db.prepare(`SELECT s.id,s.code,s.name,s.color FROM user_sectors us JOIN sectors s ON s.id=us.sector_id WHERE us.user_id=? ORDER BY s.name`).bind(after.id).all()).results:[];
     await audit(env,request,gate.user,"CREATE","user",after.id,null,safeUserRow(after));
     return json(safeUserRow(after),201);
   }catch{return json({error:"USUARIO_JA_EXISTE"},409)}
@@ -2702,6 +3029,12 @@ async function handleUserUpdate(env,request,id) {
     roleId=rr.id;
   }
   const hasPassword=b.password!==undefined;
+  const hasSectors=Array.isArray(b.sector_ids);
+  const sectorIds=hasSectors?[...new Set(b.sector_ids.map(Number).filter(Number.isInteger))]:[];
+  if(hasSectors){
+    const allowed=new Set(((await db.prepare(`SELECT id FROM sectors WHERE active=1`).all()).results||[]).map(x=>x.id));
+    if(sectorIds.some(sectorId=>!allowed.has(sectorId)))return json({error:"SETOR_INVALIDO"},400);
+  }
   let passwordHash=null;
   if(hasPassword){
     if(!(await hasPermission(env,gate.user,"users.password")))
@@ -2709,7 +3042,7 @@ async function handleUserUpdate(env,request,id) {
     if(String(b.password).length<8)return json({error:"SENHA_DEVE_TER_8_CARACTERES"},400);
     passwordHash=await hashPassword(String(b.password));
   }
-  if(!hasDisplay&&!hasEmail&&!hasActive&&!hasRole&&!hasPassword)return json(safeUserRow(before));
+  if(!hasDisplay&&!hasEmail&&!hasActive&&!hasRole&&!hasPassword&&!hasSectors)return json(safeUserRow(before));
   await db.prepare(`
     UPDATE users SET
       display_name=CASE WHEN ?=1 THEN ? ELSE display_name END,
@@ -2728,11 +3061,16 @@ async function handleUserUpdate(env,request,id) {
     hasPassword?1:0,passwordHash,
     hasPassword?1:0,id
   ).run();
+  if(hasSectors)await db.batch([
+    db.prepare(`DELETE FROM user_sectors WHERE user_id=?`).bind(id),
+    ...sectorIds.map(sectorId=>db.prepare(`INSERT INTO user_sectors(user_id,sector_id) VALUES(?,?)`).bind(id,sectorId))
+  ]);
   if(hasPassword) await db.prepare(`DELETE FROM sessions WHERE user_id=?`).bind(id).run();
   const after=await db.prepare(`
     SELECT u.id,u.username,u.display_name,u.email,u.oauth_subject,u.active,u.must_change_password,r.name role
     FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?
   `).bind(id).first();
+  after.sectors=(await db.prepare(`SELECT s.id,s.code,s.name,s.color FROM user_sectors us JOIN sectors s ON s.id=us.sector_id WHERE us.user_id=? ORDER BY s.name`).bind(id).all()).results||[];
   await audit(env,request,gate.user,"UPDATE","user",id,safeUserRow(before),safeUserRow(after));
   return json(safeUserRow(after));
 }
@@ -3366,6 +3704,19 @@ export default {
         if (url.pathname === "/api/calendar/events" && request.method === "GET")
           return await handleGoogleCalendarEvents(env, request);
 
+        if (url.pathname === "/api/agenda" && request.method === "GET")
+          return await handleAgendaBootstrap(env, request);
+
+        if (url.pathname === "/api/agenda/events" && request.method === "POST")
+          return await handleAgendaEventCreate(env, request);
+
+        const agendaEventMatch=url.pathname.match(/^\/api\/agenda\/events\/(\d+)$/);
+        if(agendaEventMatch){
+          const id=Number(agendaEventMatch[1]);
+          if(request.method==="PATCH")return await handleAgendaEventUpdate(env,request,id);
+          if(request.method==="DELETE")return await handleAgendaEventDelete(env,request,id);
+        }
+
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
           return await handleZabbix(request, env, url);
@@ -3442,6 +3793,9 @@ export default {
 
         if (url.pathname === "/api/platform/roles" && request.method === "GET")
           return await handlePlatformRoles(env,request);
+
+        if (url.pathname === "/api/platform/sectors" && ["GET","POST"].includes(request.method))
+          return await handleSectors(env,request);
 
         if (url.pathname === "/api/platform/roles" && request.method === "POST")
           return await handlePlatformRoleCreate(env,request);

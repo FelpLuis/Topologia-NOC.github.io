@@ -4,7 +4,8 @@ const GOOGLE_API_BASE = "https://www.googleapis.com";
 const GOOGLE_CALENDAR_SCOPES = [
   "openid",
   "email",
-  "https://www.googleapis.com/auth/calendar.readonly"
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
 ];
 
 const encoder = new TextEncoder();
@@ -147,6 +148,71 @@ export async function googleApi(accessToken, path, search = {}) {
     throw error;
   }
   return data;
+}
+
+async function googleApiMutation(accessToken, path, { method = "POST", body, search = {} } = {}) {
+  const url = new URL(path, GOOGLE_API_BASE);
+  for (const [key, value] of Object.entries(search)) {
+    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+  }
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json" })
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(String(data.error?.message || "GOOGLE_CALENDAR_API_FAILED"));
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function googleEventPayload(event) {
+  const allDay = Boolean(event.all_day);
+  const reminders = [];
+  if (event.alert_email) reminders.push({ method: "email", minutes: Number(event.alert_minutes) });
+  if (event.alert_popup) reminders.push({ method: "popup", minutes: Number(event.alert_minutes) });
+  return {
+    summary: String(event.title || "Compromisso").slice(0, 300),
+    description: event.description ? String(event.description).slice(0, 8000) : undefined,
+    location: event.location ? String(event.location).slice(0, 500) : undefined,
+    start: allDay ? { date: String(event.start_at).slice(0, 10) } : { dateTime: String(event.start_at) },
+    end: allDay ? { date: String(event.end_at).slice(0, 10) } : { dateTime: String(event.end_at) },
+    attendees: Array.isArray(event.attendees)
+      ? event.attendees.filter(Boolean).slice(0, 100).map(email => ({ email: String(email).toLowerCase() }))
+      : undefined,
+    reminders: { useDefault: reminders.length === 0, ...(reminders.length ? { overrides: reminders } : {}) },
+    extendedProperties: { private: { updown_event_id: String(event.local_id || "") } }
+  };
+}
+
+export function createGoogleEvent(accessToken, calendarId, event) {
+  return googleApiMutation(accessToken, `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
+    body: googleEventPayload(event),
+    search: { sendUpdates: event.attendees?.length ? "all" : "none" }
+  });
+}
+
+export function updateGoogleEvent(accessToken, calendarId, eventId, event) {
+  return googleApiMutation(accessToken,
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+      method: "PATCH",
+      body: googleEventPayload(event),
+      search: { sendUpdates: event.attendees?.length ? "all" : "none" }
+    });
+}
+
+export function deleteGoogleEvent(accessToken, calendarId, eventId) {
+  return googleApiMutation(accessToken,
+    `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+      method: "DELETE",
+      search: { sendUpdates: "all" }
+    });
 }
 
 export async function fetchGoogleProfile(accessToken) {

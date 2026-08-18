@@ -204,8 +204,15 @@
     // Vincular equipamento a um POP é ação da topologia, não do cadastro do POP.
     const canEdit = NOC.canAll(["topology.edit", "topology.pop.link"]);
     const canEditPop = NOC.canAll(["topology.edit", "pops.edit"]);
+    const canCreatePop = NOC.canAll(["topology.edit", "pops.create"]);
     const foco = new URLSearchParams(location.search).get("pop");
     const pops = NOC.pops();
+
+    const newPopButton = $("#btnNewPop");
+    newPopButton.disabled = !canCreatePop || state.editOrder || state.editRing;
+    newPopButton.title = state.editOrder || state.editRing
+      ? "Conclua a edição da sequência ou do mapa primeiro."
+      : canCreatePop ? "" : "Requer as ações topology.edit + pops.create";
 
     $("#popList").innerHTML = pops.length ? pops.map((pop, i) => {
       const list = NOC.devicesOfPop(pop.id);
@@ -231,6 +238,8 @@
             <span class="badge">${list.length} equipamento(s)</span>
             <button class="btn btn-sm" type="button" data-edit-pop="${esc(pop.id)}"
               ${canEditPop ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar informações</button>
+            <button class="btn btn-danger btn-sm" type="button" data-delete-pop="${esc(pop.id)}"
+              ${NOC.canAll(deleteRequirements(pop)) ? "" : "disabled title='Seu perfil não permite excluir este POP e limpar seus vínculos'"}>${icon("trash")} Excluir</button>
           </span>`}
         </div>
 
@@ -299,12 +308,14 @@
       </article>`;
     }).join("") : `<div class="card"><div class="empty">
       <span class="empty-icon">${icon("pops")}</span><b>Nenhum POP cadastrado</b>
-      <p>Cadastre POPs em Topologia → Gerenciar rede → POPs.</p>
-      <a class="btn btn-sm btn-primary" href="/" style="margin-top:var(--s-3)">Ir para a topologia</a></div></div>`;
+      <p>Adicione o primeiro POP para começar a montar o anel óptico.</p>
+      <button class="btn btn-sm btn-primary" type="button" data-new-pop style="margin-top:var(--s-3)" ${canCreatePop ? "" : "disabled"}>Adicionar POP</button></div></div>`;
 
     $$("[data-unlink]").forEach((b) => (b.onclick = () => vincular(b.dataset.unlink, null)));
     $$("[data-add]").forEach((b) => (b.onclick = () => openLink(b.dataset.add)));
     $$("[data-edit-pop]").forEach((b) => (b.onclick = () => openEditPop(b.dataset.editPop)));
+    $$("[data-delete-pop]").forEach((b) => (b.onclick = () => deletePop(b.dataset.deletePop)));
+    $$("[data-new-pop]").forEach((b) => (b.onclick = openNewPop));
     $$("[data-up]").forEach((b) => (b.onclick = () => moverPop(b.dataset.up, -1)));
     $$("[data-down]").forEach((b) => (b.onclick = () => moverPop(b.dataset.down, 1)));
 
@@ -874,6 +885,7 @@
 
     // As ações exigidas por cada botão estão declaradas no HTML (data-action).
     NOC.applyActions(document);
+    $("#btnNewPop").onclick = openNewPop;
     $("#btnOrder").onclick = toggleOrder;
     $("#orderSave").onclick = saveOrder;
     $("#orderDiscard").onclick = discardOrder;
