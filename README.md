@@ -31,8 +31,9 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/data/equipamentos.json`: cadastro dos equipamentos e portas.
 - `public/data/conexoes.json`: ligações entre equipamentos.
 - `public/data/pops.json`: cadastro dos POPs.
-- `public/isp.html`, `public/isp-mapa.html`: as duas telas da **PARTE ISP**.
+- `public/isp.html`, `public/isp-mapa.html`, `public/isp-cadastro.html`: as três telas da **PARTE ISP**.
 - `public/js/noc-fibra.js`: camada de caminhos de fibra do mapa ISP.
+- `public/js/noc-isp-cadastro.js`: cadastro de ISPs e dos equipamentos deles.
 - `public/data/isp-*.json`: sementes da PARTE ISP, geradas do KMZ do backbone.
 - `backend/scripts/kmz-import.mjs`: importador do KMZ para essas sementes.
 - `src/worker.js`: API do sistema e intermediária entre a página e o Zabbix.
@@ -599,6 +600,7 @@ tem um grupo só dela, com duas telas:
 | --- | --- | --- |
 | **Topologia ISP** | `/isp.html` | igual à topologia do NOC — Esquema, Mapa OSM e Lista, equipamentos, portas e enlaces, só que sobre os clientes ISP |
 | **Mapa de fibra ISP** | `/isp-mapa.html` | o mesmo mapa geográfico, mais os caminhos de fibra e as caixas ópticas |
+| **Cadastro de ISP** | `/isp-cadastro.html` | criar, editar e **excluir** o cliente e os equipamentos dele, em um lugar só |
 
 ### O recorte no servidor
 
@@ -671,6 +673,40 @@ Tudo é editável na tela, com o mesmo padrão de aviso, desfazer e auditoria do
 
 A localização dos clientes ISP é editada como a de qualquer POP: pelo cadastro ou
 arrastando o alfinete em **Definir localização**.
+
+### Cadastro de ISP
+
+A tela de POPs edita o POP e vincula equipamento, mas **não cria nem exclui** — criar um
+POP mora dentro de um modal da topologia e excluir não existe em tela nenhuma. O
+**Cadastro de ISP** fecha esse ciclo para a PARTE ISP, com o cliente e os equipamentos
+dele na mesma tela:
+
+| Ação | Exige |
+| --- | --- |
+| **Novo ISP** — nome, tipo, endereço, localização, rotas e observação | `topology.edit` + `pops.create` |
+| **Editar** o ISP | `topology.edit` + `pops.edit` |
+| **Excluir** o ISP | `topology.delete` + `pops.delete` |
+| **Novo equipamento** já vinculado ao ISP, com as portas | `topology.edit` + `topology.equipment.create` |
+| **Editar** o equipamento (inclusive trocar de ISP e a quantidade de portas) | `topology.edit` + `topology.equipment.edit` |
+| **Excluir** o equipamento | `topology.delete` + `topology.equipment.delete` |
+| **Vincular existente** / **Desvincular** | `topology.edit` + `topology.pop.link` |
+
+O campo **Tipo** separa `Cliente ISP` de `POP` (e aceita Parceiro, Operadora e Cliente
+corporativo), e vira filtro na lista junto com a busca por nome, identificador ou endereço.
+
+Três cuidados que a tela toma sozinha:
+
+- **Excluir um ISP que tem equipamento** não escolhe por você: o diálogo oferece
+  *Excluir só o ISP* (os equipamentos ficam sem vínculo, com os enlaces preservados) e
+  *Excluir ISP e equipamentos* (leva junto os enlaces documentados neles);
+- **Excluir um equipamento** remove também os enlaces documentados nele — deixá-los para
+  trás criaria conexão apontando para equipamento que não existe mais;
+- **Reduzir a quantidade de portas** nunca apaga porta com enlace: o equipamento fica com
+  a última porta ocupada e um aviso diz o que não coube.
+
+Toda operação tem **Desfazer** no aviso que aparece depois de salvar, e o painel lateral
+alerta sobre equipamento sem ISP (com atalho para vincular ou excluir) e sobre ISP sem
+localização, que é o que o deixa fora do mapa de fibra.
 
 ### Cor de estado no mapa
 

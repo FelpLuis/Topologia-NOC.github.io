@@ -198,6 +198,7 @@ window.UI = (() => {
     { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", desc: "Mapa da topologia da rede GPON" },
     { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", desc: "Mapa por cliente ISP, equipamentos e portas" },
     { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "pops", desc: "Clientes ISP e caminhos de fibra no mapa" },
+    { code: "isp-cadastro", label: "Cadastro de ISP", href: "/isp-cadastro.html", icon: "users", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },
     { code: "pops", label: "POPs e anel óptico", href: "/pops.html", icon: "pops", desc: "Inventário por POP e rotas ópticas" },
     { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", desc: "Painel operacional para TV" },
     { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", desc: "Perfis, ações, telas, usuários e auditoria" },
@@ -207,7 +208,7 @@ window.UI = (() => {
   const TELAS_FERRAMENTA = new Set(["legado"]);
   const TELAS_GPON = new Set(["gpon"]);
   // A PARTE ISP é um grupo próprio no menu: topologia e mapa de fibra.
-  const TELAS_ISP = new Set(["isp", "isp-mapa"]);
+  const TELAS_ISP = new Set(["isp", "isp-mapa", "isp-cadastro"]);
 
   function NAV() {
     const telas = window.UPDOWN_ACCESS?.screens;

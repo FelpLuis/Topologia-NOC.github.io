@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Cadastro de ISP</title>
+<link rel="icon" href="/assets/brand/updown-symbol-dark.png">
+<link rel="preconnect" href="/api" crossorigin>
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<script src="/js/auth-guard.js"></script>
+</head>
+<!-- data-scope="isp": o cadastro é do recorte ISP (/api/topology?scope=isp). -->
+<body data-scope="isp">
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">PARTE ISP</span>
+        <h1 class="page-title">Cadastro de ISP</h1>
+        <p class="page-sub">Cadastre, edite e exclua os clientes ISP e os equipamentos de cada um. É o mesmo cadastro que alimenta a Topologia ISP e o Mapa de fibra.</p>
+      </div>
+      <div class="row wrap" style="gap:var(--s-2)">
+        <a class="btn btn-sm" href="/isp.html">Topologia ISP</a>
+        <a class="btn btn-sm" href="/isp-mapa.html">Mapa de fibra</a>
+        <button class="btn btn-sm btn-primary" id="btnNovoIsp" type="button"
+                data-action="topology.edit pops.create">Novo ISP</button>
+      </div>
+    </div>
+
+    <div class="split" style="grid-template-columns:minmax(0,1fr) 320px">
+      <section class="stack" style="gap:var(--s-4)">
+        <div class="card">
+          <div class="card-body row wrap" style="gap:var(--s-3);align-items:center">
+            <div class="input-affix grow" style="min-width:220px">
+              <span class="affix-icon" id="iconSearch"></span>
+              <input class="input" id="ispBusca" type="search" placeholder="Buscar ISP por nome, identificador ou endereço…"
+                     aria-label="Buscar ISP">
+            </div>
+            <div class="row wrap" style="gap:6px" id="ispTipos" role="group" aria-label="Filtrar por tipo"></div>
+            <span class="row" style="gap:var(--s-3);margin-left:auto">
+              <span class="dim" id="ispCount" style="font-size:var(--fs-11)">—</span>
+              <button class="btn btn-ghost btn-sm" id="ispLimpar" type="button">Limpar</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="stack" id="ispAvisos" style="gap:var(--s-3)"></div>
+        <div class="stack" id="ispList" style="gap:var(--s-4)"></div>
+      </section>
+
+      <aside class="stack" style="gap:var(--s-4)">
+        <section class="card">
+          <div class="card-head"><div><h2>Resumo</h2><p>Somatório da PARTE ISP.</p></div></div>
+          <div class="card-body"><div class="kv" id="ispStats"></div></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><div><h2>Como funciona</h2><p>O que cada ação faz.</p></div></div>
+          <div class="card-body stack" style="gap:var(--s-3);font-size:var(--fs-12)">
+            <p><b>Novo ISP</b> cria o cliente com nome, tipo, endereço e localização. Com latitude e longitude ele já aparece no mapa de fibra.</p>
+            <p><b>Novo equipamento</b> cadastra o aparelho já vinculado ao ISP, com as portas nascendo livres.</p>
+            <p><b>Vincular existente</b> aproveita um equipamento que ficou sem ISP.</p>
+            <p><b>Excluir</b> um ISP com equipamentos pergunta se eles ficam sem vínculo ou saem junto.</p>
+            <p class="dim">Toda alteração é gravada com auditoria e pode ser desfeita pelo aviso que aparece após salvar.</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-geo.js"></script>
+<script src="/js/noc-isp-cadastro.js"></script>
+</body>
+</html>

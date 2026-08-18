@@ -303,6 +303,7 @@ const SCREENS = [
   ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
   ["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
+  ["isp-cadastro", "Cadastro de ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
   ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
@@ -409,11 +410,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","platform","legado"],
-  analista: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","legado"],
-  atendimento: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego"],
-  tecnico: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","legado"],
-  logistica: ["network","gpon","isp","isp-mapa","pops","dashboard"]
+  gerente: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","platform","legado"],
+  analista: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","legado"],
+  atendimento: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego"],
+  tecnico: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","legado"],
+  logistica: ["network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -919,11 +920,12 @@ async function ensureDatabaseImpl(env) {
   // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
   // já abria a topologia principal passa a enxergá-la, e quem já podia mexer
   // nas rotas do anel também pode mexer nos caminhos de fibra.
-  await seedOnce(db, "seed.isp_screens.v1", async () => {
+  await seedOnce(db, "seed.isp_screens.v2", async () => {
     const comRede = ((await db.prepare(`
       SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
     `).all()).results || []).map(x => x.role_id);
-    const grants = comRede.flatMap(roleId => [grantScreen(roleId, "isp"), grantScreen(roleId, "isp-mapa")]);
+    const grants = comRede.flatMap(roleId =>
+      ["isp", "isp-mapa", "isp-cadastro"].map(code => grantScreen(roleId, code)));
     for (const [origem, destino] of [["pops.routes", "fibra.edit"], ["pops.delete", "fibra.delete"]]) {
       const donos = ((await db.prepare(`
         SELECT rp.role_id FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE p.code=?
