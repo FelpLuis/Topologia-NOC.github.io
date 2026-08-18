@@ -527,6 +527,11 @@
 }
 .topo-missing .row-between { gap: var(--s-3); }
 
+/* No mapa geográfico a atribuição ocupa a base da tela: os controles sobem
+   uma linha para não ficarem por cima dela. A lista de POPs fora do mapa fica
+   no topo e não entra nessa conta. */
+.topo-stage.is-geo .topo-hud:not(.topo-missing) { bottom: calc(var(--s-4) + 20px); }
+
 .topo-attrib {
   position: absolute;
   right: var(--s-4);

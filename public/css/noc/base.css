@@ -8,6 +8,12 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
+  /* Contexto de formatação próprio: sem ele, a margem que o .shell usa para
+     livrar o appbar fixo escapa do body e soma a altura do appbar ao
+     documento. A página ganhava uma rolagem de 64px, e na topologia — que é
+     desenhada para caber exatamente na janela — isso escondia a barra de
+     ferramentas atrás do appbar e deixava uma faixa vazia embaixo do mapa. */
+  display: flow-root;
   font-family: var(--font-sans);
   font-size: var(--fs-14);
   line-height: var(--lh-base);

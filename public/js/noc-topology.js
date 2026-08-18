@@ -2253,6 +2253,8 @@
     $(".topo-side").hidden = !mapa;
     $("#listView").hidden = mapa;
     $("#geoAttrib").hidden = view !== "geo";
+    // A atribuição do OpenStreetMap ocupa a base do palco só no modo geográfico.
+    stage().classList.toggle("is-geo", view === "geo");
     if (state.editLayout) setLayoutEdit(false);
     syncLayoutButton();
     renderBasemap();
