@@ -338,7 +338,239 @@ window.UI = (() => {
     }
     renderNav();
     applyAccess(ev.detail?.access);
+    initCalendarAlerts();
   });
+
+  /* ---------------- Google Agenda e alertas ---------------- */
+  async function calendarApi(url, options = {}) {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+      ...options,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      location.replace("/login.html");
+      throw new Error("Sessão expirada.");
+    }
+    if (!response.ok) throw new Error(data.error || "Não foi possível acessar a agenda.");
+    return data;
+  }
+
+  const calendarReturnTo = () => `${location.pathname}${location.search}`.replace(/([?&])(calendar|calendar_error)=[^&]*&?/g, "$1").replace(/[?&]$/, "") || "/";
+
+  function openCalendarSettings() {
+    modal({
+      labelledBy: "calendarSettingsTitle",
+      wide: true,
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("bell")} Compromissos</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Agenda Google</h2>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Vincule suas agendas e receba avisos enquanto o NOC estiver aberto.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body" data-calendar-body><div class="empty"><b>Consultando sua agenda…</b></div></div>
+        <div class="modal-foot"><span></span><button class="btn" data-close type="button">Fechar</button></div>`,
+      onMount: async (host, close) => {
+        const body = $("[data-calendar-body]", host);
+        const renderDisconnected = (configured) => {
+          body.innerHTML = configured ? `
+            <div class="empty">
+              <span style="display:inline-flex;margin-bottom:12px">${icon("bell", "icon icon-lg")}</span>
+              <b>Nenhuma conta Google vinculada</b>
+              <p>O acesso é somente leitura e pode ser removido a qualquer momento.</p>
+              <button class="btn btn-primary" data-calendar-connect type="button">Vincular conta Google</button>
+            </div>` : `
+            <div class="notice notice-warn">${icon("alert")}<span><b>Integração ainda não configurada</b><br>O administrador precisa cadastrar as credenciais do Google Calendar no servidor.</span></div>`;
+          $("[data-calendar-connect]", body)?.addEventListener("click", () => {
+            location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
+          });
+        };
+
+        try {
+          const status = await calendarApi("/api/calendar/status");
+          if (!status.connected) return renderDisconnected(status.configured);
+          if (status.needs_reconnect) {
+            body.innerHTML = `
+              <div class="notice notice-warn">${icon("alert")}<span><b>A conexão com ${esc(status.email || "Google")} expirou.</b><br>Vincule novamente a conta para retomar os alertas.</span></div>
+              <button class="btn btn-primary" data-calendar-reconnect type="button">Vincular novamente</button>`;
+            $("[data-calendar-reconnect]", body).onclick = () => {
+              location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
+            };
+            return;
+          }
+          body.innerHTML = `
+            <div class="notice notice-info">${icon("check")}<span><b>${esc(status.email || "Conta Google vinculada")}</b><br>A plataforma só lê os compromissos das agendas marcadas.</span></div>
+            <div class="field" style="margin-top:var(--s-4)">
+              <label for="calendarAlertMinutes">Avisar com antecedência</label>
+              <select class="select" id="calendarAlertMinutes">
+                ${[[0,"No horário"],[5,"5 minutos"],[10,"10 minutos"],[15,"15 minutos"],[30,"30 minutos"],[60,"1 hora"],[120,"2 horas"],[1440,"1 dia"]].map(([value,label]) => `<option value="${value}" ${Number(status.alert_minutes) === value ? "selected" : ""}>${label}</option>`).join("")}
+              </select>
+            </div>
+            <fieldset style="border:0;padding:0;margin:var(--s-4) 0 0">
+              <legend style="font-weight:700;font-size:var(--fs-13);margin-bottom:8px">Agendas acompanhadas</legend>
+              <div class="stack" style="gap:6px;max-height:240px;overflow:auto">
+                ${(status.calendars || []).map(calendar => `
+                  <label class="row" style="padding:9px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);cursor:pointer">
+                    <input type="checkbox" data-calendar-id="${esc(calendar.id)}" ${calendar.enabled ? "checked" : ""}>
+                    <i style="width:10px;height:10px;border-radius:50%;background:${esc(calendar.backgroundColor || "var(--blue-500)")}"></i>
+                    <span class="grow">${esc(calendar.summary)}${calendar.primary ? ' <small class="dim">(principal)</small>' : ""}</span>
+                  </label>`).join("") || '<p class="dim">Nenhuma agenda disponível nessa conta.</p>'}
+              </div>
+            </fieldset>
+            <div class="row-between wrap" style="margin-top:var(--s-5);gap:var(--s-3)">
+              <button class="btn" data-notification-permission type="button">${icon("bell")} Ativar notificação do navegador</button>
+              <span class="row">
+                <button class="btn btn-danger" data-calendar-disconnect type="button">Desvincular</button>
+                <button class="btn btn-primary" data-calendar-save type="button">Salvar</button>
+              </span>
+            </div>`;
+
+          const permission = $("[data-notification-permission]", body);
+          if (!("Notification" in window)) permission.hidden = true;
+          else if (Notification.permission === "granted") { permission.textContent = "Notificações do navegador ativas"; permission.disabled = true; }
+          permission?.addEventListener("click", async () => {
+            const result = await Notification.requestPermission();
+            if (result === "granted") { permission.textContent = "Notificações do navegador ativas"; permission.disabled = true; }
+          });
+          $("[data-calendar-save]", body).onclick = async event => {
+            const selected = $$('[data-calendar-id]:checked', body).map(input => input.dataset.calendarId);
+            if (!selected.length) return toast("Escolha ao menos uma agenda", { type: "warn" });
+            event.currentTarget.disabled = true;
+            try {
+              await calendarApi("/api/calendar/settings", {
+                method: "PUT",
+                body: JSON.stringify({ calendars: selected, alert_minutes: Number($("#calendarAlertMinutes", body).value) })
+              });
+              close();
+              toast("Agendas atualizadas", { text: "Os próximos compromissos já serão acompanhados.", type: "ok" });
+              pollCalendarEvents(true);
+            } catch (error) {
+              toast("Não foi possível salvar", { text: error.message, type: "danger" });
+              event.currentTarget.disabled = false;
+            }
+          };
+          $("[data-calendar-disconnect]", body).onclick = () => confirm({
+            title: "Desvincular a conta Google?",
+            text: "As agendas deixam de ser consultadas e os alertas são interrompidos.",
+            confirmLabel: "Desvincular",
+            danger: true,
+            onConfirm: async () => {
+              try {
+                await calendarApi("/api/calendar/google", { method: "DELETE" });
+                close();
+                toast("Conta Google desvinculada", { type: "ok" });
+              } catch (error) { toast("Não foi possível desvincular", { text: error.message, type: "danger" }); }
+            }
+          });
+        } catch (error) {
+          body.innerHTML = `<div class="notice notice-danger">${icon("alert")}<span><b>Não foi possível abrir a agenda</b><br>${esc(error.message)}</span></div>`;
+        }
+      }
+    });
+  }
+
+  let calendarAlertsStarted = false;
+  let calendarPolling = false;
+  const calendarSeenKey = () => `updown.calendar.seen.${window.UPDOWN_AUTH?.id || "user"}`;
+
+  function seenCalendarAlerts() {
+    try {
+      const data = JSON.parse(localStorage.getItem(calendarSeenKey()) || "{}");
+      const cutoff = Date.now() - 2 * 24 * 60 * 60_000;
+      return Object.fromEntries(Object.entries(data).filter(([, timestamp]) => Number(timestamp) >= cutoff));
+    } catch { return {}; }
+  }
+
+  function persistSeenCalendarAlerts(seen) {
+    try { localStorage.setItem(calendarSeenKey(), JSON.stringify(seen)); } catch { /* armazenamento indisponível */ }
+  }
+
+  function formatAppointmentStart(event) {
+    if (event.all_day) return "Hoje, dia inteiro";
+    const date = new Date(event.start);
+    return date.toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function showAppointmentPopup(events) {
+    const first = events[0];
+    modal({
+      labelledBy: "appointmentAlertTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("bell")} Alerta de agenda</span><h2 id="appointmentAlertTitle" style="margin-top:8px">${events.length === 1 ? esc(first.title) : `${events.length} compromissos próximos`}</h2></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          ${events.map(event => `<div class="card" style="padding:var(--s-4)">
+            <b>${esc(event.title)}</b>
+            <p class="muted" style="margin-top:5px">${icon("clock")} ${esc(formatAppointmentStart(event))}${event.location ? `<br>${esc(event.location)}` : ""}</p>
+          </div>`).join("")}
+        </div>
+        <div class="modal-foot"><span></span><span class="row">
+          ${first.html_link ? '<button class="btn" data-open-google type="button">Abrir no Google Agenda</button>' : ""}
+          <button class="btn btn-primary" data-close type="button">Entendi</button>
+        </span></div>`,
+      onMount: host => {
+        $("[data-open-google]", host)?.addEventListener("click", () => window.open(first.html_link, "_blank", "noopener,noreferrer"));
+      }
+    });
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(events.length === 1 ? first.title : `${events.length} compromissos próximos`, {
+          body: events.map(event => `${formatAppointmentStart(event)} — ${event.title}`).join("\n"),
+          icon: "/assets/brand/updown-symbol.png",
+          tag: `updown-calendar-${first.id}`
+        });
+      } catch { /* o pop-up interno continua disponível */ }
+    }
+  }
+
+  async function pollCalendarEvents(force = false) {
+    if (calendarPolling || (!force && document.visibilityState === "hidden")) return;
+    calendarPolling = true;
+    try {
+      const data = await calendarApi("/api/calendar/events");
+      if (!data.connected) return;
+      const seen = seenCalendarAlerts();
+      const now = Date.now();
+      const lead = Number(data.alert_minutes || 0) * 60_000;
+      const today = new Date().toLocaleDateString("en-CA");
+      const due = (data.events || []).filter(event => {
+        const key = `${event.calendar_id}:${event.id}:${event.start}`;
+        if (seen[key]) return false;
+        if (event.all_day) {
+          if (String(event.start).slice(0, 10) !== today) return false;
+        } else {
+          const starts = new Date(event.start).getTime();
+          if (!Number.isFinite(starts) || starts < now - 5 * 60_000 || starts > now + lead) return false;
+        }
+        seen[key] = now;
+        return true;
+      });
+      if (due.length) {
+        persistSeenCalendarAlerts(seen);
+        showAppointmentPopup(due.slice(0, 8));
+      }
+    } catch { /* falhas temporárias não interrompem as demais telas */ }
+    finally { calendarPolling = false; }
+  }
+
+  function initCalendarAlerts() {
+    if (calendarAlertsStarted) return;
+    calendarAlertsStarted = true;
+    const params = new URLSearchParams(location.search);
+    if (params.get("calendar") === "connected") toast("Conta Google vinculada", { text: "Escolha as agendas e a antecedência no menu do usuário.", type: "ok", timeout: 7000 });
+    if (params.has("calendar_error")) toast("Não foi possível vincular a conta Google", { text: "Tente novamente pelo menu do usuário.", type: "danger", timeout: 7000 });
+    if (params.has("calendar") || params.has("calendar_error")) {
+      params.delete("calendar"); params.delete("calendar_error");
+      history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`);
+    }
+    pollCalendarEvents();
+    setInterval(pollCalendarEvents, 60_000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pollCalendarEvents(); });
+  }
 
   function wireUserMenu(root) {
     const btn = $("[data-user-menu]", root);
@@ -364,12 +596,14 @@ window.UI = (() => {
         </div>
         <div class="menu-sep"></div>
         <a class="menu-item" href="/change-password.html">${icon("lock")} Trocar senha</a>
+        <button class="menu-item" data-calendar-menu type="button">${icon("bell")} Agenda Google</button>
         <button class="menu-item" data-theme-menu type="button">${icon("moon")} Alternar tema</button>
         <button class="menu-item" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
         <div class="menu-sep"></div>
         <button class="menu-item is-danger" id="logoutBtn" type="button">${icon("logout")} Encerrar sessão</button>`;
       btn.parentElement.appendChild(menu);
       btn.setAttribute("aria-expanded", "true");
+      $("[data-calendar-menu]", menu).onclick = () => { close(); openCalendarSettings(); };
       $("[data-theme-menu]", menu).onclick = () => { toggleTheme(); close(); };
       $("[data-shortcuts]", menu).onclick = () => { close(); openShortcuts(); };
       // Logout pela API: o Worker limpa o cookie HttpOnly.

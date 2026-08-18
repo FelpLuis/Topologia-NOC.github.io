@@ -104,6 +104,21 @@
     }
   }
 
+  /* A observação importada do KMZ pode ter mil caracteres (documentação de DIO,
+     link do Street View). Curta, aparece direto; longa, fica recolhida, para um
+     cartão não empurrar a lista inteira para baixo. */
+  const OBS_CURTA = 220;
+  function observacaoHtml(texto) {
+    const obs = String(texto || "").trim();
+    if (!obs) return "";
+    const corpo = `<p class="dim texto-livre" style="font-size:var(--fs-12)">${esc(obs)}</p>`;
+    if (obs.length <= OBS_CURTA) {
+      return `<div><h3 style="font-size:var(--fs-12);margin-bottom:var(--s-2)">Observação</h3>${corpo}</div>`;
+    }
+    return `<details class="texto-longo">
+      <summary>Observação — ${obs.length} caracteres</summary>${corpo}</details>`;
+  }
+
   function cartao(p) {
     const list = NOC.devicesOfPop(p.id);
     const s = NOC.statsOf(list);
@@ -117,8 +132,8 @@
           <div style="min-width:0">
             <span class="kicker">${esc(tipoDe(p))}</span>
             <h2 style="margin:4px 0 2px">${esc(p.nome)}</h2>
-            <p class="dim mono" style="font-size:var(--fs-11)">${esc(p.id)}</p>
-            ${p.endereco ? `<p class="dim" style="font-size:var(--fs-12);margin-top:4px">${icon("pops")} ${esc(p.endereco)}</p>` : ""}
+            <p class="dim mono texto-livre" style="font-size:var(--fs-11)">${esc(p.id)}</p>
+            ${p.endereco ? `<p class="dim texto-livre" style="font-size:var(--fs-12);margin-top:4px">${icon("pops")} ${esc(p.endereco)}</p>` : ""}
             <p class="dim mono" style="font-size:var(--fs-11);margin-top:4px">
               ${c ? esc(GEO.label(c.lat, c.lon)) : '<span class="badge badge-warn">sem localização</span>'}</p>
           </div>
@@ -148,9 +163,7 @@
             ${p.rotas.map((r) => `<span class="badge ${/subterr/i.test(r) ? "badge-info" : ""}">${esc(r)}</span>`).join("")}
           </div></div>` : ""}
 
-        ${p.observacao ? `<div>
-          <h3 style="font-size:var(--fs-12);margin-bottom:var(--s-2)">Observação</h3>
-          <p class="dim" style="font-size:var(--fs-12)">${esc(p.observacao)}</p></div>` : ""}
+        ${observacaoHtml(p.observacao)}
 
         <div>
           <div class="row-between wrap" style="margin-bottom:var(--s-2);gap:6px">

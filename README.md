@@ -257,6 +257,36 @@ uma identidade precisa corresponder ao e-mail verificado de um usuário existent
 Depois de validar o acesso corporativo, `PASSWORD_LOGIN_ENABLED=false` desativa o
 login por senha local.
 
+### Google Agenda e alertas de compromissos
+
+Cada usuário autenticado pode abrir o menu do perfil, escolher **Agenda Google**
+e vincular a própria conta. A integração pede somente
+`calendar.readonly`, permite escolher quais agendas acompanhar e mostra um
+pop-up no NOC quando o compromisso entra na antecedência configurada. Se o
+usuário autorizar, o navegador também exibe uma notificação do sistema.
+
+No Google Cloud, habilite a Google Calendar API, configure a tela de
+consentimento OAuth e crie um cliente do tipo **Aplicativo da Web**. Cadastre a
+URI de redirecionamento autorizada exatamente como:
+
+```text
+https://SEU-DOMINIO/api/calendar/google/callback
+```
+
+Configure as credenciais e uma chave aleatória estável no Worker:
+
+```bash
+npx wrangler secret put GOOGLE_CALENDAR_CLIENT_ID
+npx wrangler secret put GOOGLE_CALENDAR_CLIENT_SECRET
+npx wrangler secret put GOOGLE_CALENDAR_TOKEN_KEY
+```
+
+`GOOGLE_CALENDAR_TOKEN_KEY` precisa ter pelo menos 32 caracteres. Ela cifra os
+refresh tokens antes de gravá-los no D1 e não deve ser trocada enquanto houver
+contas vinculadas. Defina também `GOOGLE_CALENDAR_REDIRECT_URI` com a URI acima.
+Em modo de teste no Google Cloud, inclua como testadores os usuários que poderão
+vincular suas contas.
+
 ### Perfis RBAC
 
 Os perfis oficiais do sistema são:

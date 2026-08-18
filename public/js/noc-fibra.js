@@ -477,7 +477,7 @@ window.FIBRA = (() => {
           </div>
         </header>
         <div class="drawer-body stack">
-          ${f.observacao ? `<div class="card" style="padding:var(--s-3)"><p style="font-size:var(--fs-13)">${esc(f.observacao)}</p></div>` : ""}
+          ${f.observacao ? `<div class="card" style="padding:var(--s-3)"><p class="texto-livre" style="font-size:var(--fs-13)">${esc(f.observacao)}</p></div>` : ""}
           <div class="table-wrap">
             <table class="table">
               <tbody>
@@ -767,7 +767,7 @@ window.FIBRA = (() => {
             <a class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer"
                href="https://www.openstreetmap.org/?mlat=${encodeURIComponent(c.lat)}&mlon=${encodeURIComponent(c.lon)}#map=18/${encodeURIComponent(c.lat)}/${encodeURIComponent(c.lon)}">Ver no OpenStreetMap</a>
           </div>
-          ${c.observacao ? `<div class="card" style="padding:var(--s-3)"><p style="font-size:var(--fs-13)">${esc(c.observacao)}</p></div>` : ""}
+          ${c.observacao ? `<div class="card" style="padding:var(--s-3)"><p class="texto-livre" style="font-size:var(--fs-13)">${esc(c.observacao)}</p></div>` : ""}
         </div>
         <div class="modal-foot">
           <span class="row">

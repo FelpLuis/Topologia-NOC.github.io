@@ -15,12 +15,27 @@ import {
   safeReturnPath,
   sha256Base64Url as oauthSha256Base64Url
 } from "./oauth.js";
+import {
+  buildGoogleCalendarAuthorizationUrl,
+  decryptGoogleRefreshToken,
+  encryptGoogleRefreshToken,
+  exchangeGoogleCalendarCode,
+  fetchGoogleCalendars,
+  fetchGoogleEvents,
+  fetchGoogleProfile,
+  googleCalendarEnabled,
+  googleCalendarRedirectUri,
+  refreshGoogleAccessToken,
+  sha256Base64Url as googleSha256Base64Url
+} from "./google-calendar.js";
 
 const COOKIE_NAME = "__Host-topologia_noc_session";
 const OAUTH_STATE_COOKIE = "__Host-topologia_noc_oauth";
+const GOOGLE_CALENDAR_STATE_COOKIE = "__Host-topologia_noc_google_calendar";
 const SESSION_DAYS = 7;
 const PBKDF2_ITERATIONS = 100000;
 const OAUTH_STATE_MINUTES = 10;
+const GOOGLE_CALENDAR_STATE_MINUTES = 10;
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 // Compatível com o binding mostrado no Cloudflare:
@@ -84,6 +99,29 @@ CREATE TABLE IF NOT EXISTS oauth_states (
   return_to TEXT NOT NULL DEFAULT '/',
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS google_calendar_states (
+  state_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_verifier TEXT NOT NULL,
+  return_to TEXT NOT NULL DEFAULT '/',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS google_calendar_connections (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  google_account_id TEXT,
+  google_email TEXT NOT NULL DEFAULT '',
+  refresh_token_ciphertext TEXT NOT NULL,
+  calendars_json TEXT NOT NULL DEFAULT '[]',
+  alert_minutes INTEGER NOT NULL DEFAULT 10 CHECK(alert_minutes BETWEEN 0 AND 1440),
+  active INTEGER NOT NULL DEFAULT 1,
+  connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_sync_at TEXT,
+  last_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS login_attempts (
@@ -269,6 +307,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+CREATE INDEX IF NOT EXISTS idx_google_calendar_states_expires ON google_calendar_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_key_time ON login_attempts(attempt_key,attempted_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
   ON users(oauth_issuer,oauth_subject)
@@ -1388,6 +1427,287 @@ async function handleOAuthCallback(env, request) {
   } catch (error) {
     console.error(JSON.stringify({ message: "OAuth callback failed", error: error instanceof Error ? error.message : String(error) }));
     return oauthFailure(request, "login_failed");
+  }
+}
+
+function googleCalendarResultLocation(request, returnTo, key, value) {
+  const location = new URL(safeReturnPath(returnTo), request.url);
+  location.searchParams.set(key, value);
+  return location.toString();
+}
+
+function clearGoogleCalendarStateCookie() {
+  return `${GOOGLE_CALENDAR_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
+
+async function handleGoogleCalendarStart(env, request) {
+  if (!googleCalendarEnabled(env)) return json({ error: "GOOGLE_CALENDAR_NOT_CONFIGURED" }, 503);
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+
+  const url = new URL(request.url);
+  const state = randomBase64Url(32);
+  const verifier = randomBase64Url(64);
+  const stateHash = await googleSha256Base64Url(state);
+  const returnTo = safeReturnPath(url.searchParams.get("return_to"));
+  const db = getDB(env);
+  await db.batch([
+    db.prepare(`DELETE FROM google_calendar_states WHERE expires_at <= CURRENT_TIMESTAMP`),
+    db.prepare(`
+      INSERT INTO google_calendar_states(state_hash,user_id,code_verifier,return_to,expires_at)
+      VALUES (?,?,?,?,datetime('now',?))
+    `).bind(stateHash, user.id, verifier, returnTo, `+${GOOGLE_CALENDAR_STATE_MINUTES} minutes`)
+  ]);
+  const location = await buildGoogleCalendarAuthorizationUrl(
+    env,
+    googleCalendarRedirectUri(env, request),
+    state,
+    verifier
+  );
+  return new Response(null, {
+    status: 302,
+    headers: securityHeaders({
+      Location: location,
+      "Cache-Control": "no-store",
+      "Set-Cookie": `${GOOGLE_CALENDAR_STATE_COOKIE}=${state}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${GOOGLE_CALENDAR_STATE_MINUTES * 60}`
+    })
+  });
+}
+
+async function handleGoogleCalendarCallback(env, request) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return new Response(null, {
+    status: 303,
+    headers: securityHeaders({ Location: "/login.html", "Set-Cookie": clearGoogleCalendarStateCookie() })
+  });
+
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state") || "";
+  const cookieState = parseCookies(request)[GOOGLE_CALENDAR_STATE_COOKIE] || "";
+  if (!state || !cookieState || !(await constantTimeEqual(state, cookieState))) {
+    return new Response(null, {
+      status: 303,
+      headers: securityHeaders({
+        Location: googleCalendarResultLocation(request, "/", "calendar_error", "invalid_state"),
+        "Set-Cookie": clearGoogleCalendarStateCookie()
+      })
+    });
+  }
+
+  const db = getDB(env);
+  const stateHash = await googleSha256Base64Url(state);
+  const saved = await db.prepare(`
+    DELETE FROM google_calendar_states
+    WHERE state_hash=? AND user_id=? AND expires_at>CURRENT_TIMESTAMP
+    RETURNING code_verifier,return_to
+  `).bind(stateHash, user.id).first();
+  if (!saved || url.searchParams.get("error")) {
+    const code = saved ? "provider_denied" : "expired_state";
+    return new Response(null, {
+      status: 303,
+      headers: securityHeaders({
+        Location: googleCalendarResultLocation(request, saved?.return_to || "/", "calendar_error", code),
+        "Set-Cookie": clearGoogleCalendarStateCookie()
+      })
+    });
+  }
+
+  const code = url.searchParams.get("code") || "";
+  if (!code || code.length > 4096) {
+    return new Response(null, {
+      status: 303,
+      headers: securityHeaders({
+        Location: googleCalendarResultLocation(request, saved.return_to, "calendar_error", "invalid_code"),
+        "Set-Cookie": clearGoogleCalendarStateCookie()
+      })
+    });
+  }
+
+  try {
+    const tokens = await exchangeGoogleCalendarCode(
+      env,
+      code,
+      googleCalendarRedirectUri(env, request),
+      saved.code_verifier
+    );
+    if (!tokens.refresh_token) throw new Error("GOOGLE_REFRESH_TOKEN_MISSING");
+    const [profile, calendars] = await Promise.all([
+      fetchGoogleProfile(tokens.access_token),
+      fetchGoogleCalendars(tokens.access_token)
+    ]);
+    const selected = calendars.filter(calendar => calendar.primary || calendar.selected).map(calendar => calendar.id);
+    const encrypted = await encryptGoogleRefreshToken(env, user.id, tokens.refresh_token);
+    await db.prepare(`
+      INSERT INTO google_calendar_connections
+        (user_id,google_account_id,google_email,refresh_token_ciphertext,calendars_json,active,connected_at,updated_at,last_sync_at,last_error)
+      VALUES (?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,NULL)
+      ON CONFLICT(user_id) DO UPDATE SET
+        google_account_id=excluded.google_account_id,
+        google_email=excluded.google_email,
+        refresh_token_ciphertext=excluded.refresh_token_ciphertext,
+        calendars_json=excluded.calendars_json,
+        active=1,
+        updated_at=CURRENT_TIMESTAMP,
+        last_sync_at=CURRENT_TIMESTAMP,
+        last_error=NULL
+    `).bind(user.id, profile.id || null, profile.email, encrypted, JSON.stringify(selected)).run();
+    await audit(env, request, user, "GOOGLE_CALENDAR_CONNECTED", "google_calendar", String(user.id), null, null, {
+      email: profile.email,
+      calendars: selected.length
+    });
+    return new Response(null, {
+      status: 303,
+      headers: securityHeaders({
+        Location: googleCalendarResultLocation(request, saved.return_to, "calendar", "connected"),
+        "Cache-Control": "no-store",
+        "Set-Cookie": clearGoogleCalendarStateCookie()
+      })
+    });
+  } catch (error) {
+    console.error(JSON.stringify({
+      message: "Google Calendar callback failed",
+      userId: user.id,
+      error: error instanceof Error ? error.message : String(error)
+    }));
+    return new Response(null, {
+      status: 303,
+      headers: securityHeaders({
+        Location: googleCalendarResultLocation(request, saved.return_to, "calendar_error", "connection_failed"),
+        "Cache-Control": "no-store",
+        "Set-Cookie": clearGoogleCalendarStateCookie()
+      })
+    });
+  }
+}
+
+function selectedCalendarIds(row) {
+  try {
+    const parsed = JSON.parse(row?.calendars_json || "[]");
+    return Array.isArray(parsed) ? [...new Set(parsed.map(String).filter(Boolean))].slice(0, 50) : [];
+  } catch { return []; }
+}
+
+async function googleCalendarAccess(env, row) {
+  const refreshToken = await decryptGoogleRefreshToken(env, row.user_id, row.refresh_token_ciphertext);
+  return refreshGoogleAccessToken(env, refreshToken);
+}
+
+async function calendarConnection(env, userId) {
+  return getDB(env).prepare(`
+    SELECT user_id,google_account_id,google_email,refresh_token_ciphertext,calendars_json,
+           alert_minutes,active,connected_at,updated_at,last_sync_at,last_error
+    FROM google_calendar_connections WHERE user_id=? AND active=1
+  `).bind(userId).first();
+}
+
+async function handleGoogleCalendarStatus(env, request) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+  const configured = googleCalendarEnabled(env) && String(env.GOOGLE_CALENDAR_TOKEN_KEY || "").trim().length >= 32;
+  if (!configured) return json({ configured: false, connected: false });
+  const row = await calendarConnection(env, user.id);
+  if (!row) return json({ configured: true, connected: false });
+
+  try {
+    const tokens = await googleCalendarAccess(env, row);
+    const calendars = await fetchGoogleCalendars(tokens.access_token);
+    const selected = new Set(selectedCalendarIds(row));
+    return json({
+      configured: true,
+      connected: true,
+      email: row.google_email,
+      alert_minutes: Number(row.alert_minutes),
+      calendars: calendars.map(calendar => ({ ...calendar, enabled: selected.has(calendar.id) })),
+      last_sync_at: row.last_sync_at,
+      needs_reconnect: false
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await getDB(env).prepare(`UPDATE google_calendar_connections SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?`)
+      .bind(message.slice(0, 500), user.id).run();
+    return json({
+      configured: true,
+      connected: true,
+      email: row.google_email,
+      alert_minutes: Number(row.alert_minutes),
+      calendars: [],
+      needs_reconnect: true
+    });
+  }
+}
+
+async function handleGoogleCalendarSettings(env, request) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+  const row = await calendarConnection(env, user.id);
+  if (!row) return json({ error: "GOOGLE_CALENDAR_NOT_CONNECTED" }, 409);
+  let body;
+  try { body = await readJson(request, 32768); }
+  catch { return json({ error: "INVALID_JSON" }, 400); }
+  const alertMinutes = Number(body.alert_minutes);
+  const requested = Array.isArray(body.calendars) ? [...new Set(body.calendars.map(String).filter(Boolean))] : null;
+  if (!Number.isInteger(alertMinutes) || alertMinutes < 0 || alertMinutes > 1440) {
+    return json({ error: "GOOGLE_CALENDAR_ALERT_MINUTES_INVALID" }, 400);
+  }
+  if (!requested || !requested.length || requested.length > 50) {
+    return json({ error: "GOOGLE_CALENDAR_SELECTION_INVALID" }, 400);
+  }
+
+  try {
+    const tokens = await googleCalendarAccess(env, row);
+    const available = new Set((await fetchGoogleCalendars(tokens.access_token)).map(calendar => calendar.id));
+    if (requested.some(id => !available.has(id))) return json({ error: "GOOGLE_CALENDAR_SELECTION_INVALID" }, 400);
+    const before = { calendars: selectedCalendarIds(row), alert_minutes: Number(row.alert_minutes) };
+    const after = { calendars: requested, alert_minutes: alertMinutes };
+    await getDB(env).prepare(`
+      UPDATE google_calendar_connections
+      SET calendars_json=?,alert_minutes=?,updated_at=CURRENT_TIMESTAMP,last_error=NULL WHERE user_id=?
+    `).bind(JSON.stringify(requested), alertMinutes, user.id).run();
+    await audit(env, request, user, "GOOGLE_CALENDAR_SETTINGS_UPDATED", "google_calendar", String(user.id), before, after);
+    return json({ ok: true, ...after });
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Google Calendar settings failed", userId: user.id, error: error instanceof Error ? error.message : String(error) }));
+    return json({ error: "GOOGLE_CALENDAR_RECONNECT_REQUIRED" }, 502);
+  }
+}
+
+async function handleGoogleCalendarDisconnect(env, request) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+  const row = await calendarConnection(env, user.id);
+  if (row) {
+    await getDB(env).prepare(`DELETE FROM google_calendar_connections WHERE user_id=?`).bind(user.id).run();
+    await audit(env, request, user, "GOOGLE_CALENDAR_DISCONNECTED", "google_calendar", String(user.id), {
+      email: row.google_email
+    }, null);
+  }
+  return json({ ok: true });
+}
+
+async function handleGoogleCalendarEvents(env, request) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+  const row = await calendarConnection(env, user.id);
+  if (!row) return json({ connected: false, events: [] });
+  const calendarIds = selectedCalendarIds(row);
+  if (!calendarIds.length) return json({ connected: true, alert_minutes: Number(row.alert_minutes), events: [] });
+
+  const now = Date.now();
+  const timeMin = new Date(now - 5 * 60_000).toISOString();
+  const timeMax = new Date(now + 24 * 60 * 60_000).toISOString();
+  try {
+    const tokens = await googleCalendarAccess(env, row);
+    const events = await fetchGoogleEvents(tokens.access_token, calendarIds, { timeMin, timeMax });
+    await getDB(env).prepare(`
+      UPDATE google_calendar_connections SET last_sync_at=CURRENT_TIMESTAMP,last_error=NULL WHERE user_id=?
+    `).bind(user.id).run();
+    return json({ connected: true, alert_minutes: Number(row.alert_minutes), events });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await getDB(env).prepare(`UPDATE google_calendar_connections SET last_error=? WHERE user_id=?`)
+      .bind(message.slice(0, 500), user.id).run();
+    console.error(JSON.stringify({ message: "Google Calendar events failed", userId: user.id, error: message }));
+    return json({ error: "GOOGLE_CALENDAR_RECONNECT_REQUIRED" }, 502);
   }
 }
 
@@ -2993,6 +3313,24 @@ export default {
 
         if (url.pathname === "/api/auth/oauth/callback" && request.method === "GET")
           return await handleOAuthCallback(env, request);
+
+        if (url.pathname === "/api/calendar/google/start" && request.method === "GET")
+          return await handleGoogleCalendarStart(env, request);
+
+        if (url.pathname === "/api/calendar/google/callback" && request.method === "GET")
+          return await handleGoogleCalendarCallback(env, request);
+
+        if (url.pathname === "/api/calendar/status" && request.method === "GET")
+          return await handleGoogleCalendarStatus(env, request);
+
+        if (url.pathname === "/api/calendar/settings" && request.method === "PUT")
+          return await handleGoogleCalendarSettings(env, request);
+
+        if (url.pathname === "/api/calendar/google" && request.method === "DELETE")
+          return await handleGoogleCalendarDisconnect(env, request);
+
+        if (url.pathname === "/api/calendar/events" && request.method === "GET")
+          return await handleGoogleCalendarEvents(env, request);
 
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
