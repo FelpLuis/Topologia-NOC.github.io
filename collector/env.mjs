@@ -34,6 +34,8 @@ export function collectorConfig() {
     host: String(process.env.COLLECTOR_HOST || "127.0.0.1"),
     port: Number(process.env.COLLECTOR_PORT || 8790),
     token: required("COLLECTOR_TOKEN"),
+    pushUrl: required("GPON_PUSH_URL"),
+    pushToken: String(process.env.GPON_PUSH_TOKEN || required("COLLECTOR_TOKEN")),
     intervalMs: Math.max(60000, Number(process.env.COLLECTOR_INTERVAL_MS || 300000)),
     devices: [device("ZTE_C350"), device("ZTE_C300")],
     ixc: {

@@ -26,6 +26,17 @@ async function loadMap() {
   }
 }
 
+async function pushSnapshot() {
+  const payload = { source: "Coletor ZTE + IXC Provedor", synced_at: state.syncedAt,
+    clients: state.clients, boxes: state.boxes, alerts: state.alerts };
+  const response = await fetch(config.pushUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.pushToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload), signal: AbortSignal.timeout(120000),
+  });
+  if (!response.ok) throw new Error(`Worker GPON: HTTP ${response.status}`);
+}
+
 async function sync() {
   if (state.syncing) return state.syncing;
   state.syncing = (async () => {
@@ -54,6 +65,12 @@ async function sync() {
       ...errors.map((e) => ({ level: "critical", title: `Falha ao consultar ${e.olt_id || e.source}`, detail: e.message })),
     ];
     state.syncedAt = new Date().toISOString();
+    try { await pushSnapshot(); }
+    catch (error) {
+      const item = { source: "Worker GPON", message: error?.message || String(error) };
+      state.errors.push(item);
+      state.alerts.push({ level: "critical", title: "Falha ao publicar mapa GPON", detail: item.message });
+    }
     return state;
   })().finally(() => { state.syncing = null; });
   return state.syncing;

@@ -5,7 +5,11 @@
   "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
   "secrets": {
-    "required": ["TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN"]
+    "required": [
+      "TURSO_DATABASE_URL",
+      "TURSO_AUTH_TOKEN",
+      "GPON_SYNC_TOKEN"
+    ]
   },
   "placement": {
     "mode": "targeted",

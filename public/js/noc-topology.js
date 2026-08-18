@@ -1103,6 +1103,19 @@
   }
 
   /* ---------------- gaveta do equipamento ---------------- */
+  /* Cabeçalho da gaveta em pedaços: depois de editar o cadastro ou as portas,
+     ele é repintado sem fechar e reabrir a gaveta. */
+  const kickerDevice = (e) => `${esc(siteById(siteOf(e))?.nome || "Sem POP")} • ${esc(e.categoria || "Equipamento")}`;
+  function badgesDevice(e) {
+    const o = NOC.occupancy(e);
+    const s = NOC.statusInfo(e);
+    return `
+      <span class="badge ${s.badge}">${s.dot ? `<i class="dot ${s.dot}"></i>` : ""}${s.label}</span>
+      <span class="badge">${(e.portas || []).length} portas</span>
+      <span class="badge ${o > 85 ? "badge-danger" : o > 60 ? "badge-warn" : "badge-info"}">${o}% ocupado</span>
+      ${NOC.isSuggested(e) ? '<span class="badge badge-warn">vínculo sugerido</span>' : ""}`;
+  }
+
   function openDevice(id) {
     const e = device(id);
     if (!e) return;
@@ -1111,31 +1124,22 @@
     renderEdges();
     renderList();
 
-    const o = NOC.occupancy(e);
-    const s = NOC.statusInfo(e);
-    const pop = siteById(siteOf(e));
-
     drawer({
       labelledBy: "devTitle",
       html: `
         <header class="drawer-head">
           <div class="row-between" style="align-items:flex-start">
             <div>
-              <span class="kicker">${esc(pop?.nome || "Sem POP")} • ${esc(e.categoria || "Equipamento")}</span>
+              <span class="kicker" id="devKicker">${kickerDevice(e)}</span>
               <h2 id="devTitle" style="margin:6px 0 4px">${esc(e.nome)}</h2>
-              <p class="muted" style="font-size:var(--fs-13)">${esc(e.modelo || "Modelo não informado")}</p>
+              <p class="muted" id="devModelo" style="font-size:var(--fs-13)">${esc(e.modelo || "Modelo não informado")}</p>
             </div>
             <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar detalhe">${icon("close")}</button>
           </div>
-          <div class="row wrap" style="gap:6px;margin-top:var(--s-4)">
-            <span class="badge ${s.badge}">${s.dot ? `<i class="dot ${s.dot}"></i>` : ""}${s.label}</span>
-            <span class="badge">${e.portas.length} portas</span>
-            <span class="badge ${o > 85 ? "badge-danger" : o > 60 ? "badge-warn" : "badge-info"}">${o}% ocupado</span>
-            ${NOC.isSuggested(e) ? '<span class="badge badge-warn">vínculo sugerido</span>' : ""}
-          </div>
+          <div class="row wrap" id="devBadges" style="gap:6px;margin-top:var(--s-4)">${badgesDevice(e)}</div>
           <div class="tabs" style="margin-top:var(--s-4)" role="tablist" aria-label="Seções do equipamento">
             <button class="tab" role="tab" aria-selected="true" data-tab="portas">Portas</button>
-            <button class="tab" role="tab" aria-selected="false" data-tab="conexoes">Conexões <span class="badge">${NOC.connectionsOf(id).length}</span></button>
+            <button class="tab" role="tab" aria-selected="false" data-tab="conexoes">Conexões <span class="badge" id="devConnCount">${NOC.connectionsOf(id).length}</span></button>
             ${NOC.can("topology.connection.use") ? '<button class="tab" role="tab" aria-selected="false" data-tab="acesso">Acesso</button>' : ""}
             <button class="tab" role="tab" aria-selected="false" data-tab="ficha">Ficha</button>
           </div>
@@ -1162,8 +1166,17 @@
         };
         $$(".tab", host).forEach((t) => (t.onclick = () => { tab = t.dataset.tab; paint(); }));
         $("[data-edit]", host).onclick = () => { tab = "ficha"; paint(); setTimeout(() => $("[data-editmode]", body)?.click(), 0); };
-        // Editar uma porta muda contagens e enlaces: a gaveta se repinta sozinha.
-        repaintDevice = () => { if (document.body.contains(body)) paint(); };
+        /* Editar o cadastro, uma porta ou um enlace muda o cabeçalho e as
+           contagens: a gaveta inteira se repinta sozinha. */
+        repaintDevice = () => {
+          if (!document.body.contains(body)) return;
+          $("#devKicker", host).innerHTML = kickerDevice(e);
+          $("#devTitle", host).textContent = e.nome;
+          $("#devModelo", host).textContent = e.modelo || "Modelo não informado";
+          $("#devBadges", host).innerHTML = badgesDevice(e);
+          $("#devConnCount", host).textContent = NOC.connectionsOf(e.id).length;
+          paint();
+        };
         paint();
       },
     });
@@ -1179,9 +1192,11 @@
         <div><label>Ocupação</label><strong>${NOC.occupancy(e)}<span class="unit">%</span></strong></div>
       </div>
 
-      <div class="row-between" style="margin-bottom:var(--s-3)">
-        <h3 style="font-size:var(--fs-13)">Face do equipamento</h3>
-        <span class="dim" style="font-size:var(--fs-11)">Clique numa porta para ver ou editar o enlace</span>
+      <div class="row-between wrap" style="margin-bottom:var(--s-3);gap:var(--s-3)">
+        <div><h3 style="font-size:var(--fs-13)">Face do equipamento</h3>
+          <span class="dim" style="font-size:var(--fs-11)">Clique numa porta para ver ou editar o enlace</span></div>
+        <button class="btn btn-sm" type="button" data-managerports
+          ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>${icon("port")} Gerenciar portas</button>
       </div>
       <div class="port-grid" id="portGrid">
         ${e.portas.map((p) => {
@@ -1248,6 +1263,8 @@
       rows();
     }));
     $$("#portGrid .port", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.port)));
+    const gerenciar = $("[data-managerports]", root);
+    if (gerenciar) gerenciar.onclick = () => openPortsManager(e);
     rows();
   }
 
@@ -1496,32 +1513,56 @@
 
   function connTab(e) {
     const list = NOC.connectionsOf(e.id);
+    const livres = (e.portas || []).filter((p) => !NOC.portaEmUso(e.id, p.numero));
+    const cabeca = `
+      <div class="row-between wrap" style="gap:var(--s-3);margin-bottom:var(--s-4)">
+        <div><span class="kicker">Vínculos deste equipamento</span>
+          <p class="dim" style="font-size:var(--fs-11);margin-top:4px">${list.length} enlace(s) documentado(s) •
+            ${livres.length} porta(s) livre(s) para novos vínculos.</p></div>
+        <button class="btn btn-sm btn-primary" type="button" data-newlink
+          ${podeCriarEnlace() && livres.length ? "" : `disabled title='${podeCriarEnlace() ? "Nenhuma porta livre neste equipamento" : "Requer as ações topology.edit + topology.link.create"}'`}>${icon("plus")} Documentar enlace</button>
+      </div>`;
+
     if (!list.length) {
-      return `<div class="empty"><span class="empty-icon">${icon("link")}</span>
+      return `${cabeca}<div class="empty"><span class="empty-icon">${icon("link")}</span>
         <b>Sem enlaces cadastrados</b><p>Este equipamento ainda não possui conexões documentadas.</p></div>`;
     }
-    return `<div class="stack">${list.map((c) => {
+    return `${cabeca}<div class="stack">${list.map((c, i) => {
       const saida = c.origem === e.id;
       const remoto = device(saida ? c.destino : c.origem);
       return `<div class="card" style="padding:var(--s-4)">
-        <div class="row-between">
+        <div class="row-between wrap" style="gap:var(--s-3)">
           <div class="row" style="gap:var(--s-3)">
             <span class="badge badge-info">${esc(c.tipo || "Enlace")}</span>
             <div><b>${esc(remoto?.nome || (saida ? c.destino : c.origem))}</b>
               <br><small class="dim">porta ${saida ? c.portaOrigem : c.portaDestino} → porta ${saida ? c.portaDestino : c.portaOrigem}</small></div>
           </div>
-          <div class="row">
+          <div class="row wrap">
             <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
             <button class="btn btn-sm" type="button" data-focus="${esc(remoto?.id || "")}">Ver no mapa</button>
             <button class="btn btn-sm" type="button" data-editlink="${saida ? c.portaOrigem : c.portaDestino}"
-              ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>Editar</button>
+              ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>${icon("edit")} Editar</button>
+            <button class="btn btn-danger btn-sm" type="button" data-dellink="${i}"
+              ${podeRemoverEnlace() ? "" : "disabled title='Requer as ações topology.delete + topology.link.delete'"}>${icon("trash")} Remover</button>
           </div>
         </div>
       </div>`;
     }).join("")}</div>`;
   }
   function wireConn(e, root, close) {
+    const list = NOC.connectionsOf(e.id);
     $$("[data-editlink]", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.editlink, { edit: true })));
+    $$("[data-dellink]", root).forEach((b) => (b.onclick = () => removerEnlace(e, list[+b.dataset.dellink])));
+
+    const novo = $("[data-newlink]", root);
+    if (novo) novo.onclick = () => {
+      /* Documentar um enlace é preencher uma porta livre: a primeira delas já
+         abre em modo de edição, com o seletor do outro lado pronto. */
+      const livre = (e.portas || []).find((p) => !NOC.portaEmUso(e.id, p.numero));
+      if (!livre) return toast("Sem porta livre", { text: "Cadastre ou libere uma porta antes de documentar o enlace.", type: "warn" });
+      openPort(e, Number(livre.numero), { edit: true });
+    };
+
     $$("[data-focus]", root).forEach((b) => (b.onclick = () => {
       if (!b.dataset.focus) return;
       close();
@@ -1531,6 +1572,44 @@
       renderAll();
       centerOn(b.dataset.focus);
     }));
+  }
+
+  /* Desfaz um enlace pelos dois lados: some da lista de conexões e as duas
+     portas voltam ao status livre. */
+  function removerEnlace(e, c) {
+    if (!c || !podeRemoverEnlace()) return;
+    const remoto = device(c.origem === e.id ? c.destino : c.origem);
+    askConfirm({
+      title: "Remover este enlace?",
+      text: `A ligação com ${remoto?.nome || "o outro equipamento"} deixa de existir na topologia. As duas portas voltam a ficar livres.`,
+      confirmLabel: "Remover enlace",
+      danger: true,
+      onConfirm: async () => {
+        const t = NOC.data();
+        const backupConexoes = (t.conexoes || []).map((x) => ({ ...x }));
+        const pontas = [[c.origem, c.portaOrigem], [c.destino, c.portaDestino]]
+          .map(([id, numero]) => device(id)?.portas?.find((p) => Number(p.numero) === Number(numero)))
+          .filter(Boolean);
+        const antesPontas = pontas.map((p) => ({ ...p }));
+
+        t.conexoes = (t.conexoes || []).filter((x) => x !== c);
+        pontas.forEach((p) => { if (p.status === "conectada") p.status = "livre"; });
+
+        const restaurar = () => {
+          t.conexoes = backupConexoes;
+          pontas.forEach((p, i) => Object.assign(p, antesPontas[i]));
+        };
+        const ok = await persist("TOPOLOGY_DELETE_CONEXAO",
+          { titulo: "Enlace removido", texto: "As duas portas voltaram a ficar livres.", tipo: "warn" },
+          async () => {
+            restaurar();
+            await persist("TOPOLOGY_UPDATE", { titulo: "Remoção desfeita", tipo: "info" });
+            if (repaintDevice) repaintDevice();
+          });
+        if (!ok) { restaurar(); layout(); renderAll(); return; }
+        if (repaintDevice) repaintDevice();
+      },
+    });
   }
 
   function targetAccessFields(data, target = {}) {
@@ -1665,29 +1744,104 @@
     });
   }
 
+  /* As categorias já cadastradas viram sugestão do campo: ele continua livre,
+     mas quem edita não inventa um sinônimo para uma que já existe. */
+  const categoriasCadastradas = () => [...new Set((NOC.data()?.equipamentos || [])
+    .map((x) => String(x.categoria || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  /* Enlaces documentados numa porta deste equipamento. A gestão de portas usa
+     a lista inteira (e não só o primeiro enlace) para renumerar junto e para
+     nunca apagar uma ligação sem avisar. */
+  const enlacesDaPorta = (deviceId, numero) => (NOC.data()?.conexoes || [])
+    .filter((c) => (c.origem === deviceId && Number(c.portaOrigem) === Number(numero))
+      || (c.destino === deviceId && Number(c.portaDestino) === Number(numero)));
+
+  /* Campos de texto vazios saem do documento: um "" gravado vira ruído no diff
+     da auditoria e nas telas que testam `campo || "—"`. */
+  function limparVazios(obj, chaves) {
+    for (const k of chaves) {
+      const v = String(obj[k] ?? "").trim();
+      if (v) obj[k] = v; else delete obj[k];
+    }
+    return obj;
+  }
+
   function sheetTab(e) {
     const canEdit = podeEditarEquipamento();
+    const canPop = podeVincularPop();
+    const pop = NOC.popById(e.popId || "");
+    const coords = pop ? NOC.popCoords(pop) : null;
+    const emUso = NOC.usedPorts(e);
     return `
       <form id="sheetForm" class="stack">
         <div class="row-between">
           <h3 style="font-size:var(--fs-13)">Dados cadastrais</h3>
-          <button class="btn btn-sm" type="button" data-editmode ${canEdit ? "" : "disabled"}>${icon("edit")} Editar</button>
+          <button class="btn btn-sm" type="button" data-editmode
+            ${canEdit ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.edit'"}>${icon("edit")} Editar tudo</button>
         </div>
-        <div class="field"><label for="fNome">Nome</label><input class="input" id="fNome" value="${esc(e.nome || "")}" disabled></div>
-        <div class="field"><label for="fModelo">Modelo</label><input class="input" id="fModelo" value="${esc(e.modelo || "")}" disabled></div>
+
         <div class="row" style="gap:var(--s-3);align-items:flex-start">
-          <div class="field grow"><label for="fCat">Categoria</label><input class="input" id="fCat" value="${esc(e.categoria || "")}" disabled></div>
+          <div class="field grow"><label for="fNome">Nome *</label>
+            <input class="input" id="fNome" data-f="nome" data-edt value="${esc(e.nome || "")}" disabled></div>
+          <div class="field" style="width:190px"><label for="fId">Identificador</label>
+            <input class="input mono" id="fId" value="${esc(e.id)}" readonly disabled>
+            <span class="field-hint">Chave usada pelos enlaces e pelo Zabbix.</span></div>
+        </div>
+
+        <div class="row" style="gap:var(--s-3);align-items:flex-start">
+          <div class="field grow"><label for="fFabricante">Fabricante</label>
+            <input class="input" id="fFabricante" data-f="fabricante" data-edt
+              value="${esc(e.fabricante || "")}" placeholder="Ex.: Huawei" disabled></div>
+          <div class="field grow"><label for="fModelo">Modelo</label>
+            <input class="input" id="fModelo" data-f="modelo" data-edt
+              value="${esc(e.modelo || "")}" placeholder="Ex.: NetEngine 8000 F1A" disabled></div>
+        </div>
+
+        <div class="row" style="gap:var(--s-3);align-items:flex-start">
+          <div class="field grow"><label for="fCat">Categoria</label>
+            <input class="input" id="fCat" data-f="categoria" data-edt list="fCatSugestoes"
+              value="${esc(e.categoria || "")}" placeholder="Ex.: Agregação" disabled>
+            <datalist id="fCatSugestoes">${categoriasCadastradas().map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>
+            <span class="field-hint">Define o agrupamento e o filtro de categorias do mapa.</span></div>
+          <div class="field grow"><label for="fSerial">Número de série / patrimônio</label>
+            <input class="input mono" id="fSerial" data-f="serial" data-edt
+              value="${esc(e.serial || "")}" placeholder="Ex.: 2102351BTL10J3000123" disabled></div>
+        </div>
+
+        <hr>
+        <h3 style="font-size:var(--fs-13)">${icon("pops")} Localização e vínculos</h3>
+        <div class="row" style="gap:var(--s-3);align-items:flex-start">
           <div class="field grow"><label for="fPop">POP vinculado</label>
-            <select class="select" id="fPop" disabled>
+            <select class="select" id="fPop" data-f="popId" ${canPop ? "data-edt" : ""} disabled>
               <option value="">— Sem POP vinculado —</option>
               ${NOC.pops().map((p) => `<option value="${esc(p.id)}" ${e.popId === p.id ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}
             </select>
-            <span class="field-hint">Um equipamento pertence a um único POP. O Dashboard agrupa por este campo.</span>
+            <span class="field-hint">${canPop
+              ? "Um equipamento pertence a um único POP. O Dashboard agrupa por este campo."
+              : "Alterar o vínculo exige as ações topology.edit + topology.pop.link."}</span>
           </div>
+          <div class="field grow"><label for="fLocal">Local dentro do POP</label>
+            <input class="input" id="fLocal" data-f="local" data-edt
+              value="${esc(e.local || "")}" placeholder="Ex.: Sala 2, rack A3, U12" disabled>
+            <span class="field-hint">Texto livre. Sem POP gravado, é ele que sugere o vínculo.</span></div>
         </div>
-        <div class="field"><label for="fLocal">Local (texto livre)</label><input class="input" id="fLocal" value="${esc(e.local || "")}" disabled></div>
+
+        <div class="card row-between wrap" style="padding:var(--s-4);gap:var(--s-3)">
+          <div><span class="kicker">Endereço no mapa</span>
+            <div style="margin-top:6px;font-size:var(--fs-13)">${pop
+              ? `<b>${esc(pop.nome)}</b>${pop.endereco ? `<br><small class="dim">${esc(pop.endereco)}</small>` : ""}
+                 ${coords
+                   ? `<br><small class="dim mono">${esc(GEO.label(coords.lat, coords.lon))}</small>`
+                   : '<br><span class="badge badge-warn">POP sem latitude e longitude</span>'}`
+              : '<span class="dim">Sem POP vinculado — o equipamento não aparece no mapa geográfico.</span>'}</div>
+          </div>
+          ${pop ? `<button class="btn btn-sm" type="button" data-editpop
+            ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar localização do POP</button>` : ""}
+        </div>
+
         <div class="field"><label for="fObs">Observação operacional</label>
-          <textarea class="textarea" id="fObs" disabled>${esc(e.observacao || "")}</textarea></div>
+          <textarea class="textarea" id="fObs" data-f="observacao" data-edt disabled>${esc(e.observacao || "")}</textarea></div>
 
         <div class="row-between" id="sheetActions" hidden>
           <span class="dim" style="font-size:var(--fs-11)">A alteração vai para a auditoria com estado anterior e posterior.</span>
@@ -1695,6 +1849,15 @@
             <button class="btn" type="button" data-cancel>Cancelar</button>
             <button class="btn btn-primary" type="submit">Salvar alterações</button>
           </span>
+        </div>
+
+        <hr>
+        <div class="row-between wrap" style="gap:var(--s-3)">
+          <div><b style="font-size:var(--fs-13)">Portas e enlaces</b>
+            <p class="dim" style="font-size:var(--fs-11)">${e.portas.length} portas cadastradas • ${emUso} em uso •
+              ${NOC.connectionsOf(e.id).length} enlaces documentados.</p></div>
+          <button class="btn btn-sm" type="button" data-ports
+            ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>${icon("port")} Gerenciar portas</button>
         </div>
 
         <hr>
@@ -1708,7 +1871,14 @@
 
   function wireSheet(e, root) {
     const form = $("#sheetForm", root);
-    const campos = () => $$("input, textarea, select", form);
+    /* Só os campos marcados entram no modo de edição: o identificador é leitura
+       e o POP depende de uma ação própria. */
+    const campos = () => $$("[data-edt]", form);
+    const sair = () => {
+      campos().forEach((i) => (i.disabled = true));
+      $("#sheetActions", form).hidden = true;
+      $("[data-editmode]", form).hidden = false;
+    };
 
     $("[data-editmode]", form).onclick = (ev) => {
       ev.preventDefault();
@@ -1717,27 +1887,48 @@
       $("[data-editmode]", form).hidden = true;
       $("#fNome", form).focus();
     };
-    $("[data-cancel]", form).onclick = () => {
-      campos().forEach((i) => (i.disabled = true));
-      $("#sheetActions", form).hidden = true;
-      $("[data-editmode]", form).hidden = false;
-    };
+    /* Cancelar repinta a ficha a partir do que está gravado: sair do modo de
+       edição mantendo o texto digitado dava a impressão de ter salvo. */
+    $("[data-cancel]", form).onclick = () => (repaintDevice ? repaintDevice() : sair());
+
+    const editarPop = $("[data-editpop]", form);
+    if (editarPop) editarPop.onclick = () => openPopForm(e.popId, () => repaintDevice && repaintDevice());
+
+    const portas = $("[data-ports]", form);
+    if (portas) portas.onclick = () => openPortsManager(e);
 
     form.onsubmit = async (ev) => {
       ev.preventDefault();
-      const antes = { nome: e.nome, modelo: e.modelo, categoria: e.categoria, local: e.local, observacao: e.observacao, popId: e.popId ?? null };
-      e.nome = $("#fNome", form).value.trim() || e.nome;
-      e.modelo = $("#fModelo", form).value.trim();
-      e.categoria = $("#fCat", form).value.trim();
-      e.local = $("#fLocal", form).value.trim();
-      e.observacao = $("#fObs", form).value.trim();
-      e.popId = $("#fPop", form).value || null;
-      campos().forEach((i) => (i.disabled = true));
-      $("#sheetActions", form).hidden = true;
-      $("[data-editmode]", form).hidden = false;
-      await persist("TOPOLOGY_UPDATE",
+      const nome = $("#fNome", form).value.trim();
+      if (!nome) {
+        toast("Informe o nome do equipamento", { text: "O nome é o rótulo do card no mapa e não pode ficar vazio.", type: "warn" });
+        $("#fNome", form).focus();
+        return;
+      }
+
+      const antes = { ...e };
+      const restaurar = () => {
+        for (const k of Object.keys(e)) if (!Object.hasOwn(antes, k)) delete e[k];
+        Object.assign(e, antes);
+      };
+
+      const texto = campos().filter((i) => i.dataset.f && i.dataset.f !== "popId");
+      texto.forEach((i) => { e[i.dataset.f] = i.value.trim(); });
+      e.nome = nome;
+      limparVazios(e, texto.map((i) => i.dataset.f).filter((k) => k !== "nome"));
+      if (podeVincularPop()) e.popId = $("#fPop", form).value || null;
+      if (e.popId) state.expanded.add(e.popId);
+
+      sair();
+      const ok = await persist("TOPOLOGY_UPDATE",
         { titulo: "Equipamento atualizado", texto: "Alteração registrada na auditoria." },
-        async () => { Object.assign(e, antes); await persist("TOPOLOGY_UPDATE", { titulo: "Alteração desfeita", tipo: "info" }); });
+        async () => {
+          restaurar();
+          await persist("TOPOLOGY_UPDATE", { titulo: "Alteração desfeita", tipo: "info" });
+          if (repaintDevice) repaintDevice();
+        });
+      if (!ok) { restaurar(); layout(); renderAll(); }
+      if (repaintDevice) repaintDevice();
     };
 
     const del = $("[data-delete]", form);
@@ -1760,6 +1951,220 @@
             t.conexoes = backupCon;
             await persist("TOPOLOGY_UPDATE", { titulo: "Remoção desfeita", tipo: "info" });
           });
+      },
+    });
+  }
+
+  /* ---------------- gestão das portas ---------------- */
+  /* Criar, remover, renumerar e editar os dados de todas as portas de uma vez.
+     Editar uma porta isolada — e o enlace ligado a ela — continua no openPort.
+     Nada toca a topologia antes de “Salvar portas”: o rascunho é uma cópia. */
+  function openPortsManager(e) {
+    if (!podeEditarPorta()) return;
+    const canDelete = podeRemoverEnlace();
+    let seq = 0;
+    const nova = (numero) => ({ numero, capacidade: "A confirmar", tipo: "A confirmar", status: "livre", _row: ++seq, _orig: null });
+    const draft = (e.portas || []).map((p) => ({ ...p, _row: ++seq, _orig: Number(p.numero) }));
+
+    modal({
+      wide: true,
+      labelledBy: "pmTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${esc(e.nome)}</span>
+            <h2 id="pmTitle" style="margin-top:6px">Gerenciar portas</h2>
+            <p class="muted" style="font-size:var(--fs-13);margin-top:4px">Número, interface, tipo, capacidade, status, descrição e observação de cada porta.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="row-between wrap" style="gap:var(--s-3)">
+            <span class="row wrap" style="gap:6px">
+              <button class="btn btn-sm" type="button" data-add>${icon("plus")} Adicionar porta</button>
+              <input class="input mono" id="pmQtd" type="number" min="1" max="96" value="4" style="width:78px"
+                aria-label="Quantidade de portas a adicionar em lote">
+              <button class="btn btn-sm" type="button" data-addn>Adicionar em lote</button>
+            </span>
+            <span class="dim" style="font-size:var(--fs-11)" id="pmResumo"></span>
+          </div>
+          <div class="alert alert-info" style="animation:none">${icon("info")}
+            <span>Renumerar uma porta leva o enlace dela junto. Interface e descrição são reescritas na próxima sincronização do Zabbix.</span></div>
+          <div class="table-wrap" style="max-height:52vh">
+            <table class="table">
+              <thead><tr>
+                <th style="width:86px">Porta</th><th>Interface</th><th>Tipo</th><th>Capacidade</th>
+                <th style="width:140px">Status</th><th>Descrição</th><th>Observação</th><th>Enlace</th><th></th>
+              </tr></thead>
+              <tbody id="pmRows"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">A alteração vai para a auditoria com estado anterior e posterior.</span>
+          <span class="row">
+            <button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="button" data-save>Salvar portas</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        const rows = $("#pmRows", host);
+        const linha = (p) => {
+          const enlaces = p._orig == null ? [] : enlacesDaPorta(e.id, p._orig);
+          const c = enlaces[0];
+          const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
+          const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
+          return `<tr data-row="${p._row}">
+            <td><input class="input mono" data-c="numero" type="number" min="1" max="9999" style="width:76px"
+                  value="${esc(String(p.numero ?? ""))}" aria-label="Número da porta"></td>
+            <td><input class="input mono" data-c="nome" value="${esc(p.nome || "")}" placeholder="10GE0/1/1" aria-label="Nome da interface"></td>
+            <td><input class="input" data-c="tipo" value="${esc(p.tipo || "")}" placeholder="GE / 10GE" aria-label="Tipo da porta"></td>
+            <td><input class="input" data-c="capacidade" value="${esc(p.capacidade || "")}" placeholder="10 Gbps" aria-label="Capacidade da porta"></td>
+            <td><select class="select" data-c="status" aria-label="Status da porta" ${c ? "disabled" : ""}>
+              ${STATUS_PORTA.map(([v, l]) => `<option value="${v}" ${(p.status || "livre") === v ? "selected" : ""}>${l}</option>`).join("")}
+            </select></td>
+            <td><input class="input" data-c="descricao" value="${esc(p.descricao || "")}" placeholder="Descrição no equipamento" aria-label="Descrição da porta"></td>
+            <td><input class="input" data-c="observacao" value="${esc(p.observacao || "")}" placeholder="Cliente, circuito, OS…" aria-label="Observação da porta"></td>
+            <td>${remoto
+              ? `<button class="btn btn-ghost btn-sm" type="button" data-link="${p._row}" title="Editar este enlace">${esc(remoto.nome)} • p${remotaPorta}</button>`
+              : '<span class="dim">livre</span>'}</td>
+            <td><button class="btn btn-ghost btn-sm btn-icon" type="button" data-del="${p._row}"
+                  aria-label="Remover a porta ${esc(String(p.numero ?? ""))}" title="Remover porta">${icon("trash")}</button></td>
+          </tr>`;
+        };
+
+        const achar = (rowId) => draft.find((x) => x._row === Number(rowId));
+        const pintar = () => {
+          rows.innerHTML = draft.length
+            ? draft.map(linha).join("")
+            : `<tr><td colspan="9"><div class="empty"><b>Nenhuma porta cadastrada</b><p>Use “Adicionar porta” para começar.</p></div></td></tr>`;
+          const comEnlace = draft.filter((p) => p._orig != null && enlacesDaPorta(e.id, p._orig).length).length;
+          $("#pmResumo", host).textContent = `${draft.length} portas no rascunho • ${comEnlace} com enlace documentado`;
+
+          $$("[data-del]", rows).forEach((b) => (b.onclick = () => {
+            const p = achar(b.dataset.del);
+            if (!p) return;
+            const enlaces = p._orig == null ? [] : enlacesDaPorta(e.id, p._orig);
+            if (enlaces.length && !canDelete) {
+              toast("Porta com enlace documentado", {
+                text: "Remover uma porta ligada desfaz o enlace, e isso exige as ações topology.delete + topology.link.delete.",
+                type: "warn",
+              });
+              return;
+            }
+            const remover = () => { draft.splice(draft.indexOf(p), 1); pintar(); };
+            if (!enlaces.length) return remover();
+            const remoto = device(enlaces[0].origem === e.id ? enlaces[0].destino : enlaces[0].origem);
+            askConfirm({
+              title: `Remover a porta ${p.numero}?`,
+              text: `O enlace com ${remoto?.nome || "o outro equipamento"} também deixa de existir quando as portas forem salvas.`,
+              confirmLabel: "Remover porta e enlace",
+              danger: true,
+              onConfirm: remover,
+            });
+          }));
+
+          $$("[data-link]", rows).forEach((b) => (b.onclick = () => {
+            const p = achar(b.dataset.link);
+            if (!p || p._orig == null) return;
+            /* O enlace é editado sobre o que está gravado: o rascunho de portas
+               ainda não existe na topologia. */
+            close();
+            openPort(e, p._orig, { edit: true });
+          }));
+        };
+
+        rows.addEventListener("input", (ev) => {
+          const el = ev.target.closest("[data-c]");
+          if (!el) return;
+          const p = achar(el.closest("tr")?.dataset.row);
+          if (p) p[el.dataset.c] = el.value;
+        });
+        rows.addEventListener("change", (ev) => {
+          const el = ev.target.closest('[data-c="status"]');
+          if (!el) return;
+          const p = achar(el.closest("tr")?.dataset.row);
+          if (p) p.status = el.value;
+        });
+
+        const proximo = () => draft.reduce((m, p) => Math.max(m, Number(p.numero) || 0), 0) + 1;
+        $("[data-add]", host).onclick = () => { draft.push(nova(proximo())); pintar(); };
+        $("[data-addn]", host).onclick = () => {
+          const qtd = Math.max(1, Math.min(96, Number($("#pmQtd", host).value) || 1));
+          let n = proximo();
+          for (let i = 0; i < qtd; i++) draft.push(nova(n++));
+          pintar();
+        };
+
+        $("[data-save]", host).onclick = async () => {
+          const numeros = draft.map((p) => Number(p.numero));
+          if (numeros.some((n) => !Number.isInteger(n) || n < 1)) {
+            toast("Número de porta inválido", { text: "Use números inteiros a partir de 1.", type: "warn" });
+            return;
+          }
+          if (new Set(numeros).size !== numeros.length) {
+            toast("Números repetidos", { text: "Duas portas do mesmo equipamento não podem ter o mesmo número.", type: "warn" });
+            return;
+          }
+
+          const t = NOC.data();
+          const backupPortas = (e.portas || []).map((p) => ({ ...p }));
+          const backupConexoes = (t.conexoes || []).map((c) => ({ ...c }));
+
+          const mantidas = new Set(draft.filter((p) => p._orig != null).map((p) => p._orig));
+          const removidas = backupPortas.map((p) => Number(p.numero)).filter((n) => !mantidas.has(n));
+          const perdidos = removidas.flatMap((n) => enlacesDaPorta(e.id, n));
+          if (perdidos.length && !canDelete) {
+            toast("Sem permissão para desfazer enlaces", {
+              text: "As portas removidas têm enlace documentado. São necessárias as ações topology.delete + topology.link.delete.",
+              type: "warn",
+            });
+            return;
+          }
+
+          /* Renumeração: a conexão guarda o número da porta, então ela é
+             reescrita junto — senão o enlace apontaria para uma porta que
+             deixou de existir. */
+          const renumerar = new Map(draft
+            .filter((p) => p._orig != null && Number(p.numero) !== p._orig)
+            .map((p) => [p._orig, Number(p.numero)]));
+
+          t.conexoes = (t.conexoes || []).filter((c) => !perdidos.includes(c)).map((c) => {
+            const copia = { ...c };
+            if (c.origem === e.id && renumerar.has(Number(c.portaOrigem))) copia.portaOrigem = renumerar.get(Number(c.portaOrigem));
+            if (c.destino === e.id && renumerar.has(Number(c.portaDestino))) copia.portaDestino = renumerar.get(Number(c.portaDestino));
+            return copia;
+          });
+
+          e.portas = draft
+            .map(({ _row, _orig, ...p }) => ({ ...p, numero: Number(p.numero) }))
+            .sort((a, b) => a.numero - b.numero);
+          e.portas.forEach((p) => {
+            limparVazios(p, ["nome", "tipo", "capacidade", "descricao", "observacao"]);
+            // “conectada” é consequência do enlace, nunca uma escolha solta.
+            const ligada = (t.conexoes || []).some((c) =>
+              (c.origem === e.id && Number(c.portaOrigem) === p.numero)
+              || (c.destino === e.id && Number(c.portaDestino) === p.numero));
+            p.status = ligada ? "conectada" : (p.status === "conectada" ? "livre" : (p.status || "livre"));
+          });
+
+          const restaurar = () => { e.portas = backupPortas; t.conexoes = backupConexoes; };
+          const ok = await persist(
+            perdidos.length ? "TOPOLOGY_DELETE_CONEXAO" : "TOPOLOGY_UPDATE_PORTA",
+            {
+              titulo: "Portas atualizadas",
+              texto: `${e.portas.length} portas gravadas${perdidos.length ? ` • ${perdidos.length} enlace(s) desfeito(s)` : ""}.`,
+              tipo: perdidos.length ? "warn" : "ok",
+            },
+            async () => {
+              restaurar();
+              await persist("TOPOLOGY_UPDATE_PORTA", { titulo: "Alteração desfeita", tipo: "info" });
+              if (repaintDevice) repaintDevice();
+            });
+          if (!ok) { restaurar(); layout(); renderAll(); return; }
+          if (repaintDevice) repaintDevice();
+          close();
+        };
+
+        pintar();
       },
     });
   }

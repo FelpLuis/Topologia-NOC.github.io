@@ -198,6 +198,29 @@ CREATE TABLE IF NOT EXISTS topology_scopes (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
+/* O coletor fica dentro da rede da operadora e envia uma cópia somente leitura
+   para o Worker. Os pedaços evitam uma única instrução SQL enorme e a versão só
+   é ativada depois que todos eles foram gravados. */
+CREATE TABLE IF NOT EXISTS gpon_snapshot_state (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  version TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'Coletor GPON',
+  synced_at TEXT,
+  chunk_count INTEGER NOT NULL DEFAULT 0,
+  data_bytes INTEGER NOT NULL DEFAULT 0,
+  clients_count INTEGER NOT NULL DEFAULT 0,
+  boxes_count INTEGER NOT NULL DEFAULT 0,
+  alerts_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS gpon_snapshot_chunks (
+  version TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL,
+  data_text TEXT NOT NULL,
+  PRIMARY KEY(version, chunk_index)
+);
+
 CREATE TABLE IF NOT EXISTS zabbix_hosts (
   hostid TEXT PRIMARY KEY,
   host TEXT NOT NULL,
@@ -309,6 +332,28 @@ CREATE TABLE IF NOT EXISTS device_target_credentials (
   PRIMARY KEY (target_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fingerprint TEXT NOT NULL UNIQUE,
+  origem TEXT NOT NULL DEFAULT 'rede',
+  grau TEXT NOT NULL DEFAULT 'info',
+  titulo TEXT NOT NULL,
+  texto TEXT NOT NULL DEFAULT '',
+  alvo_tipo TEXT NOT NULL DEFAULT '',
+  alvo_chave TEXT NOT NULL DEFAULT '',
+  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reopened_at TEXT,
+  resolved_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS alert_reads (
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (alert_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
@@ -333,6 +378,9 @@ CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(use
 CREATE INDEX IF NOT EXISTS idx_device_targets_device ON device_connection_targets(device_id,sort,name);
 CREATE INDEX IF NOT EXISTS idx_device_acl_role ON device_connection_acl(role_id,target_id);
 CREATE INDEX IF NOT EXISTS idx_device_target_credentials_user ON device_target_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_abertos ON alerts(resolved_at,grau,last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_alerts_origem ON alerts(origem,resolved_at);
+CREATE INDEX IF NOT EXISTS idx_alert_reads_user ON alert_reads(user_id,alert_id);
 `;
 
 
@@ -361,7 +409,8 @@ const NAV_SECTORS = [
 // a aparecer em Plataforma → Perfis, onde o acesso é dado por perfil.
 // [code, name, description, route, active, icon, sort, nav]
 const SCREENS = [
-  ["network", "Topologia BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
+  ["home", "Home", "Painel de abertura: clientes, tráfego da rede e alertas ainda não vistos", "/", 1, "home", 5, 1],
+  ["network", "Topologia BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/topologia.html", 1, "topology", 10, 1],
   ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
   ["gpon-mapa", "Mapas GPON", "Mapa operacional somente leitura de clientes, caixas, POPs, drops e caminho ponta a ponta", "/gpon-mapa.html", 1, "pops", 16, 1],
   //["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
@@ -483,11 +532,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
-  analista: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  atendimento: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
-  tecnico: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  logistica: ["network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
+  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
+  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
+  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
+  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -1029,6 +1078,15 @@ async function ensureDatabaseImpl(env) {
       SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='gpon'
     `).all()).results || []).map(x => x.role_id);
     await runGrants(comGpon.map(roleId => grantScreen(roleId, "gpon-mapa")));
+  });
+
+  // A home é a tela de abertura de todo mundo: qualquer perfil que já tenha
+  // alguma tela liberada passa a enxergá-la. Como toda semeadura, roda uma vez
+  // só — tirar a home de um perfil continua sendo decisão do administrador.
+  await seedOnce(db, "seed.home_screen.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.map(roleId => grantScreen(roleId, "home")));
   });
 
   // Agenda acompanha os perfis que já possuem alguma tela operacional. O
@@ -3397,11 +3455,12 @@ async function handleGponClients(env, request) {
   const gate = await requirePermission(env, request, "topology.view");
   if (gate.response) return gate.response;
   const endpoint = String(env.GPON_CLIENTS_URL || "").trim();
-  if (!endpoint) return json({
-    configured: false, source: "Não configurada", synced_at: null,
-    clients: [], boxes: [], alerts: [],
-    message: "Configure GPON_CLIENTS_URL para importar clientes autenticados da OLT."
-  });
+  if (!endpoint) {
+    const snapshot = await loadGponSnapshot(env);
+    if (snapshot) return respostaGpon(snapshot);
+    return json({ configured: false, source: "Aguardando primeira sincronização", synced_at: null,
+      clients: [], boxes: [], alerts: [], message: "O coletor ainda não enviou a primeira atualização GPON." });
+  }
   try {
     const sourceUrl = new URL(endpoint);
     const localDev = sourceUrl.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(sourceUrl.hostname);
@@ -3413,23 +3472,81 @@ async function handleGponClients(env, request) {
     const tamanho = Number(upstream.headers.get("content-length") || 0);
     if (tamanho > 8 * 1024 * 1024) throw new Error("Resposta GPON maior que 8 MiB");
     const raw = await upstream.json();
-    const data = raw?.data || raw;
-    const clients = primeiroGpon(data?.clients, data?.clientes, data?.onus, data?.subscribers, Array.isArray(data) ? data : []);
-    const boxes = primeiroGpon(data?.boxes, data?.caixas, data?.ctos, []);
-    const alerts = primeiroGpon(data?.alerts, data?.alertas, []);
-    return json({
-      configured: true,
-      source: String(primeiroGpon(data?.source, data?.fonte, "Integração OLT")),
-      synced_at: primeiroGpon(data?.synced_at, data?.updated_at, data?.atualizado_em, new Date().toISOString()),
-      clients: (Array.isArray(clients) ? clients : []).map(normalizarClienteGpon),
-      boxes: (Array.isArray(boxes) ? boxes : []).map(normalizarCaixaGpon),
-      alerts: Array.isArray(alerts) ? alerts : []
-    });
+    return respostaGpon(raw?.data || raw);
   } catch (error) {
     console.error(JSON.stringify({ message: "Falha na integração GPON", error: error?.message || String(error) }));
+    const snapshot = await loadGponSnapshot(env);
+    if (snapshot) return respostaGpon(snapshot, "A fonte direta está indisponível; exibindo a última sincronização recebida.");
     return json({ configured: true, unavailable: true, source: "Integração OLT", synced_at: null,
       clients: [], boxes: [], alerts: [], message: "A fonte da OLT não respondeu nesta atualização." });
   }
+}
+
+function respostaGpon(data, message = "") {
+  const clients = primeiroGpon(data?.clients, data?.clientes, data?.onus, data?.subscribers, Array.isArray(data) ? data : []);
+  const boxes = primeiroGpon(data?.boxes, data?.caixas, data?.ctos, []);
+  const alerts = primeiroGpon(data?.alerts, data?.alertas, []);
+  return json({
+    configured: true,
+    source: String(primeiroGpon(data?.source, data?.fonte, "Coletor ZTE + IXC Provedor")),
+    synced_at: primeiroGpon(data?.synced_at, data?.updated_at, data?.atualizado_em, new Date().toISOString()),
+    clients: (Array.isArray(clients) ? clients : []).map(normalizarClienteGpon),
+    boxes: (Array.isArray(boxes) ? boxes : []).map(normalizarCaixaGpon),
+    alerts: Array.isArray(alerts) ? alerts : [],
+    ...(message ? { message } : {})
+  });
+}
+
+async function loadGponSnapshot(env) {
+  const db = getDB(env);
+  const meta = await db.prepare(`SELECT version,chunk_count FROM gpon_snapshot_state WHERE id=1`).first();
+  if (!meta) return null;
+  const rows = (await db.prepare(`
+    SELECT data_text FROM gpon_snapshot_chunks WHERE version=? ORDER BY chunk_index
+  `).bind(meta.version).all()).results || [];
+  if (rows.length !== Number(meta.chunk_count)) throw new Error("GPON_SNAPSHOT_INCOMPLETE");
+  return JSON.parse(rows.map(row => row.data_text).join(""));
+}
+
+async function handleGponIngest(env, request) {
+  const expected = String(env.GPON_SYNC_TOKEN || "");
+  const authorization = String(request.headers.get("Authorization") || "");
+  if (!expected || !(await timingSafeEqual(authorization, `Bearer ${expected}`))) return json({ error: "UNAUTHORIZED" }, 401);
+
+  let data;
+  try { data = await readJson(request, 16 * 1024 * 1024); }
+  catch (error) { return json({ error: error?.message === "BODY_TOO_LARGE" ? "BODY_TOO_LARGE" : "INVALID_JSON" }, 400); }
+  const clients = Array.isArray(data?.clients) ? data.clients : null;
+  const boxes = Array.isArray(data?.boxes) ? data.boxes : null;
+  const alerts = Array.isArray(data?.alerts) ? data.alerts : null;
+  if (!clients || !boxes || !alerts || clients.length > 30000 || boxes.length > 10000 || alerts.length > 30000)
+    return json({ error: "INVALID_GPON_SNAPSHOT" }, 400);
+
+  const serialized = JSON.stringify({
+    source: String(data.source || "Coletor ZTE + IXC Provedor").slice(0, 120),
+    synced_at: String(data.synced_at || new Date().toISOString()).slice(0, 40), clients, boxes, alerts
+  });
+  const version = bytesToBase64Url(randomBytes(18));
+  const chunkSize = 128 * 1024;
+  const chunks = [];
+  for (let offset = 0; offset < serialized.length; offset += chunkSize) chunks.push(serialized.slice(offset, offset + chunkSize));
+  const db = getDB(env);
+  for (let index = 0; index < chunks.length; index += 8) {
+    await db.batch(chunks.slice(index, index + 8).map((chunk, position) => db.prepare(`
+      INSERT INTO gpon_snapshot_chunks(version,chunk_index,data_text) VALUES (?,?,?)
+    `).bind(version, index + position, chunk)));
+  }
+  await db.prepare(`
+    INSERT INTO gpon_snapshot_state(id,version,source,synced_at,chunk_count,data_bytes,clients_count,boxes_count,alerts_count,updated_at)
+    VALUES (1,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET version=excluded.version,source=excluded.source,synced_at=excluded.synced_at,
+      chunk_count=excluded.chunk_count,data_bytes=excluded.data_bytes,clients_count=excluded.clients_count,
+      boxes_count=excluded.boxes_count,alerts_count=excluded.alerts_count,updated_at=CURRENT_TIMESTAMP
+  `).bind(version, String(data.source || "Coletor ZTE + IXC Provedor").slice(0, 120),
+    String(data.synced_at || new Date().toISOString()).slice(0, 40), chunks.length,
+    new TextEncoder().encode(serialized).byteLength, clients.length, boxes.length, alerts.length).run();
+  await db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version).run();
+  return json({ ok: true, clients: clients.length, boxes: boxes.length, alerts: alerts.length });
 }
 
 async function handleTopologyPermissions(env,request){
@@ -3614,6 +3731,9 @@ export default {
 
         if (url.pathname === "/api/gpon/clients" && request.method === "GET")
           return await handleGponClients(env,request);
+
+        if (url.pathname === "/api/gpon/ingest" && request.method === "POST")
+          return await handleGponIngest(env,request);
 
         if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
           return await handleTrafegoSettings(env,request);
