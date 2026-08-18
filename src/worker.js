@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS topology_state (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 
+/* Topologias além da principal (hoje, a PARTE ISP). A tabela topology_state
+   nasceu com CHECK(id=1) e continua sendo a da rede NOC; recriá-la para caber
+   um segundo recorte custaria uma reconstrução de tabela com os dados de
+   produção dentro. Cada recorte é uma linha aqui, com o mesmo formato de
+   documento e o mesmo controle de versão. */
+CREATE TABLE IF NOT EXISTS topology_scopes (
+  scope TEXT PRIMARY KEY,
+  data_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS zabbix_hosts (
   hostid TEXT PRIMARY KEY,
   host TEXT NOT NULL,
@@ -288,6 +301,8 @@ const ROLES = [
 const SCREENS = [
   ["network", "Topologia", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
   ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
+  ["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
+  ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
@@ -320,6 +335,9 @@ const ACTIONS = [
   ["zabbix.link", "Vincular host do Zabbix", "Associar host monitorado a um equipamento", "network", "Monitoramento (Zabbix)", 30],
 
   ["trafego.settings", "Configurar o painel de tráfego", "Limites, nomes e descrições de interface, atualização e painéis do modo TV", "trafego", "Tráfego", 10],
+
+  ["fibra.edit", "Editar caminhos de fibra", "Criar e alterar cabos, traçados e caixas ópticas no mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 10],
+  ["fibra.delete", "Excluir caminhos de fibra", "Remover cabos, traçados e caixas ópticas do mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 20],
 
 
   ["pops.create", "Cadastrar POP", "Criar novos POPs", "pops", "POPs e anel", 10],
@@ -361,7 +379,7 @@ function fingerprintOf(text) {
 const SCHEMA_FINGERPRINT = fingerprintOf(SCHEMA + JSON.stringify([ROLES, SCREENS, ACTIONS]));
 const SCHEMA_FINGERPRINT_KEY = "schema.fingerprint";
 
-const TOPOLOGY_ACTIONS = ALL_ACTION_CODES.filter(c => c.startsWith("topology.") || c.startsWith("pops.") || c.startsWith("zabbix."));
+const TOPOLOGY_ACTIONS = ALL_ACTION_CODES.filter(c => c.startsWith("topology.") || c.startsWith("pops.") || c.startsWith("zabbix.") || c.startsWith("fibra."));
 
 const ROLE_PERMISSIONS = {
   administrador: ALL_ACTION_CODES,
@@ -374,14 +392,14 @@ const ROLE_PERMISSIONS = {
     "topology.equipment.delete","topology.port.edit","topology.link.create","topology.link.delete",
     "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
-    "audit.view"
+    "fibra.edit","fibra.delete","audit.view"
   ],
   atendimento: ["topology.view","zabbix.view"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
-    "pops.edit","pops.order","pops.routes","pops.ring.layout"
+    "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
@@ -391,11 +409,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["network","gpon","pops","dashboard","trafego","platform","legado"],
-  analista: ["network","gpon","pops","dashboard","trafego","legado"],
-  atendimento: ["network","gpon","pops","dashboard","trafego"],
-  tecnico: ["network","gpon","pops","dashboard","trafego","legado"],
-  logistica: ["network","gpon","pops","dashboard"]
+  gerente: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","platform","legado"],
+  analista: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","legado"],
+  atendimento: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego"],
+  tecnico: ["network","gpon","isp","isp-mapa","pops","dashboard","trafego","legado"],
+  logistica: ["network","gpon","isp","isp-mapa","pops","dashboard"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -406,10 +424,10 @@ const ACTION_EQUIVALENCE = [
   ["topology.edit", [
     "topology.equipment.create","topology.equipment.edit","topology.port.edit","topology.link.create",
     "topology.pop.link","topology.layout","topology.config","zabbix.sync","zabbix.link",
-    "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout","trafego.settings"
+    "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout","trafego.settings","fibra.edit"
   ]],
   ["topology.equipment.edit", ["topology.connection.configure"]],
-  ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete"]],
+  ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete","fibra.delete"]],
   ["users.manage", ["users.password"]],
   ["audit.view", ["audit.export"]],
   ["settings.manage", ["roles.view"]]
@@ -898,6 +916,23 @@ async function ensureDatabaseImpl(env) {
     await runGrants(comRede.map(roleId => grantScreen(roleId, "gpon")));
   });
 
+  // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
+  // já abria a topologia principal passa a enxergá-la, e quem já podia mexer
+  // nas rotas do anel também pode mexer nos caminhos de fibra.
+  await seedOnce(db, "seed.isp_screens.v1", async () => {
+    const comRede = ((await db.prepare(`
+      SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='network'
+    `).all()).results || []).map(x => x.role_id);
+    const grants = comRede.flatMap(roleId => [grantScreen(roleId, "isp"), grantScreen(roleId, "isp-mapa")]);
+    for (const [origem, destino] of [["pops.routes", "fibra.edit"], ["pops.delete", "fibra.delete"]]) {
+      const donos = ((await db.prepare(`
+        SELECT rp.role_id FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE p.code=?
+      `).bind(origem).all()).results || []).map(x => x.role_id);
+      grants.push(...donos.map(roleId => grantPermission(roleId, destino)));
+    }
+    await runGrants(grants);
+  });
+
   // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez
   // as capacidades já concedidas, sem voltar a alterar escolhas futuras do
   // administrador na tela de perfis.
@@ -994,32 +1029,73 @@ const DEFAULT_TOPOLOGY_CONFIG = {
   popSectionTitle:"EQUIPAMENTOS POR POP"
 };
 
-async function loadInitialTopology(env, request) {
+/* Recortes de topologia. "noc" é a rede principal e continua na tabela
+   topology_state; os demais vivem em topology_scopes, com o mesmo formato de
+   documento. Cada recorte declara de quais arquivos de /data ele nasce e qual
+   título abre a tela. */
+const TOPOLOGY_SCOPES = {
+  noc: {
+    seed: {equipamentos:"equipamentos.json", conexoes:"conexoes.json", pops:"pops.json"},
+    config: {}
+  },
+  isp: {
+    seed: {
+      equipamentos:"isp-equipamentos.json", conexoes:"isp-conexoes.json", pops:"isp-pops.json",
+      fibras:"isp-fibras.json", caixas:"isp-caixas.json"
+    },
+    config: {
+      title:"PARTE ISP",
+      subtitle:"Clientes ISP • Caminhos de fibra",
+      coreTitle:"CLIENTES ISP ATENDIDOS",
+      popSectionTitle:"EQUIPAMENTOS POR CLIENTE ISP"
+    }
+  }
+};
+const DEFAULT_SCOPE = "noc";
+const scopeOf = (url) => {
+  const pedido = String(url.searchParams.get("scope") || DEFAULT_SCOPE).toLowerCase();
+  return Object.hasOwn(TOPOLOGY_SCOPES, pedido) ? pedido : null;
+};
+
+/* As listas de fibras e caixas só existem nos recortes que as declaram: a rede
+   NOC continua com um documento de topologia sem esses campos. */
+const scopeTemFibra = (scope) => Boolean(TOPOLOGY_SCOPES[scope]?.seed.fibras);
+
+async function loadInitialTopology(env, request, scope = DEFAULT_SCOPE) {
+  const recorte = TOPOLOGY_SCOPES[scope] || TOPOLOGY_SCOPES[DEFAULT_SCOPE];
   const read = async (name) => {
     const url = new URL(request.url);
     url.pathname = `/data/${name}`;
+    url.search = "";
     const r = await env.ASSETS.fetch(new Request(url.toString(), {method:"GET"}));
     if (!r.ok) throw new Error(`Não foi possível carregar /data/${name}`);
     return r.json();
   };
-  return {
-    equipamentos: await read("equipamentos.json"),
-    conexoes: await read("conexoes.json"),
-    pops: await read("pops.json"),
-    config: {...DEFAULT_TOPOLOGY_CONFIG}
-  };
+  const inicial = {config:{...DEFAULT_TOPOLOGY_CONFIG, ...recorte.config}};
+  for (const [campo, arquivo] of Object.entries(recorte.seed)) inicial[campo] = await read(arquivo);
+  return inicial;
 }
 
-async function ensureTopologyState(env, request) {
+async function ensureTopologyState(env, request, scope = DEFAULT_SCOPE) {
   const db = getDB(env);
-  const row = await db.prepare(`SELECT * FROM topology_state WHERE id=1`).first();
+  // A rede principal continua na tabela de sempre, com a linha única id=1.
+  const ler = scope === DEFAULT_SCOPE
+    ? () => db.prepare(`SELECT * FROM topology_state WHERE id=1`).first()
+    : () => db.prepare(`SELECT * FROM topology_scopes WHERE scope=?`).bind(scope).first();
+  const row = await ler();
   if (row) return row;
-  const initial = await loadInitialTopology(env, request);
-  await db.prepare(`
-    INSERT INTO topology_state(id,data_json,version,updated_at,updated_by)
-    VALUES (1,?,1,CURRENT_TIMESTAMP,NULL)
-  `).bind(JSON.stringify(initial)).run();
-  return await db.prepare(`SELECT * FROM topology_state WHERE id=1`).first();
+  const initial = await loadInitialTopology(env, request, scope);
+  await (scope === DEFAULT_SCOPE
+    ? db.prepare(`
+        INSERT INTO topology_state(id,data_json,version,updated_at,updated_by)
+        VALUES (1,?,1,CURRENT_TIMESTAMP,NULL)
+      `).bind(JSON.stringify(initial))
+    : db.prepare(`
+        INSERT INTO topology_scopes(scope,data_json,version,updated_at,updated_by)
+        VALUES (?,?,1,CURRENT_TIMESTAMP,NULL)
+      `).bind(scope, JSON.stringify(initial))
+  ).run();
+  return await ler();
 }
 
 async function createSession(env, request, user, authenticationMethod = "password") {
@@ -2322,13 +2398,19 @@ function topologySummary(t){
     equipamentos:Array.isArray(t?.equipamentos)?t.equipamentos.length:0,
     conexoes:Array.isArray(t?.conexoes)?t.conexoes.length:0,
     pops:Array.isArray(t?.pops)?t.pops.length:0,
-    portas:Array.isArray(t?.equipamentos)?t.equipamentos.reduce((n,e)=>n+(Array.isArray(e.portas)?e.portas.length:0),0):0
+    portas:Array.isArray(t?.equipamentos)?t.equipamentos.reduce((n,e)=>n+(Array.isArray(e.portas)?e.portas.length:0),0):0,
+    ...(Array.isArray(t?.fibras)?{fibras:t.fibras.length}:{}),
+    ...(Array.isArray(t?.caixas)?{caixas:t.caixas.length}:{})
   };
 }
 function topologyDiff(before,after){
   const diff={equipamentos:{added:[],removed:[],changed:[]},pops:{added:[],removed:[],changed:[]},conexoes:{added:0,removed:0,changed:0}};
   const byId=a=>Object.fromEntries((Array.isArray(a)?a:[]).filter(x=>x?.id).map(x=>[x.id,x]));
-  for(const type of ["equipamentos","pops"]){
+  // fibras e caixas só existem nos recortes que as usam; sem elas o laço
+  // apenas não encontra nada e o diff sai vazio, como antes.
+  if(Array.isArray(before?.fibras)||Array.isArray(after?.fibras))diff.fibras={added:[],removed:[],changed:[]};
+  if(Array.isArray(before?.caixas)||Array.isArray(after?.caixas))diff.caixas={added:[],removed:[],changed:[]};
+  for(const type of Object.keys(diff).filter(k=>k!=="conexoes")){
     const a=byId(before?.[type]),b=byId(after?.[type]);
     for(const id of Object.keys(b))if(!a[id])diff[type].added.push(id);
     for(const id of Object.keys(a))if(!b[id])diff[type].removed.push(id);
@@ -2389,6 +2471,18 @@ function requiredTopologyActions(before, after) {
   for (const c of conB) if (!conA.has(c)) need.add("topology.link.create");
   for (const c of conA) if (!conB.has(c)) need.add("topology.link.delete");
 
+  /* Caminhos de fibra e caixas ópticas são cadastro do mapa da PARTE ISP e têm
+     ação própria — não se confundem com as rotas do anel dos POPs. */
+  for (const lista of ["fibras","caixas"]) {
+    const a = byId(before?.[lista]), b = byId(after?.[lista]);
+    for (const id of b.keys()) if (!a.has(id)) need.add("fibra.edit");
+    for (const id of a.keys()) if (!b.has(id)) need.add("fibra.delete");
+    for (const [id,x] of a) {
+      const y = b.get(id);
+      if (y && JSON.stringify(x) !== JSON.stringify(y)) need.add("fibra.edit");
+    }
+  }
+
   // O config é normalizado com os mesmos padrões dos dois lados, senão uma
   // gravação comum pediria topology.config só por completar campos ausentes.
   const cfgA = {...DEFAULT_TOPOLOGY_CONFIG, ...(before?.config||{})};
@@ -2402,6 +2496,8 @@ function requiredTopologyActions(before, after) {
 
 async function handleTopology(env,request) {
   const method=request.method;
+  const scope=scopeOf(new URL(request.url));
+  if(!scope)return json({error:"RECORTE_INVALIDO"},400);
   // O conjunto de ações do perfil é carregado uma única vez: a gravação precisa
   // dele inteiro logo adiante, e buscar a ação base em separado era uma
   // consulta a mais em toda leitura e toda gravação da topologia.
@@ -2411,10 +2507,10 @@ async function handleTopology(env,request) {
   const acaoBase=method==="GET"?"topology.view":"topology.edit";
   if(!permissoes.has(acaoBase))return json({error:"FORBIDDEN",permission:acaoBase},403);
   const db=getDB(env);
-  const row=await ensureTopologyState(env,request);
+  const row=await ensureTopologyState(env,request,scope);
   const before=JSON.parse(row.data_json);
   if(method==="GET"){
-    return json({...before,version:row.version,updated_at:row.updated_at,updated_by:row.updated_by});
+    return json({...before,scope,version:row.version,updated_at:row.updated_at,updated_by:row.updated_by});
   }
   let body;try{body=await readJson(request)}catch{return json({error:"JSON_INVALIDO"},400)}
   const incoming=body?.topology??body;
@@ -2426,11 +2522,22 @@ async function handleTopology(env,request) {
     pops:incoming.pops,
     config:{...DEFAULT_TOPOLOGY_CONFIG,...(incoming.config||{})}
   };
+  /* Fibras e caixas só são aceitas no recorte que as declara: enviá-las para a
+     rede NOC criaria um documento que nenhuma tela dela sabe ler. Omitir a
+     lista em um recorte que a usa preserva a que já estava gravada — assim uma
+     tela que não conhece o campo não apaga o cadastro da outra. */
+  if(scopeTemFibra(scope)){
+    for(const lista of ["fibras","caixas"]){
+      if(incoming[lista]!==undefined&&!Array.isArray(incoming[lista]))return json({error:"TOPOLOGIA_INVALIDA"},400);
+      after[lista]=Array.isArray(incoming[lista])?incoming[lista]:(before[lista]||[]);
+    }
+  }
   const diff=topologyDiff(before,after);
 
-  const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length||diff.conexoes.removed;
+  const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length||diff.conexoes.removed
+    ||diff.fibras?.removed.length||diff.caixas?.removed.length;
   if(hasDeletion && !permissoes.has("topology.delete")){
-    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing topology.delete",diff});
+    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology",scope,before,after,{reason:"missing topology.delete",diff});
     return json({error:"FORBIDDEN",permission:"topology.delete"},403);
   }
 
@@ -2439,16 +2546,20 @@ async function handleTopology(env,request) {
   const exigidas=requiredTopologyActions(before,after);
   const faltando=[...exigidas].filter(code=>!permissoes.has(code));
   if(faltando.length){
-    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology","1",before,after,{reason:"missing actions",missing:faltando,diff});
+    await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology",scope,before,after,{reason:"missing actions",missing:faltando,diff});
     return json({error:"FORBIDDEN",permission:faltando[0],permissions:faltando},403);
   }
   const nextVersion=Number(row.version||0)+1;
   // A atualização e a limpeza das credenciais órfãs formam uma única operação
   // atômica no D1: ou tudo é gravado, ou nada é alterado.
   const topologyWrites = [
-    db.prepare(`
-      UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
-    `).bind(JSON.stringify(after),nextVersion,user.id),
+    scope===DEFAULT_SCOPE
+      ? db.prepare(`
+          UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
+        `).bind(JSON.stringify(after),nextVersion,user.id)
+      : db.prepare(`
+          UPDATE topology_scopes SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE scope=?
+        `).bind(JSON.stringify(after),nextVersion,user.id,scope),
     ...diff.equipamentos.removed.flatMap(id => [
       db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
       db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
@@ -2458,8 +2569,8 @@ async function handleTopology(env,request) {
     ])
   ];
   await db.batch(topologyWrites);
-  await audit(env,request,user,"TOPOLOGY_UPDATE","topology","1",before,after,{
-    version_before:row.version,version_after:nextVersion,diff,
+  await audit(env,request,user,"TOPOLOGY_UPDATE","topology",scope,before,after,{
+    scope,version_before:row.version,version_after:nextVersion,diff,
     before_summary:topologySummary(before),after_summary:topologySummary(after)
   });
   /* Devolver a topologia inteira era repetir de volta os ~50 KB que o cliente
@@ -2469,6 +2580,7 @@ async function handleTopology(env,request) {
   const echo = incoming === body ? true : body?.echo !== false;
   return json({
     ok:true,
+    scope,
     version:nextVersion,
     updated_at:new Date().toISOString(),
     topology: echo ? after : {config:after.config},
@@ -2490,14 +2602,17 @@ function normalizeManagementIp(value) {
   return null;
 }
 
+/* O acesso remoto é do equipamento, não do recorte em que ele foi cadastrado:
+   um equipamento da PARTE ISP também precisa poder ter conexão configurada. */
 async function topologyHasDevice(env, request, deviceId) {
-  const row = await ensureTopologyState(env, request);
-  try {
-    const topology = JSON.parse(row.data_json);
-    return (topology.equipamentos || []).some(e => String(e?.id) === deviceId);
-  } catch {
-    return false;
+  for (const scope of Object.keys(TOPOLOGY_SCOPES)) {
+    const row = await ensureTopologyState(env, request, scope);
+    try {
+      const topology = JSON.parse(row.data_json);
+      if ((topology.equipamentos || []).some(e => String(e?.id) === deviceId)) return true;
+    } catch { /* documento ilegível: os outros recortes ainda respondem */ }
   }
+  return false;
 }
 
 async function credentialEncryptionKey(env) {
@@ -2789,8 +2904,14 @@ function assetCacheControl(pathname) {
   return CACHEABLE_ASSET.test(pathname) ? "private, max-age=300, must-revalidate" : "private, no-store";
 }
 
-function normalizedRoute(pathname) {
-  return pathname === "/index.html" ? "/" : pathname;
+/* Rotas equivalentes de uma mesma tela. O servidor de assets também entrega
+   /isp-mapa.html como /isp-mapa, e o catálogo guarda só uma das formas: sem
+   considerar as duas, a liberação por perfil deixaria de ser aplicada na URL
+   sem extensão. */
+function routeCandidates(pathname) {
+  if (pathname === "/" || pathname === "/index.html") return ["/", "/index.html"];
+  if (pathname.endsWith(".html")) return [pathname, pathname.slice(0, -5)];
+  return [pathname, `${pathname}.html`];
 }
 
 async function serveAsset(request, env) {
@@ -2813,15 +2934,20 @@ async function serveAsset(request, env) {
       return json({error:"AUTH_REQUIRED"},401);
     }
 
-    if (url.pathname === "/" || url.pathname.endsWith(".html")) {
-      const route = normalizedRoute(url.pathname);
+    /* É pedido de página quando não há extensão de arquivo: "/", "/x.html" e a
+       forma sem extensão que o servidor de assets também entrega. Um .css ou
+       .png não é tela e não custa uma consulta. */
+    const ehPagina = url.pathname === "/" || url.pathname.endsWith(".html")
+      || !/\.[a-z0-9]+$/i.test(url.pathname);
+    if (ehPagina) {
+      const [rota, alternativa] = routeCandidates(url.pathname);
       // Tela e liberação do perfil na mesma consulta: eram duas idas ao D1 em
       // toda abertura de página.
       const screen = await getDB(env).prepare(`
         SELECT s.active,
                EXISTS(SELECT 1 FROM role_screens rs WHERE rs.role_id=? AND rs.screen_id=s.id) AS allowed
-        FROM screens s WHERE s.route=? LIMIT 1
-      `).bind(user.role_id, route).first();
+        FROM screens s WHERE s.route IN (?,?) LIMIT 1
+      `).bind(user.role_id, rota, alternativa).first();
       if (screen && (!screen.active || !screen.allowed)) {
         return new Response("Acesso negado.", {status:403,headers:securityHeaders({"Cache-Control":"no-store"})});
       }

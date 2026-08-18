@@ -9,7 +9,15 @@
 
   const SEM_POP = "__sem-pop__";
   const GRID = 8; // arrasto encaixa nesta malha, para o mapa não ficar torto
-  const VIEW_KEY = "updown.topo.view";
+  /* Cada tela que usa este runtime (rede NOC, GPON, PARTE ISP) lembra o próprio
+     modo de visualização: quem trabalha no mapa de fibra não quer que a
+     topologia principal também abra em modo geográfico. */
+  const VIEW_KEY = `updown.topo.view.${document.body.dataset.scope || "noc"}.${location.pathname}`;
+  /* A tela pode abrir direto no modo que faz sentido para ela. O atributo não
+     pode ser data-view: os botões do seletor de modo usam esse nome e o <body>
+     entraria na mesma varredura, virando um quarto botão invisível que desfaz
+     a troca de modo no borbulhar do clique. */
+  const VIEW_INICIAL = document.body.dataset.vista || "";
   const state = {
     query: "", cats: new Set(), selected: null,
     expanded: new Set(),
@@ -305,6 +313,9 @@
       const c = coordsOf(s.id);
       return GEO.project(c.lat, c.lon);
     });
+    // Onde há camada de fibra, "ajustar à tela" também precisa mostrar os cabos.
+    const merc = window.FIBRA?.limites?.();
+    if (merc) pontos.push({ x: merc.x0, y: merc.y0 }, { x: merc.x1, y: merc.y1 });
     if (!pontos.length) return geoPadrao();
     enquadrar(
       { x: Math.min(...pontos.map((p) => p.x)), y: Math.min(...pontos.map((p) => p.y)) },
@@ -325,6 +336,11 @@
     renderAll();
     applyTransform();
   }
+
+  /* Enquadramento de abertura do mapa geográfico. Na topologia é sempre a
+     mesma vista de trabalho; no mapa de fibra, cujo conteúdo é a malha inteira,
+     abrir enquadrando tudo é o que se espera (<body data-geo="fit">). */
+  const aberturaGeo = () => (document.body.dataset.enquadrar === "tudo" ? geoFit() : geoPadrao());
 
   /* Aproxima/afasta o mapa mantendo fixo o ponto sob o cursor (ou o centro). */
   function geoZoom(fator, originX, originY) {
@@ -360,11 +376,22 @@
        deslocamento entra na origem e sai do pan na mesma medida, então a vista
        não se mexe. Dentro do limite nada é tocado: reancorar a cada layout
        brigaria com o enquadramento. */
+    /* A camada de fibra desenha neste mesmo mundo. Os limites dela vêm em
+       coordenadas do Mercator no nível 0, independentes da origem em uso, e
+       entram tanto na reancoragem quanto no tamanho do mundo — sem isso um cabo
+       que passa fora da área dos POPs seria cortado. */
+    const merc = window.FIBRA?.limites?.() || null;
+    const fibraEm = () => (merc ? {
+      x0: merc.x0 * state.geo.k - state.geo.ox, y0: merc.y0 * state.geo.k - state.geo.oy,
+      x1: merc.x1 * state.geo.k - state.geo.ox, y1: merc.y1 * state.geo.k - state.geo.oy,
+    } : null);
+
     const LIMITE = 20000;
-    if (medidas.length) {
+    if (medidas.length || merc) {
       const canto = (m, eixo) => pontos[m.site.id][eixo] - (eixo === "x" ? m.w : (geoAberto(m.site.id) ? HEAD : m.h)) / 2;
-      const cantoX = Math.min(...medidas.map((m) => canto(m, "x")));
-      const cantoY = Math.min(...medidas.map((m) => canto(m, "y")));
+      const f = fibraEm();
+      const cantoX = Math.min(...medidas.map((m) => canto(m, "x")), ...(f ? [f.x0] : []));
+      const cantoY = Math.min(...medidas.map((m) => canto(m, "y")), ...(f ? [f.y0] : []));
       if (Math.abs(cantoX) > LIMITE || Math.abs(cantoY) > LIMITE) {
         const sx = Math.round(cantoX - GEO_PAD), sy = Math.round(cantoY - GEO_PAD);
         state.geo.ox += sx;
@@ -394,8 +421,13 @@
     geoSites().forEach((s) => placeNodes(s.id));
 
     const cantos = Object.values(boxes);
-    const maxW = cantos.length ? Math.max(...cantos.map((b) => b.x + b.w)) + GEO_PAD : Math.max(900, st.width);
-    const maxH = cantos.length ? Math.max(...cantos.map((b) => b.y + b.h)) + GEO_PAD : Math.max(600, st.height);
+    const f = fibraEm();
+    const bordas = [
+      ...cantos.map((b) => ({ x: b.x + b.w, y: b.y + b.h })),
+      ...(f ? [{ x: f.x1, y: f.y1 }] : []),
+    ];
+    const maxW = bordas.length ? Math.max(...bordas.map((b) => b.x)) + GEO_PAD : Math.max(900, st.width);
+    const maxH = bordas.length ? Math.max(...bordas.map((b) => b.y)) + GEO_PAD : Math.max(600, st.height);
     state.world = { w: Math.max(maxW, st.width), h: Math.max(maxH, st.height), fit: 1 };
 
     const w = world();
@@ -1025,7 +1057,11 @@
     }, { passive: false });
 
     let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0, moved = false;
-    const ignore = ".topo-device, .site-head, .topo-marker, .site-close, .topo-hud, [data-edge], [data-ring]";
+    /* A camada de fibra desenha elementos clicáveis dentro do mesmo palco: eles
+       não podem ser confundidos com o fundo do mapa, senão clicar num cabo
+       arrastaria a tela. */
+    const ignore = ".topo-device, .site-head, .topo-marker, .site-close, .topo-hud,"
+      + " [data-edge], [data-ring], [data-fibra], [data-caixa], [data-vertice], [data-inserir]";
     st.addEventListener("pointerdown", (e) => {
       if (e.target.closest(ignore)) return;
       dragging = true; moved = false;
@@ -2247,12 +2283,66 @@
     renderEdges();
     renderTable();
     renderMissing();
+    // Camada de fibra da PARTE ISP: só existe nas telas que carregam noc-fibra.js.
+    window.FIBRA?.render();
   }
+
+  /* ---------------- ponte para a camada de fibra ----------------
+     O mapa geográfico é desta tela: escala, origem e transform do mundo vivem
+     aqui. A camada de fibra desenha no mesmo mundo, então em vez de duplicar a
+     projeção ela pede a conversão por esta ponte. Fora do mapa geográfico
+     `geo()` devolve null e a camada simplesmente não desenha. */
+  window.TOPO = {
+    geo: () => (isGeo() ? { ...state.geo, escala: state.scale, tx: state.tx, ty: state.ty } : null),
+    mundo: () => world(),
+    palco: () => stage(),
+    /* lat/lon → pixel do mundo, o mesmo sistema das caixas dos POPs. */
+    paraMundo(lat, lon) {
+      if (!isGeo()) return null;
+      const p = GEO.project(lat, lon);
+      return { x: p.x * state.geo.k - state.geo.ox, y: p.y * state.geo.k - state.geo.oy };
+    },
+    paraCoords: (x, y) => geoCoordsAt(x, y),
+    /* Evento do ponteiro → pixel do mundo, descontando pan e zoom do palco. */
+    pontoDoEvento(ev) {
+      const st = stage().getBoundingClientRect();
+      return {
+        x: (ev.clientX - st.left - state.tx) / state.scale,
+        y: (ev.clientY - st.top - state.ty) / state.scale,
+      };
+    },
+    escala: () => state.scale,
+    dimensoes: () => ({ ...state.world }),
+    repintar() { layout(); renderAll(); applyTransform(false); },
+    /* Leva o mapa até um ponto geográfico — usado ao localizar uma fibra. */
+    irPara(lat, lon) {
+      const p = this.paraMundo(lat, lon);
+      if (!p) return;
+      const st = stage().getBoundingClientRect();
+      state.tx = st.width / 2 - p.x * state.scale;
+      state.ty = st.height / 2 - p.y * state.scale;
+      applyTransform();
+    },
+    enquadrarPontos(pontos) {
+      const alvos = pontos.map(([lat, lon]) => GEO.project(lat, lon)).filter(Boolean);
+      if (!alvos.length) return;
+      enquadrar(
+        { x: Math.min(...alvos.map((p) => p.x)), y: Math.min(...alvos.map((p) => p.y)) },
+        { x: Math.max(...alvos.map((p) => p.x)), y: Math.max(...alvos.map((p) => p.y)) },
+        90
+      );
+      layout();
+      renderAll();
+      applyTransform();
+    },
+    persistir: (motivo, mensagem, undo) => persist(motivo, mensagem, undo),
+  };
 
   /* O modo escolhido é lembrado por navegador: quem trabalha com o mapa
      geográfico não precisa selecioná-lo a cada abertura. */
   function modoPreferido() {
-    try { return localStorage.getItem(VIEW_KEY) || "mapa"; } catch (e) { return "mapa"; /* modo privado */ }
+    try { return localStorage.getItem(VIEW_KEY) || VIEW_INICIAL || "mapa"; }
+    catch (e) { return VIEW_INICIAL || "mapa"; /* modo privado */ }
   }
 
   /* Troca entre mapa esquemático, mapa geográfico e lista. */
@@ -2293,7 +2383,7 @@
     /* Cada modo tem o seu enquadramento: trocar de modo reenquadra. O mapa
        geográfico sempre abre na vista padrão, e não no ajuste aos POPs — é o
        enquadramento de trabalho, o mesmo toda vez. */
-    setTimeout(() => { layout(); renderAll(); if (isGeo()) geoPadrao(); else fit(); }, 30);
+    setTimeout(() => { layout(); renderAll(); if (isGeo()) aberturaGeo(); else fit(); }, 30);
   }
 
   async function boot() {
@@ -2312,6 +2402,8 @@
             group: "POPs", label: p.nome, icon: "pops", hint: `${devicesOf(p.id).length} equipamentos`,
             run: () => { state.expanded.add(p.id); layout(); renderAll(); centerOnBox(p.id); },
           })),
+          // Nas telas com camada de fibra, os cabos também entram na busca.
+          ...(window.FIBRA?.itensDeBusca?.() || []),
         ];
       },
     });

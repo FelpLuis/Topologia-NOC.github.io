@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Mapa de fibra ISP</title>
+<link rel="icon" href="/assets/brand/updown-symbol-dark.png">
+<link rel="preconnect" href="/api" crossorigin>
+<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
+<link rel="stylesheet" href="/css/noc/screens.css">
+<script src="/js/auth-guard.js"></script>
+</head>
+<!-- Mesmo recorte da Topologia ISP, aberto direto no mapa geográfico e
+     enquadrando toda a malha. A camada de caminhos de fibra vem do
+     noc-fibra.js, carregado no fim da página. -->
+<body data-scope="isp" data-vista="geo" data-enquadrar="tudo">
+<a class="skip-link" href="#stage">Ir para o mapa de fibra</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content content-wide" id="main">
+    <div class="topo-layout">
+
+      <div class="topo-toolbar">
+        <div class="row" style="gap:var(--s-2)">
+          <button class="btn btn-sm btn-icon" id="toggleSide" type="button" title="Ocultar painel lateral" aria-label="Ocultar painel lateral"></button>
+          <div>
+            <span class="kicker" id="topoKicker">Clientes ISP e caminhos de fibra</span>
+            <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Mapa de fibra ISP</h1>
+          </div>
+        </div>
+
+        <div class="row wrap grow" style="justify-content:flex-end;gap:var(--s-2)">
+          <div class="segmented" role="group" aria-label="Modo de visualização">
+            <button type="button" data-view="geo" aria-pressed="true" title="Clientes ISP e fibras sobre o mapa do OpenStreetMap">Mapa OSM</button>
+            <button type="button" data-view="mapa" aria-pressed="false" title="Mapa esquemático, sem fundo geográfico nem fibras">Esquema</button>
+            <button type="button" data-view="lista" aria-pressed="false">Lista</button>
+          </div>
+          <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
+          <button class="btn btn-sm" id="btnCaixaNova" type="button"
+                  data-action="topology.edit fibra.edit"
+                  title="Marca uma CEO, reserva técnica ou poste no ponto clicado">Nova caixa</button>
+          <button class="btn btn-sm btn-primary" id="btnFibraNova" type="button"
+                  data-action="topology.edit fibra.edit"
+                  title="Desenha um novo caminho de fibra sobre o mapa">Nova fibra</button>
+          <button class="btn btn-sm" id="btnLayout" type="button" aria-pressed="false"
+                  data-action="topology.edit topology.layout">Definir localização</button>
+          <button class="btn btn-sm" id="btnManage" type="button"
+                  data-action="topology.edit">Gerenciar rede</button>
+        </div>
+      </div>
+
+      <div class="topo-main" id="topoMain">
+        <aside class="topo-side">
+          <!-- Painel dos caminhos de fibra: busca, camadas, filtro por tipo e
+               a lista clicável. Montado pelo noc-fibra.js. -->
+          <div class="fibra-panel grow" id="fibraPanel"></div>
+
+          <details class="card" style="padding:var(--s-3)">
+            <summary style="font-size:var(--fs-12);cursor:pointer">Equipamentos por cliente</summary>
+            <div class="stack" style="gap:var(--s-3);margin-top:var(--s-3)">
+              <div class="input-affix">
+                <span class="affix-icon" id="iconSearch"></span>
+                <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
+              </div>
+              <div class="row wrap" style="gap:6px" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
+              <div class="row-between" style="font-size:var(--fs-11)">
+                <span class="dim" id="listCount">—</span>
+                <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
+              </div>
+              <div class="device-list" id="deviceList"></div>
+            </div>
+          </details>
+
+          <div class="card" style="padding:var(--s-3);font-size:var(--fs-11)">
+            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="fibra-amostra" style="background:var(--purple-400)"></i><span>Caixa óptica, reserva técnica ou poste</span></div>
+            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="fibra-amostra" style="background:var(--cyan-400)"></i><span>Caminho de fibra cadastrado</span></div>
+            <div class="row" style="gap:var(--s-2)"><i class="dot dot-ok"></i><span>Cliente ISP no ponto cadastrado</span></div>
+          </div>
+        </aside>
+
+        <section class="topo-stage" id="stage" tabindex="0" role="application"
+                 aria-label="Mapa de fibra ISP. Use as setas para deslocar e as teclas mais e menos para aproximar.">
+          <div class="topo-world" id="world">
+            <div class="topo-basemap" id="basemap" aria-hidden="true" hidden></div>
+            <!-- A fibra passa por baixo dos enlaces e das caixas dos clientes. -->
+            <svg class="topo-svg topo-fibra" id="fibras" viewBox="0 0 1000 600" preserveAspectRatio="none"></svg>
+            <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-hud topo-missing" id="geoMissing" hidden></div>
+
+          <p class="topo-attrib" id="geoAttrib" hidden>
+            Fundo do mapa:
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a>
+          </p>
+
+          <!-- Barra do traçado: aparece ao desenhar uma fibra nova, ao ajustar
+               um traçado já cadastrado ou ao marcar uma caixa. -->
+          <div class="panel topo-hud topo-fibra-bar" id="fibraBar" hidden>
+            <span class="row" style="gap:6px">
+              <b style="font-size:var(--fs-12)" id="fibraBarTitulo">Editando o traçado</b>
+              <span class="dim" id="fibraBarStatus" style="font-size:var(--fs-11)"></span>
+            </span>
+            <span style="width:1px;height:20px;background:var(--line)"></span>
+            <button class="btn btn-sm" id="fibraBarCancelar" type="button">Cancelar</button>
+            <button class="btn btn-sm btn-primary" id="fibraBarSalvar" type="button">Concluir</button>
+          </div>
+
+          <div class="panel topo-hud topo-layout-bar" id="layoutBar" hidden>
+            <span class="row" style="gap:6px">
+              <b style="font-size:var(--fs-12)" id="layoutTitle">Definindo a localização</b>
+              <span class="dim" id="layoutStatus" style="font-size:var(--fs-11)"></span>
+            </span>
+            <span style="width:1px;height:20px;background:var(--line)"></span>
+            <button class="btn btn-sm" id="layoutAuto" type="button" hidden>Layout automático</button>
+            <button class="btn btn-sm" id="layoutDiscard" type="button">Descartar</button>
+            <button class="btn btn-sm btn-primary" id="layoutSave" type="button">Salvar localizações</button>
+          </div>
+
+          <div class="panel topo-hud">
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomOut" type="button" aria-label="Afastar" title="Afastar (−)"></button>
+            <span class="mono dim" id="zoomLabel" style="min-width:44px;text-align:center">100%</span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomIn" type="button" aria-label="Aproximar" title="Aproximar (+)"></button>
+            <span style="width:1px;height:20px;background:var(--line)"></span>
+            <button class="btn btn-ghost btn-icon btn-sm" id="zoomFit" type="button" aria-label="Ajustar à tela" title="Ajustar à tela (0)"></button>
+          </div>
+        </section>
+
+        <section id="listView" hidden style="padding:var(--s-5);overflow:auto">
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Equipamento</th><th>Cliente ISP</th><th>Categoria</th>
+                  <th class="num">Portas</th><th class="num">Em uso</th><th class="num">Livres</th>
+                  <th style="min-width:150px">Ocupação</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="listBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-geo.js"></script>
+<script src="/js/noc-topology.js"></script>
+<script src="/js/noc-fibra.js"></script>
+</body>
+</html>

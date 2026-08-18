@@ -47,6 +47,18 @@ window.NOC = (() => {
     return `Falha na requisição (HTTP ${status}).`;
   }
 
+  /* ---------------- recorte da topologia ----------------
+     A rede principal ("noc") e a PARTE ISP ("isp") são dois documentos de
+     topologia com o mesmo formato. A tela declara o seu em
+     <body data-scope="isp">; sem isso, tudo continua lendo a rede principal,
+     como antes. O recorte é da página inteira e não muda em tempo de execução:
+     trocar de recorte é trocar de tela. */
+  const SCOPE = String(
+    (typeof document !== "undefined" && document.body?.dataset.scope) || "noc"
+  ).toLowerCase();
+  const scope = () => SCOPE;
+  const comEscopo = (url) => (SCOPE === "noc" ? url : `${url}${url.includes("?") ? "&" : "?"}scope=${encodeURIComponent(SCOPE)}`);
+
   /* ---------------- acesso do usuário ---------------- */
   /* Ações e telas do perfil vêm de /api/access. É a mesma lista que a tela
      Plataforma monta em Perfis: o que não está marcado lá não aparece aqui. */
@@ -120,12 +132,16 @@ window.NOC = (() => {
   /* ---------------- estado da topologia ---------------- */
   async function load() {
     const [topology] = await Promise.all([
-      api("/api/topology"),
+      api(comEscopo("/api/topology")),
       loadAccess().catch(() => ({ permissions: [] })),
     ]);
     topology.equipamentos = Array.isArray(topology.equipamentos) ? topology.equipamentos : [];
     topology.conexoes = Array.isArray(topology.conexoes) ? topology.conexoes : [];
     topology.pops = Array.isArray(topology.pops) ? topology.pops : [];
+    /* Caminhos de fibra e caixas ópticas existem só no recorte que os usa. O
+       campo ausente vira lista vazia para as telas não precisarem verificar. */
+    topology.fibras = Array.isArray(topology.fibras) ? topology.fibras : [];
+    topology.caixas = Array.isArray(topology.caixas) ? topology.caixas : [];
     topology.equipamentos.forEach((e) => {
       if (!Array.isArray(e.portas)) e.portas = [];
       if (e.popId === undefined) e.popId = null;
@@ -142,9 +158,11 @@ window.NOC = (() => {
   async function enviarTopologia(reason) {
     const t = state.topology;
     const payload = { equipamentos: t.equipamentos, conexoes: t.conexoes, pops: t.pops, config: t.config };
+    // Recorte sem fibra não envia as listas: o Worker as recusa fora dele.
+    if (SCOPE !== "noc") { payload.fibras = t.fibras || []; payload.caixas = t.caixas || []; }
     /* echo:false — só o config e a versão são aproveitados abaixo, e sem isso o
        Worker repetia de volta os mesmos ~50 KB que acabaram de subir. */
-    const r = await api("/api/topology", {
+    const r = await api(comEscopo("/api/topology"), {
       method: "PUT",
       body: JSON.stringify({ topology: payload, reason, echo: false }),
     });
@@ -260,6 +278,57 @@ window.NOC = (() => {
     }
     return antes;
   }
+
+  /* ---------------- caminhos de fibra ----------------
+     Os dois cadastros do mapa da PARTE ISP: `fibras` são as polilinhas (cabo,
+     traçado, cordoalha) e `caixas` os pontos do caminho (CEO, reserva técnica,
+     poste). Ambos são gravados no mesmo documento da topologia, com as ações
+     fibra.edit e fibra.delete. */
+  const fibras = () => state.topology?.fibras || [];
+  const caixas = () => state.topology?.caixas || [];
+  const fibraById = (id) => fibras().find((f) => f.id === id) || null;
+  const caixaById = (id) => caixas().find((c) => c.id === id) || null;
+
+  /* Pontos válidos de uma fibra, no formato [lat, lon]. Um traçado importado
+     pode trazer par incompleto; desenhar isso jogaria a linha para 0°,0°. */
+  const pontosDe = (fibra) => (Array.isArray(fibra?.pontos) ? fibra.pontos : [])
+    .map((p) => (Array.isArray(p) ? p : [p?.lat, p?.lon]))
+    .filter(([lat, lon]) => temCoordenadas({ lat, lon }))
+    .map(([lat, lon]) => [Number(lat), Number(lon)]);
+
+  /* Extensão em metros pela fórmula de haversine — é o número que o operador
+     compara com a metragem do cabo em campo. */
+  const RAIO_TERRA = 6371000;
+  const paraRad = (g) => (g * Math.PI) / 180;
+  function extensaoDe(fibra) {
+    const pts = pontosDe(fibra);
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const [la1, lo1] = pts[i - 1], [la2, lo2] = pts[i];
+      const dLat = paraRad(la2 - la1), dLon = paraRad(lo2 - lo1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(paraRad(la1)) * Math.cos(paraRad(la2)) * Math.sin(dLon / 2) ** 2;
+      total += 2 * RAIO_TERRA * Math.asin(Math.min(1, Math.sqrt(a)));
+    }
+    return Math.round(total);
+  }
+  const formatarExtensao = (m) => (Number(m) >= 1000
+    ? `${(Number(m) / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} km`
+    : `${Math.round(Number(m) || 0)} m`);
+
+  /* Id estável e sem colisão a partir do nome, no mesmo padrão da importação
+     do KMZ — assim um cadastro feito na tela e um importado são indistinguíveis. */
+  function novoId(prefixo, nome, existentes) {
+    const base = `${prefixo}-${String(nome || "")
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sem-nome"}`;
+    const usados = new Set(existentes.map((x) => x.id));
+    let id = base, n = 2;
+    while (usados.has(id)) id = `${base}-${n++}`;
+    return id;
+  }
+
+  const podeEditarFibra = () => canAll(["topology.edit", "fibra.edit"]);
+  const podeExcluirFibra = () => canAll(["topology.delete", "fibra.delete"]);
 
   /* ---------------- portas e enlaces ---------------- */
   const connectionsOf = (id) =>
@@ -484,7 +553,9 @@ window.NOC = (() => {
 
   return {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
-    loadTopologyOnce, trafego,
+    loadTopologyOnce, trafego, scope,
+    fibras, caixas, fibraById, caixaById, pontosDe, extensaoDe, formatarExtensao,
+    novoId, podeEditarFibra, podeExcluirFibra,
     pops, popById, popCoords, popRecord, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, linkStatus, popStatus, skeleton, errorState,

@@ -196,6 +196,8 @@ window.UI = (() => {
   const NAV_PADRAO = [
     { code: "network", label: "Topologia", href: "/", icon: "topology", desc: "Mapa por localidade, equipamentos e portas" },
     { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", desc: "Mapa da topologia da rede GPON" },
+    { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", desc: "Mapa por cliente ISP, equipamentos e portas" },
+    { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "pops", desc: "Clientes ISP e caminhos de fibra no mapa" },
     { code: "pops", label: "POPs e anel óptico", href: "/pops.html", icon: "pops", desc: "Inventário por POP e rotas ópticas" },
     { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", desc: "Painel operacional para TV" },
     { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", desc: "Perfis, ações, telas, usuários e auditoria" },
@@ -204,6 +206,8 @@ window.UI = (() => {
   // Telas de apoio ficam no grupo "Ferramentas" do menu lateral.
   const TELAS_FERRAMENTA = new Set(["legado"]);
   const TELAS_GPON = new Set(["gpon"]);
+  // A PARTE ISP é um grupo próprio no menu: topologia e mapa de fibra.
+  const TELAS_ISP = new Set(["isp", "isp-mapa"]);
 
   function NAV() {
     const telas = window.UPDOWN_ACCESS?.screens;
@@ -281,8 +285,9 @@ window.UI = (() => {
   /* Monta o menu lateral e o inferior com as telas liberadas para o perfil. */
   function renderNav() {
     const itens = NAV();
-    const operacao = itens.filter((n) => !TELAS_FERRAMENTA.has(n.code) && !TELAS_GPON.has(n.code));
+    const operacao = itens.filter((n) => !TELAS_FERRAMENTA.has(n.code) && !TELAS_GPON.has(n.code) && !TELAS_ISP.has(n.code));
     const gpon = itens.filter((n) => TELAS_GPON.has(n.code));
+    const isp = itens.filter((n) => TELAS_ISP.has(n.code));
     const ferramentas = itens.filter((n) => TELAS_FERRAMENTA.has(n.code));
     const item = (n) => `
       <a class="nav-item" data-nav="${n.code}" data-code="${n.code}" href="${n.href}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
@@ -297,6 +302,7 @@ window.UI = (() => {
           <span class="nav-label">NOC</span>
           ${operacao.map(item).join("")}
           ${gpon.length ? `<span class="nav-label">GPON</span>${gpon.map(item).join("")}` : ""}
+          ${isp.length ? `<span class="nav-label">PARTE ISP</span>${isp.map(item).join("")}` : ""}
           ${ferramentas.length ? `<span class="nav-label">Ferramentas</span>${ferramentas.map(item).join("")}` : ""}
         </nav>
         <div class="sidebar-foot stack" style="gap:var(--s-3)">
@@ -308,7 +314,7 @@ window.UI = (() => {
     const mobile = $("[data-mobile-nav]");
     if (mobile) {
       mobile.className = "mobile-nav";
-      mobile.innerHTML = [...operacao, ...gpon].map((n) => `
+      mobile.innerHTML = [...operacao, ...gpon, ...isp].map((n) => `
         <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>${icon(n.icon)}<span>${esc(n.label.split(" ")[0])}</span></a>`).join("");
     }
   }

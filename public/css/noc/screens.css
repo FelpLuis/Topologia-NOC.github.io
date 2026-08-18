@@ -849,3 +849,96 @@ body.tv-mode .tv-only { display: flex; }
   .topo-marker.is-offline, .topo-site.is-offline { animation: none; }
   .topo-marker.is-offline { box-shadow: 0 2px 10px rgba(0, 0, 0, .45), 0 0 0 5px rgba(255, 95, 116, .45); }
 }
+
+/* ---------- Camada de caminhos de fibra (PARTE ISP) ----------
+   Vive dentro do mesmo mundo do mapa geográfico, entre os tiles do
+   OpenStreetMap e os enlaces da topologia: o cabo passa por baixo do
+   POP, como em campo. */
+.topo-fibra { z-index: 1; }
+.topo-fibra[hidden] { display: none; }
+
+.fibra-linha {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .85;
+  /* O traço mantém a espessura na tela em qualquer zoom do mapa. */
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.fibra-linha.is-sel { stroke-width: 5; opacity: 1; }
+.fibra-linha.is-editando { stroke-dasharray: 10 6; }
+.fibra-linha.is-rascunho { stroke-dasharray: 8 6; opacity: .95; }
+
+/* Faixa invisível e larga sobre a linha: dá área de clique num traço de 3 px. */
+.fibra-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.fibra-hit:hover + .fibra-linha,
+.fibra-hit:hover { stroke-width: 18; }
+
+.fibra-caixa { cursor: pointer; }
+.fibra-caixa-alvo { fill: transparent; }
+.fibra-caixa-ponto {
+  fill: var(--surface-1);
+  stroke: var(--purple-400);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.fibra-caixa:hover .fibra-caixa-ponto { fill: var(--purple-400); }
+
+/* Alças do traçado em edição. */
+.fibra-vertice {
+  fill: var(--surface-1);
+  stroke: var(--cyan-400);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+  touch-action: none;
+}
+.fibra-vertice:hover { fill: var(--cyan-400); }
+.fibra-vertice.is-dragging { cursor: grabbing; fill: var(--cyan-400); }
+
+.fibra-inserir { cursor: copy; opacity: .55; }
+.fibra-inserir:hover { opacity: 1; }
+.fibra-inserir circle { fill: var(--surface-1); stroke: var(--line-strong); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.fibra-inserir path { stroke: var(--text-2); stroke-width: 1.5; fill: none; vector-effect: non-scaling-stroke; }
+
+/* Amostra da cor do cabo, na lista lateral e nos crachás. */
+.fibra-amostra {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  flex: none;
+}
+
+/* Painel lateral dos caminhos de fibra: mesma coluna da lista de equipamentos. */
+.fibra-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-height: 0;
+}
+.fibra-item[aria-current="true"] { border-color: var(--cyan-400); }
+
+/* Barra de edição do traçado. Vai no alto do palco para não brigar com a
+   barra de layout dos POPs, que ocupa a base à esquerda. */
+.topo-fibra-bar {
+  left: var(--s-4);
+  right: auto;
+  top: var(--s-4);
+  bottom: auto;
+  flex-wrap: wrap;
+  max-width: calc(100% - var(--s-6) * 2);
+  padding: var(--s-2) var(--s-3);
+}
+/* No mapa geográfico o palco recua a base para a atribuição do OSM; a barra
+   do traçado fica no topo e não é afetada por esse recuo. */
+.topo-stage.is-geo .topo-hud.topo-fibra-bar { bottom: auto; }

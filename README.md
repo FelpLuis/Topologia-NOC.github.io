@@ -31,6 +31,10 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/data/equipamentos.json`: cadastro dos equipamentos e portas.
 - `public/data/conexoes.json`: ligações entre equipamentos.
 - `public/data/pops.json`: cadastro dos POPs.
+- `public/isp.html`, `public/isp-mapa.html`: as duas telas da **PARTE ISP**.
+- `public/js/noc-fibra.js`: camada de caminhos de fibra do mapa ISP.
+- `public/data/isp-*.json`: sementes da PARTE ISP, geradas do KMZ do backbone.
+- `backend/scripts/kmz-import.mjs`: importador do KMZ para essas sementes.
 - `src/worker.js`: API do sistema e intermediária entre a página e o Zabbix.
 - `src/zabbix.js`, `src/zabbix-links.js`, `src/zabbix-topology.js`: integração Zabbix.
 - `wrangler.jsonc`: configuração do Worker.
@@ -583,6 +587,90 @@ Há dois caminhos para cadastrar a localização:
   o ponto dele e salve — o arrasto vira latitude e longitude. POP ainda sem coordenada
   aparece na lista "fora do mapa" com o botão **Colocar aqui**, que o solta no centro da
   vista para então ser arrastado.
+
+## PARTE ISP — topologia e mapa de fibra
+
+A PARTE ISP é um **segundo recorte da topologia**, com o mesmo formato de documento e as
+mesmas regras de edição e auditoria da rede NOC, mas com dados próprios: os clientes ISP
+entram como POPs e o caminho físico da fibra vira um cadastro à parte. No menu lateral ela
+tem um grupo só dela, com duas telas:
+
+| Tela | Rota | O que faz |
+| --- | --- | --- |
+| **Topologia ISP** | `/isp.html` | igual à topologia do NOC — Esquema, Mapa OSM e Lista, equipamentos, portas e enlaces, só que sobre os clientes ISP |
+| **Mapa de fibra ISP** | `/isp-mapa.html` | o mesmo mapa geográfico, mais os caminhos de fibra e as caixas ópticas |
+
+### O recorte no servidor
+
+`GET`/`PUT /api/topology?scope=isp` lê e grava a PARTE ISP. Sem o parâmetro, tudo continua
+indo para a rede NOC exatamente como antes.
+
+A tabela `topology_state` nasceu com `CHECK(id=1)` e continua sendo a da rede NOC. Os
+recortes adicionais vivem em **`topology_scopes`** (migração `0010_topology_scopes.sql`),
+uma linha por recorte, com o mesmo controle de versão. A tela declara o recorte em
+`<body data-scope="isp">`; o `noc-api.js` acrescenta o `?scope=` sozinho a partir daí.
+
+Além de `equipamentos`, `conexoes`, `pops` e `config`, o documento do recorte ISP tem mais
+duas listas:
+
+- **`fibras`** — as polilinhas: `{ id, nome, tipo, fibras, cor, observacao, extensao, pontos: [[lat, lon], …] }`;
+- **`caixas`** — os pontos do caminho: `{ id, nome, tipo, observacao, lat, lon }`.
+
+O Worker só aceita essas listas no recorte que as declara, e **omiti-las preserva o que já
+estava gravado** — assim uma tela que não conhece o campo nunca apaga o cadastro da outra.
+
+### Ações
+
+Duas ações novas, no catálogo de Plataforma → Perfis, ligadas à tela `isp-mapa`:
+
+| Ação | Permite |
+| --- | --- |
+| `fibra.edit` | criar e alterar cabos, traçados e caixas ópticas |
+| `fibra.delete` | remover cabos, traçados e caixas ópticas |
+
+Como em toda gravação da topologia, `topology.edit` continua sendo a base para escrever e
+`topology.delete` para remover. Na primeira implantação os perfis que já abriam a topologia
+principal recebem as duas telas, e quem já podia mexer nas rotas do anel (`pops.routes`)
+recebe `fibra.edit` — depois disso o administrador ajusta normalmente em Perfis e ações.
+
+### Importar o KMZ do backbone
+
+As sementes de `public/data/isp-*.json` saem de um KMZ exportado do Google Earth Pro:
+
+```bash
+npm run import:kmz -- "C:/caminho/BACKBONE UPDOWN 16 07 2025.kmz"
+```
+
+A classificação é por nome do marcador:
+
+| No KMZ | Vira |
+| --- | --- |
+| `LineString` (cabo, traçado, `Medida do caminho`, `AS 80`, cordoalha) | caminho de fibra, com a cor original da linha e a extensão calculada |
+| ponto `ceo…`, `RT.`, `SUB.`, `TRA`, `cx`, `poste`, número solto | caixa óptica |
+| ponto que começa com `POP` | POP próprio |
+| qualquer outro ponto nomeado | **cliente ISP**, cadastrado como POP |
+
+O KMZ de 16/07/2025 rendeu **19 clientes ISP, 5 POPs próprios, 219 caixas e 58 caminhos de
+fibra somando 119,57 km**. A importação é só a semente: a partir da primeira abertura da
+tela quem manda é o D1, e o `npm run import:kmz` **não** volta a sobrescrever o que já foi
+editado na interface — ele só regrava os arquivos de `public/data/`.
+
+### Editar o mapa de fibra
+
+Tudo é editável na tela, com o mesmo padrão de aviso, desfazer e auditoria do resto do NOC:
+
+- **clicar num cabo** abre a ficha com tipo, quantidade de fibras, extensão, pontos e
+  observação, e os botões de enquadrar, editar cadastro, editar traçado e excluir;
+- **Editar traçado** põe uma alça em cada vértice: arraste para mover, clique no **+** do
+  meio do segmento para inserir um ponto e use o **botão direito** para remover;
+- **Nova fibra** desenha um caminho clicando ponto a ponto no mapa — duplo clique ou
+  **Enter** conclui e abre o cadastro, **Esc** desiste;
+- **Nova caixa** marca uma CEO, reserva técnica ou poste no ponto clicado;
+- o painel lateral filtra por texto e por tipo, liga e desliga as camadas de fibra e de
+  caixas, e mostra a quilometragem do que está em exibição.
+
+A localização dos clientes ISP é editada como a de qualquer POP: pelo cadastro ou
+arrastando o alfinete em **Definir localização**.
 
 ### Cor de estado no mapa
 

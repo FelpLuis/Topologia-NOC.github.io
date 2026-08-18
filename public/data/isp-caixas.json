@@ -1,0 +1,1973 @@
+[
+  {
+    "id": "cx-1555",
+    "nome": "1555",
+    "tipo": "Ponto de referência",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.859211,
+    "lon": -46.393484
+  },
+  {
+    "id": "cx-ponto-2",
+    "nome": "PONTO 2",
+    "tipo": "Ponto de referência",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.034413,
+    "lon": -46.493125
+  },
+  {
+    "id": "cx-ponto-1",
+    "nome": "PONTO 1",
+    "tipo": "Ponto de referência",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.034474,
+    "lon": -46.492628
+  },
+  {
+    "id": "cx-rt-30m",
+    "nome": "RT.30M",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.03315,
+    "lon": -46.491195
+  },
+  {
+    "id": "cx-rt-30m-2",
+    "nome": "RT. 30M",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.031261,
+    "lon": -46.489064
+  },
+  {
+    "id": "cx-rt-30m-3",
+    "nome": "RT. 30M",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.031486,
+    "lon": -46.493872
+  },
+  {
+    "id": "cx-rt",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RT. PARA CAIXA CEO 20M — -24.034176978992203, -46.49344571701114",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.03419,
+    "lon": -46.49344
+  },
+  {
+    "id": "cx-rt-2",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RT. PARA CAIXA CEO 20M — -24.034032279481963, -46.492263651692234",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.034018,
+    "lon": -46.492271
+  },
+  {
+    "id": "cx-rt-30m-4",
+    "nome": "RT. 30M",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.032638,
+    "lon": -46.495699
+  },
+  {
+    "id": "cx-366",
+    "nome": "366",
+    "tipo": "Ponto de referência",
+    "observacao": "CTO:366 SP:9 F:1 Picktails CTO Dentro do pátio da cefertil — LOCAL:23°49'46.1\"S 46°22'13.9\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.829535,
+    "lon": -46.370555
+  },
+  {
+    "id": "cx-rt-3",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.828331,
+    "lon": -46.365009
+  },
+  {
+    "id": "cx-ceo",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.825093,
+    "lon": -46.363396
+  },
+  {
+    "id": "cx-427",
+    "nome": "427",
+    "tipo": "Ponto de referência",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.824345,
+    "lon": -46.364986
+  },
+  {
+    "id": "cx-ceo-2",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.831866,
+    "lon": -46.367705
+  },
+  {
+    "id": "cx-ceo-3",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "caixa fibra cem com adesivo prata — lote lado A: — lote lado B: — -23.9258566,-46.4041437",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925891,
+    "lon": -46.404118
+  },
+  {
+    "id": "cx-ceo-4",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "LOTE;Lado Cubatão oiw15996 — LOTE:Lado santos HT 01425-17-00710 — Local:23°55'35.1\"S 46°24'11.5\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926388,
+    "lon": -46.403214
+  },
+  {
+    "id": "cx-ceo-5",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.950353,
+    "lon": -46.400196
+  },
+  {
+    "id": "cx-ceo-6",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "caixa ceo — LOCAL:-23.9235577740626, -46.40706520025078 — LOTE: lado B 251850",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.923585,
+    "lon": -46.407132
+  },
+  {
+    "id": "cx-ceo-7",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CAIXA CEO — LOCAL:-23.922881053387677, -46.407660022044084 — Lote lado A 0412021",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.922847,
+    "lon": -46.407791
+  },
+  {
+    "id": "cx-ceo-8",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "LOCAL DA CEO:-23.866696233598045, -46.41772758786049",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.866775,
+    "lon": -46.41772
+  },
+  {
+    "id": "cx-ceo-9",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "PTP",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.85049,
+    "lon": -46.377966
+  },
+  {
+    "id": "cx-ceo-10",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO QUADRADA — -24.03015044697947, -46.49126609656365",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.030162,
+    "lon": -46.4912
+  },
+  {
+    "id": "cx-ceo-11",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°59'32.3\"S 46°24'15.2\"W — LOTE CABO (A):327240710111 — LOTE CABO (B):027246501130 — FOTO:https://drive.google.com/file/d/16vO2xia3YpZobLT1Rn3YSo-2PrQ2-Hw-/view?usp=sharing — FOTO:https://drive.google.com/file/d/1LRJug0_bJ9zXjXNcGefqljfSuvyfdlYC/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.992295,
+    "lon": -46.404251
+  },
+  {
+    "id": "cx-ceo-12",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.99344374446107, -46.405684419318845 — LOTE CABO (A):014251700710 — LOTE CABO (B):327240710111",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.99345,
+    "lon": -46.405726
+  },
+  {
+    "id": "cx-ceo-13",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°58'36.1\"S 46°23'20.9\"W — LOTE CABO (A):327246501124 — LOTE CABO (B):327240710111 — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.976665,
+    "lon": -46.38911
+  },
+  {
+    "id": "cx-rt-4",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°01'08.9\"S 46°30'08.2\"W — LOTE CABO (A): — LOTE CABO (B): — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.019183,
+    "lon": -46.502279
+  },
+  {
+    "id": "cx-ceo-14",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°58'55.7\"S 46°29'16.3\"W — LOTE CABO (A):0601 YOFC — LOTE CABO (B):0601 YOFC — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.982014,
+    "lon": -46.487816
+  },
+  {
+    "id": "cx-cx",
+    "nome": "cx",
+    "tipo": "Caixa",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.038372,
+    "lon": -46.53549
+  },
+  {
+    "id": "cx-ceo-15",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.959542,-46.3915176 — LOTE CABO (A):327246501231 — LOTE CABO (B)::327246501209 — FOTO:https://drive.google.com/file/d/1ghXBW6w3Oi1lOU6stvuu7w6C20dWPHJt/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.959595,
+    "lon": -46.391482
+  },
+  {
+    "id": "cx-ceo-16",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM 3 SAIDAS — -23.8537434,-46.4067851 — Caixa de emenda sentindo posto aldo",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.85377,
+    "lon": -46.406738
+  },
+  {
+    "id": "cx-ceo-sp9",
+    "nome": "ceo SP9",
+    "tipo": "CEO",
+    "observacao": "SP9 1/8 CAPILAR 9 — PRA FRENTE — F4 LAVALOG — F9 CTO 1162 — F2 CTO1414 — OCUPADO F1 F2 F7 F8 — -23.8440057,-46.3776859",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.843938,
+    "lon": -46.377703
+  },
+  {
+    "id": "cx-ceo-17",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "1/2= SPL-1x8 SP9 — CABO DE 12FO DA CTO970 VOLTA F1.F2.F3 PARA CTO:971 — ATIVO PARA A CTO:970 VAI F12 F11 F10 F9 — F4= INDO PARA PROXIMA CEO",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848393,
+    "lon": -46.375602
+  },
+  {
+    "id": "cx-ceo-18",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO 2 SAIDAS — -23.8472267,-46.39137",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.847175,
+    "lon": -46.391353
+  },
+  {
+    "id": "cx-ceo-19",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "F1 no spliter de 1x8.... — Fusionado F1.f2 pra concremat",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.844806,
+    "lon": -46.38907
+  },
+  {
+    "id": "cx-ceo-20",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CAIXA 2 SAIDAS — -23.8462587,-46.3900263",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.846198,
+    "lon": -46.389973
+  },
+  {
+    "id": "cx-ceo-21",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — -23.8659269181765, -46.41791111121981 — Lote :03984-7-03387 — FOTO:https://drive.google.com/file/d/16OtLusA3jF_XwVmD90s3a0PwmnnM5OsO/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.865947,
+    "lon": -46.417919
+  },
+  {
+    "id": "cx-ceo-22",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO GRANDE FIBRA CEM — CABO A BASE — CABO B POSTO AUDO — CABO C INTERNEXA LINK — -23.8673996,-46.4191637 — FOTO:https://drive.google.com/file/d/1EBvEECBLcjyJbXtVXexH3_ZuhYvGc5D5/view?usp=sharing — FOTO:https://drive.google.com/file/d/1i9jMwqCaJ47UoqPILGkiPDomPQBBH9WL/view?usp=sharing — obs:(CABO INTER F2 F3) = (CABO BASE 9 DE ABRIL F5 F6)",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.867392,
+    "lon": -46.419177
+  },
+  {
+    "id": "cx-ceo-23",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Ceo fibra Cem terracom .fusionado f3 que vem da voltorantim na f3 da Cto 1173 — FIBRA BRANCA PARADEA DA BASE ATE AQUI — -23.8486912,-46.4014103 — -23.848703384399414,-46.401363372802734",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848728,
+    "lon": -46.401346
+  },
+  {
+    "id": "cx-ceo-24",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "DE DRENTE A VIDA NOVA — Informações caixa CEO — OBS: CAIXA DE FRENTE O HOTEL OLYMPIA — BANDEJA 1° TUBO 3 — LA= F2 F3 F6 LADO BASE — LB= F2 F3 F6 DESATIVADA — CABO12 FO SPL2{F2 LA} — CABO 12 FOSPL3{F3 LA} — LA F6 SPL6 CEO DE FRENTE AO HOTEL OLYMPIA — LA= SEMPRE LADO BASE — LB = SEMPRE LADO QUE CONTINUA — -23.887552,-46.4240345",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.887463,
+    "lon": -46.42391
+  },
+  {
+    "id": "cx-ceo-25",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°01'33.7\"S 46°29'38.6\"W — LOTE CABO (A): Sub x Cubatão — LOTE CABO (B):327240710101 — FOTO:https://drive.google.com/file/d/1A9s1gDVs-y6guKCuvYBopbGQ1ZVY-xEQ/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.025956,
+    "lon": -46.494004
+  },
+  {
+    "id": "cx-rt-5",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.980355,
+    "lon": -46.472532
+  },
+  {
+    "id": "cx-ceo-26",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Cabo ASU-80 - 12 F.O — Lote Lado B 089622213027 — Lote lado A 23010300000601 — 23°58'38.7\"S 46°28'48.2\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.977393,
+    "lon": -46.480041
+  },
+  {
+    "id": "cx-rt-6",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.98197,
+    "lon": -46.473947
+  },
+  {
+    "id": "cx-rt-7",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "LOCAL:23°57'45.8\"S 46°28'12.4\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.962649,
+    "lon": -46.470067
+  },
+  {
+    "id": "cx-rt-8",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.977581,
+    "lon": -46.476378
+  },
+  {
+    "id": "cx-ceo-27",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO DE FRETE A PASSARELA DA VILA DOS PESCADORES FIBRA F1 F2 DO CABO BASE COM F1 F2 DO TUBO 6 , CABO DE 36 QUE VAI PARA O CASQUEIRO ALIMENTAR OLTS — TUBO 1 VILA DOS PESCADORES — TUBO 2 VILA DOS PESCADORES — TUBO 3 F1 F2 VAI PARA SANTOS — TUBO 4 ============ — TUBO 5 ============ — TUBO 6 ( BASE LADO A: F11 F12 ) COM ( F5 F6 LADO B DIO 1º CASQUEIRO ) — -23.9242269,-46.4064955",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.924197,
+    "lon": -46.406534
+  },
+  {
+    "id": "cx-ceo-28",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO: DE FRENTE A IGREJA DO CASQUEIRO — ( B1 tubo 1,2 do DIO faz ilha caraguatá) — ( Bandeja 2 tubo 3,4 do DIO faz casqueiro) — ( Bandeja 3 tubo 5,6 link no tubo 6 link ) — DIO 1ª PORTA {31} {32} LADO B SANTOS NA F1 F2 TUBO 6 DO DIO — TUBO 6 DO CABO DE 36 DO{ DIO P31} F1=F12 SANTOS — TUBO 6 DO CABO DE 36 DO{ DIO P32} F2=F11 SANTOS ATIVO! — TUBO 6 DO CABO DE 36 DO{ DIO} F6=F12 LINK LADO V.N — -23.92669500502905, -46.40727081942407",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926701,
+    "lon": -46.407252
+  },
+  {
+    "id": "cx-ceo-29",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CABO DE 12FO DO {DIO}F1 F2 F3 F4 PONTE NOVA — F11 da fibra que vem do {DIO P31} com a F1 tubo 1° cabo 36FO — F12 da fibra que vem do {DIO P32} com a F2 tubo 1° cabo 36FO — -23.928785594616787, -46.40139976640438",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.928756,
+    "lon": -46.401399
+  },
+  {
+    "id": "cx-rt-9",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.924208,
+    "lon": -46.393899
+  },
+  {
+    "id": "cx-ceo-30",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CABO 36 Essa caixa faz vila siri — -23.92652991064189, -46.40287897809446",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926259,
+    "lon": -46.402713
+  },
+  {
+    "id": "cx-ceo-700m",
+    "nome": "CEO 700M",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.898469,
+    "lon": -46.43855
+  },
+  {
+    "id": "cx-ceo-31",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "LADO SANTOS F11=F1 DO TUBO1º DO CABO 36 do pop casqueiro — LADO SANTOS F12=F2 DO TUBO1º DO CABO 36 do pop casqueiro — 23°55'38.6\"S 46°24'04.4\"W — CABO A:15996 OIW — CABO B:23010300000601 YOFC — CABO C: 36 Fo USANDO SÓ TUBO 1º F1 F2 SW SANTOS — foto:https://drive.google.com/file/d/1DqB3ejUxt5gl0fnQOZ5WBskpZQs0J9sY/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.927402,
+    "lon": -46.401178
+  },
+  {
+    "id": "cx-ceo-32",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.955182,
+    "lon": -46.407545
+  },
+  {
+    "id": "cx-ponto",
+    "nome": "Ponto sem nome",
+    "tipo": "Ponto de referência",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.024081,
+    "lon": -46.490318
+  },
+  {
+    "id": "cx-ceo-asecenty",
+    "nome": "CEO ASECENTY",
+    "tipo": "CEO",
+    "observacao": "CEO ASCENTY LADO A (TUBO 4) (1 AZUL ) — CABO (B) VAI PARA O POP — AZUL FIBRA 1 = AZUL FIBRA 4 — LARANJA FIBRA 2 = LARANJA FIBRA 11 — CABO (A) VAI PARA O POP — VERDE FIBRA 3 = CINZA FIBRA 10 — MARROM FIBRA 4 = BRANCA FIBRA 3 — CABO NETFREE F1 F2 = F1 F2 CABO (B) — LOTE CABO (B) : 327240710095 — LOCAL:24°01'48.9\"S 46°29'29.9\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.030271,
+    "lon": -46.491619
+  },
+  {
+    "id": "cx-ceo11790km",
+    "nome": "CEO11790km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.9303622,-46.3545799 — LOTE CABO (A):15996 — LOTE CABO (B):327246501208 — FOTO:https://drive.google.com/file/d/1ZHNl2I83i52fZ9_Myjt4Jv8rjT1sRUVw/view?usp=sharing — FOTO:https://drive.google.com/file/d/1rQ_jrCXSqS_si_RF_5HLkljB8edOPETM/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.930389,
+    "lon": -46.354609
+  },
+  {
+    "id": "cx-ceo-16480km",
+    "nome": "CEO 16480Km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.9503991,-46.3847636 — LOTE — CABO (A):327240710153 — CABO (B):327240710107 — FOTO:https://drive.google.com/file/d/1-UoSisQg9sNYCbYM667mMAEa9E4Zzf7S/view?usp=sharing — FOTO:https://drive.google.com/file/d/1cUTjKrT-Kl2mqNSgB6CMRBODBTtKilGk/view?usp=sharing — FOTO:https://drive.google.com/file/d/146dwTOdhm3Uu-NunupTgCfRVjS6sa12E/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.950435,
+    "lon": -46.384803
+  },
+  {
+    "id": "cx-tra",
+    "nome": "TRA",
+    "tipo": "Travessia",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.018918,
+    "lon": -46.460371
+  },
+  {
+    "id": "cx-tra-2",
+    "nome": "TRA",
+    "tipo": "Travessia",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.018742,
+    "lon": -46.460459
+  },
+  {
+    "id": "cx-ceo-33",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°01'16.8\"S 46°27'58.2\"W — LOTE CABO (A):327246501213 — LOTE CABO (B):327240710095 — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.021075,
+    "lon": -46.466242
+  },
+  {
+    "id": "cx-ceo-34",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "local:-23.944189312280955, -46.409220071607876",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.944375,
+    "lon": -46.409146
+  },
+  {
+    "id": "cx-tra-sub",
+    "nome": "TRA SUB.",
+    "tipo": "Travessia",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.956363,
+    "lon": -46.40896
+  },
+  {
+    "id": "cx-sub",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.025773,
+    "lon": -46.493358
+  },
+  {
+    "id": "cx-sub-2",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.025226,
+    "lon": -46.494097
+  },
+  {
+    "id": "cx-ceo-35",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°57'51.5\"S 46°22'59.4\"W — LOTE CABO (A):327246501209 — LOTE CABO (B)::327246501124 — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.964244,
+    "lon": -46.383143
+  },
+  {
+    "id": "cx-ceo-36",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA 3 SAIDAS — LOTE 108922013111 FIBRA 12 FO",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.917781,
+    "lon": -46.415068
+  },
+  {
+    "id": "cx-ceo-37",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "ceo pequena fibra cem 3 SAIDAS — -23.9190423,-46.4129267 — LOTE 108922013111 FIBRA 12 FO",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.919035,
+    "lon": -46.412934
+  },
+  {
+    "id": "cx-ceo-38",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO F1 F2 USANDO PARA O BAIRRO PIRATININGA E PORTO — 23°55'29.9\"S 46°23'17.6\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.924955,
+    "lon": -46.388162
+  },
+  {
+    "id": "cx-ceo-39",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "1x2 NA FIBRA AMARELA F2 — LADO A PORTO — LADO B BAIRRO — VERDE ATIVA — -23.92546980751306, -46.38566197751943",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925425,
+    "lon": -46.385859
+  },
+  {
+    "id": "cx-ceo-40",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Caixa FIBRACEM Lote A 2301035001401 Marca YOFC — Lado B 15996 Marca Fiberhome — 23°55'46.9\"S 46°21'22.0\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.929595,
+    "lon": -46.356186
+  },
+  {
+    "id": "cx-ceo-980",
+    "nome": "CEO 980",
+    "tipo": "CEO",
+    "observacao": "essa ceu faz derivaÃ§Ãµes direto da base para sitio novo e ilha bela usando tubo loose branco com f1,f2,f3,f4,f5,f6,f7,f8,f9 — -23.89795977388218, -46.440930188777834",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.897954,
+    "lon": -46.440977
+  },
+  {
+    "id": "cx-ceo-1645m",
+    "nome": "CEO 1645M",
+    "tipo": "CEO",
+    "observacao": "CEO DE FRENTE A IGREJA CONGREGAÇÃO CRISTA DO BRASIL FUSÃO BANDEJA-2 — TUBO 2 : da fibra 48 com TUBO 2 da fibra 36 — TUBO 2 48FO: F6 F7 F8 F9 F10 F11 — TUBO 2 36FO: F6 F5 F4 F3 F2 F1 — Obs: estão cara a cara nessa ordem acima na bandeja 2 — -23.898187626690742, -46.445801473376534",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.898197,
+    "lon": -46.445774
+  },
+  {
+    "id": "cx-ceo-41",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CEO DE FRENTE O TIO DO RENAN — DEPOS DO BECO GUARA VERMELHO — -23.898315121475694, -46.44710610910923",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.898341,
+    "lon": -46.447105
+  },
+  {
+    "id": "cx-ceo-42",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CABO de 36 fo so com passagem — DE FRENTE O BECO SANTA CATARINA — -23.898465281848733, -46.448218613282016",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.898458,
+    "lon": -46.448154
+  },
+  {
+    "id": "cx-ceo-2100m",
+    "nome": "CEO 2100M",
+    "tipo": "CEO",
+    "observacao": "-23.8994824,-46.4509673 — TUBO 1,2,5,6 — F12MORRO ATE A CTO 627 JUNTO COM A F9 — F10 MORRO",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.899549,
+    "lon": -46.450978
+  },
+  {
+    "id": "cx-ceo-43",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.899899,
+    "lon": -46.45159
+  },
+  {
+    "id": "cx-ceo-44",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CEO: DE FRENTE BECO DA PAZ DEPOIS DO MORRO DO INDIO FIBRA DE 36 TUDO 3,4,5,6 ESTA. ROMPIDO — Apenas F1 do tubo 5 — Tubo 1,2 fusionado todos os pelos — -23.9003173,-46.4523314 — ATENÇÃO: ceo colocada devido poste ter pegado fogo",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.900366,
+    "lon": -46.452366
+  },
+  {
+    "id": "cx-ceo-ubs-2580m",
+    "nome": "CEO UBS 2580M",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.900642,
+    "lon": -46.452835
+  },
+  {
+    "id": "cx-ceo-45",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.902571,
+    "lon": -46.455509
+  },
+  {
+    "id": "cx-ceo-3413m",
+    "nome": "CEO 3413M",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.903735,
+    "lon": -46.459491
+  },
+  {
+    "id": "cx-ceo-46",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.904442,
+    "lon": -46.460818
+  },
+  {
+    "id": "cx-ceo-47",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CEO 3 SAIDAS ROMPIMENTO — -23.9048929,-46.4612451",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.904811,
+    "lon": -46.461201
+  },
+  {
+    "id": "cx-ceo-48",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CEO 3 SAIDAS ROMPIMENTO — -23.9048929,-46.4612451",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.905343,
+    "lon": -46.461601
+  },
+  {
+    "id": "cx-ceo-3895m",
+    "nome": "CEO 3895M",
+    "tipo": "CEO",
+    "observacao": "3 SAIDAS PICOLE — -23.9056023,-46.4617379",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.905571,
+    "lon": -46.461716
+  },
+  {
+    "id": "cx-ceo-4430m",
+    "nome": "CEO 4430M",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.909574,
+    "lon": -46.461885
+  },
+  {
+    "id": "cx-ceo-49",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "ceo 3 saidas — cabo base x vale verde: 1,2,3 Cabo FIG8 vale verde — cabo base 1+1 humaita — cabo base 11+2 humaita — cabo base 7,8,9,10 cara a cara humaita — Cabo B sentido vale novo marca ztt L632 — Fibras livres 1, 3, 11 — Cabo Lado A Marca: Multilaser L03608-18-02525 — -23.9104504,-46.461205 — FOTO:https://drive.google.com/file/d/1U9Oz3jBfyXCj4i2h6VMns4jRc_C6h8P0/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.910459,
+    "lon": -46.461297
+  },
+  {
+    "id": "cx-ceo-50",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "SPL NA F5 VALE NOVO — -23.91436368297781, -46.45810136962974",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.914386,
+    "lon": -46.458162
+  },
+  {
+    "id": "cx-ceo-51",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CAIXA PEQUENA 2 SAIDAS — -23.9151477,-46.4582358",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.91478,
+    "lon": -46.458442
+  },
+  {
+    "id": "cx-ceo-52",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CAIXA PEQUENA 2 SAIDAS — -23.9151477,-46.4582358",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.915057,
+    "lon": -46.458395
+  },
+  {
+    "id": "cx-ceo-53",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA 3 SAIDAS — FIBRA 12 FO Lote :03984-7-03387",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.855604,
+    "lon": -46.409209
+  },
+  {
+    "id": "cx-ceo-54",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CAIXA GRANDE FIBRA CEM — -23.9225771189688, -46.46035656688226",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.922279,
+    "lon": -46.460176
+  },
+  {
+    "id": "cx-ceo-55",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "CEO 1/8 DE FRENTE A UNIMETAL — LOTE CABO (A):0000 CABO (B):0000 — f6 sentido rio branco usando unimetal base 2 — -23.92736720860856, -46.45974249732413",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.927463,
+    "lon": -46.459762
+  },
+  {
+    "id": "cx-ceo-11023km",
+    "nome": "ceo 11023Km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23°57'16.8\"S 46°28'01.2\"W — LOTE CABO (A):0601 YOFC — LOTE CABO (B): 327246501106 MARCA SUMEC — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.955294,
+    "lon": -46.467133
+  },
+  {
+    "id": "cx-ceo-56",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.9494374,-46.4009607 — LOTE — CABO (A): — CABO (B): — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.949523,
+    "lon": -46.40097
+  },
+  {
+    "id": "cx-rt-10",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RESERVA — LOCAL:-23.9400109,-46.3643612 — LOTE — A: — B: — FOTO:https://drive.google.com/file/d/14cQqSSlbSUpeq2B7UHvxYsc0FU3A9KNC/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.940076,
+    "lon": -46.364375
+  },
+  {
+    "id": "cx-rt-11",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RESERVA — LOCAL:-23.9529994,-46.3741931 — FOTO:https://drive.google.com/file/d/1RR8CTeJPY60fMY4ZAQndQ9CLyOcVfTFi/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.95308,
+    "lon": -46.374163
+  },
+  {
+    "id": "cx-ceo-57",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "caixa ceo — Lote Lado A 327240710153 — Lote Lado B 155007455 — LOCAL:23°57'12.9\"S 46°22'29.3\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.953502,
+    "lon": -46.374679
+  },
+  {
+    "id": "cx-ceo-58",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "caixa ceo — Lote Lado A 327240710153 — Lote Lado B 155007455 — LOCAL:23°57'11.4\"S 46°22'27.9\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.953131,
+    "lon": -46.374405
+  },
+  {
+    "id": "cx-rt-12",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RESERVA — LOCAL:-23.9585309,-46.3951265 — FOTO:https://drive.google.com/file/d/1PyzY75uvIiNV54KEq7RFWFqL1C6gQakK/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.95853,
+    "lon": -46.395121
+  },
+  {
+    "id": "cx-ceo-14130km",
+    "nome": "CEO 14130Km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.9447771,-46.3680389 — LOTE CABO (A):327246501208 — LOTE CABO (B):327240710153 — FOTO:https://drive.google.com/file/d/1fQEtlH4gt14uvWKZYi3JiqdTY3BFpl3i/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.944761,
+    "lon": -46.36805
+  },
+  {
+    "id": "cx-rt-13",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RESERVA — LOCAL:-23.9338741,-46.3594867 — FOTO:https://drive.google.com/file/d/1_bSbckHJigdhKr4ptqAZTG2Gb1kdEBCN/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.933859,
+    "lon": -46.359478
+  },
+  {
+    "id": "cx-ceo-59",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.906325,
+    "lon": -46.46191
+  },
+  {
+    "id": "cx-ceo-60",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.908494,
+    "lon": -46.462212
+  },
+  {
+    "id": "cx-ceo-61",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "ceo pequena 2 saidas — -23.9265312,-46.4597091",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.92651,
+    "lon": -46.4597
+  },
+  {
+    "id": "cx-ceo-62",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CAIXA PEQUNA 3 SAIDAS",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.87354,
+    "lon": -46.42381
+  },
+  {
+    "id": "cx-ceo-63",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA 2 SAIDAS — LOCAL:-23.855889916885783, -46.408895711753935",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.855863,
+    "lon": -46.408891
+  },
+  {
+    "id": "cx-ceo-64",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "DE FRENTE DEGRANEL — CEO FIBRA 100 GRANDE",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.847428,
+    "lon": -46.398501
+  },
+  {
+    "id": "cx-ceo-9837km",
+    "nome": "ceo 9837km",
+    "tipo": "CEO",
+    "observacao": "CEO DE FRENTE Votoran — CABO1=POSTO ALDO F1 QUE VEM DA CEO DO NETWIN NO SPL1/8 E F3 NA CTO1085 — CABO2= VAI PARA WHITE MARTINS F1 NA CEO COM 1/8 NO MSM CABO VAI F2,F3 PARA ECOPATIO — Fusionada no spl . F3 voltando fibra sentido base — -23.847987021573484, -46.3911250353789",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.847956,
+    "lon": -46.391181
+  },
+  {
+    "id": "cx-ceo-65",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Informações CEO — FIBRA 36 TUBO 1 ( F1 MANALINK ) — (F2 POSTO AUDO) — F3 F4 — F5 F6 KAIQUE USIMINAS ) — TUBO ,3,4,5,6 PASSA DIREITO SENTIDO COSTA E SILVA — TUDO 2 — F1- ALTANET — F2=F8 VAI PARA OS PREDIOS DO LADO DO ANA COSTA — F3=F9 SENTINDO PEREQUÊ — -23.8856503,-46.4215048 — Rotas: Até aqui - Daqui",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.885662,
+    "lon": -46.421578
+  },
+  {
+    "id": "cx-ceo-66",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.881061,
+    "lon": -46.42144
+  },
+  {
+    "id": "cx-ceo-67",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "TEM UM SPL1x2=1x8 — TEM 8 CTOS DISPONOVEL — -23.877257019046123, -46.424671826818575",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.877316,
+    "lon": -46.424611
+  },
+  {
+    "id": "cx-ceo-68",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "MINI CEO 3 SAIDAS — FIBRA TRANSCEND 12 FO — CABO FIGURA-8 DE 6Fo QUE VEM DA CEO NO MESMO POSTE — F3 do SLP 1/2 DA CEO COM F3 DO CABO QUE VAI PARA VILA ELIZABETH — F2 QUE VOLTA DO MESMOS CABO VILA ELIZABETH ATENDE A COCREMAT NA F3 DO CABO QUE VAI PARA POSTO ALDO. — F2=F2 DA BASE ATE O POSTO ALDO — -23.877257019046123, -46.424671826818575",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.87735,
+    "lon": -46.424569
+  },
+  {
+    "id": "cx-rt-14",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.882713,
+    "lon": -46.421879
+  },
+  {
+    "id": "cx-rt-15",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.885879,
+    "lon": -46.423089
+  },
+  {
+    "id": "cx-rt-16",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.888329,
+    "lon": -46.425687
+  },
+  {
+    "id": "cx-ceo-69",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.890924,
+    "lon": -46.425063
+  },
+  {
+    "id": "cx-ceo-70",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.89275,
+    "lon": -46.428747
+  },
+  {
+    "id": "cx-rt-17",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.893354,
+    "lon": -46.431451
+  },
+  {
+    "id": "cx-rt-18",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.895858,
+    "lon": -46.432699
+  },
+  {
+    "id": "cx-ceo-71",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.851782,
+    "lon": -46.380736
+  },
+  {
+    "id": "cx-ceo-72",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA 2 SAIDAS — -23.8491957,-46.3881133",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.849149,
+    "lon": -46.387982
+  },
+  {
+    "id": "cx-ceo-73",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA 2 SAIDAS — -23.8484014,-46.3877614",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848564,
+    "lon": -46.387923
+  },
+  {
+    "id": "cx-ceo-74",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO — CAPILAR 1 CTO: — CAPILAR F5 F6 CESARE — CAPILAR F3 LIVRE",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.850777,
+    "lon": -46.392137
+  },
+  {
+    "id": "cx-rt-19",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848735,
+    "lon": -46.389037
+  },
+  {
+    "id": "cx-ceo-75",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "PICOLE FIBRA CEM 3 SAIADAS",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848751,
+    "lon": -46.377148
+  },
+  {
+    "id": "cx-rt-20",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.848041,
+    "lon": -46.376877
+  },
+  {
+    "id": "cx-cx-2",
+    "nome": "cx",
+    "tipo": "Caixa",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.849355,
+    "lon": -46.402253
+  },
+  {
+    "id": "cx-rt-21",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "VOLTA TECNICA — LOCAL:-23.9576956,-46.3835713 — FOTO:https://drive.google.com/file/d/1D1wVfEZxhQahddGF_rxAzEvcX70Hhv1Z/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.957781,
+    "lon": -46.383597
+  },
+  {
+    "id": "cx-ceo-18200-km",
+    "nome": "CEO 18200 km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.952993650396117, -46.39532504164176 — LOTE — CABO (A):327240710107 — CABO (B):327246501231 — CABO (C):327246501106 — DIO:1A12 — DIO:13A24 — FOTO:https://drive.google.com/file/d/1Q1PfjUh0ukpGMOIIgeNyuWLmkYFObWig/view?usp=sharing — FOTO:https://drive.google.com/file/d/1MV2PUL5JlzmvoTIfLzjAJrwB9PE_szOM/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.952833,
+    "lon": -46.394433
+  },
+  {
+    "id": "cx-ceo-76",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.928419,
+    "lon": -46.364177
+  },
+  {
+    "id": "cx-ceo-77",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "F7 F8 FX TX CESARE — F2 POSTO ALDO — F9 POSTO ALDO — F12 QUE VEM DA CTO:1046 VAI PARA CESARE BASE 23 MONITORAMENTO — -23.876515367881595, -46.425344770090945",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.876525,
+    "lon": -46.425351
+  },
+  {
+    "id": "cx-sub-3",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "TUBO 1 VILA DOS PESCADORES — TUBO 2 VILA DOS PESCADORES — TUBO 3 F1 F2 VAI PARA SANTOS VEM DO DIO CASQUEIRO — TUBO 4 ============ — TUBO 5 ============ — TUBO 6 F1 F5 F6 PORTE {31} {32} DIO 1º CASQUEORO — DEPOS TIRAR A F1 NAO VAI USAR MAS",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.924929,
+    "lon": -46.406356
+  },
+  {
+    "id": "cx-sub-4",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925347,
+    "lon": -46.406672
+  },
+  {
+    "id": "cx-rt-22",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.865512,
+    "lon": -46.418997
+  },
+  {
+    "id": "cx-rt-23",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.862983,
+    "lon": -46.418933
+  },
+  {
+    "id": "cx-ceo-78",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.941956,
+    "lon": -46.46332
+  },
+  {
+    "id": "cx-ceo-79",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°01'30.5\"S 46°29'37.3\"W — LOTE CABO (A): — LOTE CABO (B): 0601 YOFC — FOTO:https://drive.google.com/file/d/1y8Rpy-GnH8qYX89fCaPbRGK8mbnsc8zg/view?usp=sharing",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.025156,
+    "lon": -46.493681
+  },
+  {
+    "id": "cx-ceo-7400km",
+    "nome": "ceo 7400km",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA — 23°55'49.7\"S 46°27'39.0\"W — Lote lado A:38971609253 fiberhome — Lote Lado B:038971609253 fiberhome",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.930426,
+    "lon": -46.460706
+  },
+  {
+    "id": "cx-ceo-8170-km",
+    "nome": "ceo 8170 Km",
+    "tipo": "CEO",
+    "observacao": "23°56'03.4\"S 46°27'55.5\"W — fibra marca ZTT — LOTE LADO (A): 6327 — LOTE LADO (B): 6327 — CABO 3 UNIMETAL PONTO DE INTERNETI 6Fo — ( capilar 6 que vem do spl de frente a primenra base na Unimetal )",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.934271,
+    "lon": -46.465416
+  },
+  {
+    "id": "cx-ceo-10370km",
+    "nome": "ceo 10370km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°57'02.0\"S 46°27'55.6\"W — LOTE CABO (A): MARCA DA FIBRA ZTT — LOTE CABO (B):0601 YOFC — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.950538,
+    "lon": -46.465406
+  },
+  {
+    "id": "cx-ceo-12900km",
+    "nome": "ceo 12900Km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:23°58'11.2\"S 46°28'25.3\"W — LOTE CABO (A):327246501106 — LOTE CABO (B):0601 YOFC — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.969659,
+    "lon": -46.473677
+  },
+  {
+    "id": "cx-ceo-80",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA — modelo de fibre ZTT — 23°55'59.3\"S 46°27'50.3\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.932905,
+    "lon": -46.463995
+  },
+  {
+    "id": "cx-ceo-81",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO PEQUENA — MODELO DA FIBRA ZTT — 23°55'55.3\"S 46°27'45.8\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.932071,
+    "lon": -46.462657
+  },
+  {
+    "id": "cx-rt-24",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.930161,
+    "lon": -46.460547
+  },
+  {
+    "id": "cx-ceo-82",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.938228,
+    "lon": -46.464448
+  },
+  {
+    "id": "cx-ceo-8586km",
+    "nome": "ceo 8586km",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.937587,
+    "lon": -46.464559
+  },
+  {
+    "id": "cx-ceo-83",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.936439,
+    "lon": -46.464805
+  },
+  {
+    "id": "cx-ceo-84",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM EM FRENTE O POP — LOCAL:-24.030273435362574, -46.49106221120084",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.030266,
+    "lon": -46.491043
+  },
+  {
+    "id": "cx-rt-25",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.027274,
+    "lon": -46.482841
+  },
+  {
+    "id": "cx-rt-26",
+    "nome": "RT,",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.024229,
+    "lon": -46.474542
+  },
+  {
+    "id": "cx-rt-27",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.987556,
+    "lon": -46.493333
+  },
+  {
+    "id": "cx-rt-28",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.994795,
+    "lon": -46.495782
+  },
+  {
+    "id": "cx-ceo-85",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°00'17.6\"S 46°29'56.7\"W — LOTE CABO (A):327246501231 — LOTE CABO (B)::327246501209 — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.004883,
+    "lon": -46.499075
+  },
+  {
+    "id": "cx-rt-29",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.013083,
+    "lon": -46.501778
+  },
+  {
+    "id": "cx-ceo-15240km",
+    "nome": "CEO 15240Km",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:-23.982977469866572, -46.469629971288406 — LOTE CABO (A): — LOTE CABO (B): — LOTE CABO (C): PORNET — LOTE CABO (A DIO): — LOTE CABO (B DIO): — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.983047,
+    "lon": -46.46969
+  },
+  {
+    "id": "cx-ceo-86",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — LOCAL:24°00'41.7\"S 46°26'26.8\"W — LOTE CABO (A):32724071011 — LOTE CABO (B):327246501213 — FOTO:",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.011567,
+    "lon": -46.440752
+  },
+  {
+    "id": "cx-rt-30",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.999874,
+    "lon": -46.419833
+  },
+  {
+    "id": "cx-rt-31",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "LOCAL:24°01'04.2\"S 46°27'27.1\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.017845,
+    "lon": -46.457517
+  },
+  {
+    "id": "cx-rt-32",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "LOCAL:24°00'53.1\"S 46°26'57.4\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.014789,
+    "lon": -46.449294
+  },
+  {
+    "id": "cx-rt-33",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.008324,
+    "lon": -46.432039
+  },
+  {
+    "id": "cx-ceo-87",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -24.004487,
+    "lon": -46.425696
+  },
+  {
+    "id": "cx-rt-34",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.99796,
+    "lon": -46.411542
+  },
+  {
+    "id": "cx-rt-35",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.986359,
+    "lon": -46.397195
+  },
+  {
+    "id": "cx-rt-36",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.980467,
+    "lon": -46.390891
+  },
+  {
+    "id": "cx-rt-37",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.971951,
+    "lon": -46.385218
+  },
+  {
+    "id": "cx-ceo-88",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM LOCAL:23°56'59.4\"S 46°23'38.2\"W — CABO (A) LOTE:327240710107 LADO CUBATÃO — CABO (B) LOTE:327240710107 LADO POP SANTOS — CABO (C) 12FO VERDE PONTE DOS BARREIROS LOTE: — CABO (D) 36FO DIO LOTE: — CABO (E) LOTE:01425-17-00710 MICRICHIPNET F5-F6 LADO POP SANTOS (PORTA 5-6 DIO) — CABO (F) 12FO CONEXÃO NET F4 POP SANTOS (PORTA 40 DIO)",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.949935,
+    "lon": -46.393962
+  },
+  {
+    "id": "cx-rt-38",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.950276,
+    "lon": -46.402476
+  },
+  {
+    "id": "cx-ceo-89",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.947203,
+    "lon": -46.408129
+  },
+  {
+    "id": "cx-ceo-90",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.951587,
+    "lon": -46.4088
+  },
+  {
+    "id": "cx-ceo-91",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "TPT 36",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925519,
+    "lon": -46.406858
+  },
+  {
+    "id": "cx-ceo-92",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "TUBO 1 VILA DOS PESCADORES — TUBO 2 VILA DOS PESCADORES — TUBO 3 F1 F2 VAI PARA SANTOS — TUBO 4 =========== LOSS — TUBO 5 =========== LOSS — TUBO 6 F1 F5 F6 LINK",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925678,
+    "lon": -46.406992
+  },
+  {
+    "id": "cx-ceo-93",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO FIBRA CEM — DIO 3º PORTA {00} {00} LADO A CUBATÃO TUBO 6 F5 F6 — TUBO 1 VILA DOS PESCADORES — TUBO 2 VILA DOS PESCADORES — TUBO 3 F1 F2 VAI PARA SANTOS — TUBO 4 ============ — TUBO 5 ============ — TUBO 6 ============ LINK",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926675,
+    "lon": -46.407291
+  },
+  {
+    "id": "cx-ceo-94",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926186,
+    "lon": -46.4074
+  },
+  {
+    "id": "cx-ceo-95",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Lado B (santos) Lote1594 Fiberhome — Lado A (Cubatão) Lote 2301 — local:23°55'33.2\"S 46°22'55.2\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.925867,
+    "lon": -46.381998
+  },
+  {
+    "id": "cx-ceo-96",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.978929,
+    "lon": -46.445822
+  },
+  {
+    "id": "cx-ceo-97",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.948695,
+    "lon": -46.40791
+  },
+  {
+    "id": "cx-ceo-98",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "FOTO:https://drive.google.com/file/d/1DOgaBnvloqOpvU0E5fAJ0aWdar3odu1j/view?usp=sharing — FOTO:https://drive.google.com/file/d/17SB0u-qMOHc7ffGaM_hg5xMIe7mjf0cC/view?usp=sharing — 23°54'41.3\"S 46°27'37.1\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.911451,
+    "lon": -46.46034
+  },
+  {
+    "id": "cx-ceo-99",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "FOTO:https://drive.google.com/file/d/1rIAzBCqptEv17FGWKtkfFeduQi8bKEln/view?usp=sharing — FOTO:https://drive.google.com/file/d/1x2foybjVWhUmqIMIhWFnBGhsDk8nNg8k/view?usp=sharing — 23°54'43.5\"S 46°27'35.0\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.912074,
+    "lon": -46.45975
+  },
+  {
+    "id": "cx-ceo-100",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Lote lado A 1594 — Lote Lado B 1594 — 23°55'34.6\"S 46°22'45.1\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.926326,
+    "lon": -46.378984
+  },
+  {
+    "id": "cx-ceo-101",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Lado A Marca YOFC Lote 2301 — Lado B Marca Fiberhome Lote 1594 — 23°55'37.7\"S 46°22'23.3\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.927132,
+    "lon": -46.373133
+  },
+  {
+    "id": "cx-ceo-102",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "Lado A Cubatao Lote 15941 Marca OIW — Lado B (santos) Lote 2301035001401 Marca YOFC — 23°55'45.8\"S 46°21'26.3\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.929431,
+    "lon": -46.357294
+  },
+  {
+    "id": "cx-ceo-103",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "OCUPADO — F1 ITERUM — F2 GPON CESARE — F7 F8 FX TX CESARE — F5 EMPASA — 23°49'55.1\"S 46°22'12.2\"W — F6=1/8",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.831951,
+    "lon": -46.370057
+  },
+  {
+    "id": "cx-rt-39",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.833249,
+    "lon": -46.371664
+  },
+  {
+    "id": "cx-rt-40",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.836346,
+    "lon": -46.371878
+  },
+  {
+    "id": "cx-ceo-104",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "sangrua capilar f3 — local:23°49'46.0\"S 46°22'15.8\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.829389,
+    "lon": -46.371078
+  },
+  {
+    "id": "cx-ceo-105",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "OCUPADO F1 F2 F7 F8 — 23°49'40.5\"S 46°22'13.6\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.827902,
+    "lon": -46.37053
+  },
+  {
+    "id": "cx-rt-41",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.877874,
+    "lon": -46.447383
+  },
+  {
+    "id": "cx-rt-42",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.875039,
+    "lon": -46.442706
+  },
+  {
+    "id": "cx-rt-43",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.874442,
+    "lon": -46.432681
+  },
+  {
+    "id": "cx-ceo-106",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "F7 F8 FX TX CESARE — F12 GPPON MONITORAMENTO",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.873447,
+    "lon": -46.429673
+  },
+  {
+    "id": "cx-ceo-wladimir",
+    "nome": "ceo WLADIMIR",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.951423,
+    "lon": -46.408808
+  },
+  {
+    "id": "cx-ceo-107",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "MINI CEO — 23°58'09.2\"S 46°23'08.6\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.96921,
+    "lon": -46.385711
+  },
+  {
+    "id": "cx-ceo-108",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "MINI CEO — 23°58'10.1\"S 46°23'10.2\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.969712,
+    "lon": -46.386012
+  },
+  {
+    "id": "cx-ceo-109",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "ceo — TEM 3 CABOS MA CEO FIBRA 1 INDO PARA CTO 1383 — 23°51'04.2\"S 46°22'58.1\"W",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.850821,
+    "lon": -46.383205
+  },
+  {
+    "id": "cx-ceo-110",
+    "nome": "CEO",
+    "tipo": "CEO",
+    "observacao": "F4=F6 PARA CTO 1053 — F5 VEM DO SPL PRIMARIO — F1 F2 F3 F4 PARA O LADO DA 1053 ESTA LIVRE",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.847966,
+    "lon": -46.375837
+  },
+  {
+    "id": "cx-rt-44",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.837623,
+    "lon": -46.37386
+  },
+  {
+    "id": "cx-ceo-111",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "min ceo 3 saidas — F7 F8 FX TX CESARE",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.881026,
+    "lon": -46.450458
+  },
+  {
+    "id": "cx-ceo-112",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "950 Av. Capitão Luiz Hourneaux — Lote Cabo Lado A 327240710153 — Lote Cabo Lado B — 155007455",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.950862,
+    "lon": -46.383563
+  },
+  {
+    "id": "cx-ceo-113",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CAIXA CEO PTP — LOCAL:-23.951080709428417, -46.39571298912004",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.951031,
+    "lon": -46.395733
+  },
+  {
+    "id": "cx-ceo-114",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CAIXA CEO PTP — LOCAL:-23.95195775410398, -46.395875026804624",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.952012,
+    "lon": -46.395853
+  },
+  {
+    "id": "cx-ceo-115",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "CEO CONEXÃO NET — LOCAL:-23.953330593392113, -46.395416302820024",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.953337,
+    "lon": -46.395335
+  },
+  {
+    "id": "cx-ceo-116",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.963613,
+    "lon": -46.424285
+  },
+  {
+    "id": "cx-rt-45",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.961925,
+    "lon": -46.420754
+  },
+  {
+    "id": "cx-rt-46",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.961324,
+    "lon": -46.413494
+  },
+  {
+    "id": "cx-rt-47",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.979585,
+    "lon": -46.447635
+  },
+  {
+    "id": "cx-rt-48",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.984941,
+    "lon": -46.466447
+  },
+  {
+    "id": "cx-rt-49",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.958131,
+    "lon": -46.406455
+  },
+  {
+    "id": "cx-rt-50",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.95845,
+    "lon": -46.40689
+  },
+  {
+    "id": "cx-rt-51",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.969319,
+    "lon": -46.429601
+  },
+  {
+    "id": "cx-sub-5",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.831656,
+    "lon": -46.369774
+  },
+  {
+    "id": "cx-sub-6",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.831733,
+    "lon": -46.367781
+  },
+  {
+    "id": "cx-sub-7",
+    "nome": "SUB.",
+    "tipo": "Subterrâneo",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.825041,
+    "lon": -46.363113
+  },
+  {
+    "id": "cx-rt-52",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.982426,
+    "lon": -46.457123
+  },
+  {
+    "id": "cx-rt-53",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.941883,
+    "lon": -46.416004
+  },
+  {
+    "id": "cx-rt-54",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.945335,
+    "lon": -46.41317
+  },
+  {
+    "id": "cx-rt-55",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.945141,
+    "lon": -46.409996
+  },
+  {
+    "id": "cx-ceo-117",
+    "nome": "ceo",
+    "tipo": "CEO",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.960589,
+    "lon": -46.409837
+  },
+  {
+    "id": "cx-poste",
+    "nome": "poste",
+    "tipo": "Poste",
+    "observacao": "",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.939884,
+    "lon": -46.409138
+  },
+  {
+    "id": "cx-rt-56",
+    "nome": "RT.",
+    "tipo": "Reserva técnica",
+    "observacao": "RESERVA: -23.86218766087242, -46.41399737085733",
+    "origem": "BACKBONE UPDOWN 16 07 2025",
+    "lat": -23.862182,
+    "lon": -46.41396
+  }
+]
