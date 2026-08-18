@@ -11,13 +11,13 @@
 <link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
-<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-5">
 <script src="/js/auth-guard.js"></script>
 </head>
 <!-- Mesmo recorte da Topologia ISP, aberto direto no mapa geográfico e
      enquadrando toda a malha. A camada de caminhos de fibra vem do
      noc-fibra.js, carregado no fim da página. -->
-<body data-scope="isp" data-vista="geo" data-enquadrar="tudo">
+<body class="topology-no-sidebar" data-scope="isp" data-vista="geo" data-enquadrar="tudo">
 <a class="skip-link" href="#stage">Ir para o mapa de fibra</a>
 <header data-appbar></header>
 
@@ -29,7 +29,6 @@
 
       <div class="topo-toolbar">
         <div class="row" style="gap:var(--s-2)">
-          <button class="btn btn-sm btn-icon" id="toggleSide" type="button" title="Ocultar painel lateral" aria-label="Ocultar painel lateral"></button>
           <div>
             <span class="kicker" id="topoKicker">Clientes ISP e caminhos de fibra</span>
             <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Mapa de fibra ISP</h1>
@@ -42,6 +41,10 @@
             <button type="button" data-view="mapa" aria-pressed="false" title="Mapa esquemático, sem fundo geográfico nem fibras">Esquema</button>
             <button type="button" data-view="lista" aria-pressed="false">Lista</button>
           </div>
+          <button class="btn btn-sm topo-filter-toggle" id="toggleFilters" type="button" aria-expanded="false" aria-controls="filterPanel">
+            <span id="filterButtonIcon" aria-hidden="true"></span><span>Filtros</span>
+            <span class="topo-filter-count" id="activeFilterCount" hidden>0</span>
+          </button>
           <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
           <button class="btn btn-sm" id="btnCaixaNova" type="button"
                   data-action="topology.edit fibra.edit"
@@ -54,37 +57,30 @@
           <button class="btn btn-sm" id="btnManage" type="button"
                   data-action="topology.edit">Gerenciar rede</button>
         </div>
-      </div>
 
-      <div class="topo-main" id="topoMain">
-        <aside class="topo-side">
-          <!-- Painel dos caminhos de fibra: busca, camadas, filtro por tipo e
-               a lista clicável. Montado pelo noc-fibra.js. -->
-          <div class="fibra-panel grow" id="fibraPanel"></div>
-
-          <details class="card" style="padding:var(--s-3)">
-            <summary style="font-size:var(--fs-12);cursor:pointer">Equipamentos por cliente</summary>
-            <div class="stack" style="gap:var(--s-3);margin-top:var(--s-3)">
-              <div class="input-affix">
+        <div class="topo-filter-panel" id="filterPanel" aria-hidden="true" inert>
+          <div class="topo-filter-panel-inner topo-filter-panel-inner-fibra">
+            <div class="fibra-panel topo-filter-fibra" id="fibraPanel"></div>
+            <div class="topo-filter-equipment">
+              <span class="kicker">Equipamentos por cliente</span>
+              <div class="input-affix topo-filter-search">
                 <span class="affix-icon" id="iconSearch"></span>
                 <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
               </div>
-              <div class="row wrap" style="gap:6px" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
-              <div class="row-between" style="font-size:var(--fs-11)">
+              <div class="row wrap topo-filter-categories" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
+              <div class="topo-filter-summary">
                 <span class="dim" id="listCount">—</span>
                 <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
               </div>
-              <div class="device-list" id="deviceList"></div>
+              <div class="topo-filter-results topo-filter-results-equipment">
+                <div class="device-list" id="deviceList"></div>
+              </div>
             </div>
-          </details>
-
-          <div class="card" style="padding:var(--s-3);font-size:var(--fs-11)">
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="fibra-amostra" style="background:var(--purple-400)"></i><span>Caixa óptica, reserva técnica ou poste</span></div>
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="fibra-amostra" style="background:var(--cyan-400)"></i><span>Caminho de fibra cadastrado</span></div>
-            <div class="row" style="gap:var(--s-2)"><i class="dot dot-ok"></i><span>Cliente ISP no ponto cadastrado</span></div>
           </div>
-        </aside>
+        </div>
+      </div>
 
+      <div class="topo-main" id="topoMain">
         <section class="topo-stage" id="stage" tabindex="0" role="application"
                  aria-label="Mapa de fibra ISP. Use as setas para deslocar e as teclas mais e menos para aproximar.">
           <div class="topo-world" id="world">
@@ -93,6 +89,12 @@
             <svg class="topo-svg topo-fibra" id="fibras" viewBox="0 0 1000 600" preserveAspectRatio="none"></svg>
             <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-legend" id="legend" data-views="geo">
+            <div class="row"><i class="fibra-amostra" style="background:var(--purple-400)"></i><span>Caixa óptica, reserva técnica ou poste</span></div>
+            <div class="row"><i class="fibra-amostra" style="background:var(--cyan-400)"></i><span>Caminho de fibra cadastrado</span></div>
+            <div class="row"><i class="dot dot-ok"></i><span>Cliente ISP no ponto cadastrado</span></div>
           </div>
 
           <div class="panel topo-hud topo-missing" id="geoMissing" hidden></div>
@@ -158,7 +160,7 @@
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
-<script src="/js/noc-topology.js"></script>
+<script src="/js/noc-topology.js?v=20260818-3"></script>
 <script src="/js/noc-fibra.js"></script>
 </body>
 </html>

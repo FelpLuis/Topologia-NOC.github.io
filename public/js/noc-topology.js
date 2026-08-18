@@ -162,6 +162,8 @@
   function renderList() {
     const eqs = NOC.data()?.equipamentos || [];
     $("#listCount").textContent = `${eqs.filter(matches).length} de ${eqs.length} equipamentos`;
+    const deviceList = $("#deviceList");
+    if (!deviceList) return;
 
     const html = visibleSites().map((s) => {
       const list = devicesOf(s.id).filter(matches);
@@ -185,7 +187,7 @@
       </div>`;
     }).join("");
 
-    $("#deviceList").innerHTML = html || `<div class="empty">
+    deviceList.innerHTML = html || `<div class="empty">
       <span class="empty-icon">${icon("search")}</span><b>Nenhum equipamento encontrado</b>
       <p>Ajuste a busca ou remova os filtros de categoria.</p></div>`;
 
@@ -2790,8 +2792,14 @@
 
     const mapa = view !== "lista";
     $("#stage").hidden = !mapa;
-    $(".topo-side").hidden = !mapa;
+    const side = $(".topo-side");
+    if (side) side.hidden = !mapa;
     $("#listView").hidden = mapa;
+    const legend = $("#legend");
+    if (legend) {
+      const views = (legend.dataset.views || "mapa").split(/\s+/);
+      legend.hidden = !views.includes(view);
+    }
     $("#geoAttrib").hidden = view !== "geo";
     // A atribuição do OpenStreetMap ocupa a base do palco só no modo geográfico.
     stage().classList.toggle("is-geo", view === "geo");
@@ -2831,16 +2839,16 @@
     $("#zoomIn").innerHTML = icon("zoomIn");
     $("#zoomOut").innerHTML = icon("zoomOut");
     $("#zoomFit").innerHTML = icon("fit");
-    $("#toggleSide").innerHTML = icon("chevronLeft");
+    if ($("#toggleSide")) $("#toggleSide").innerHTML = icon("chevronLeft");
     if ($("#filterButtonIcon")) $("#filterButtonIcon").innerHTML = icon("filter");
     $("#btnManage").innerHTML = icon("plus") + " Gerenciar rede";
 
-    NOC.skeleton($("#deviceList"), 5);
+    if ($("#deviceList")) NOC.skeleton($("#deviceList"), 5);
 
     try {
       await NOC.load();
     } catch (err) {
-      NOC.errorState($("#deviceList"), err, () => location.reload());
+      if ($("#deviceList")) NOC.errorState($("#deviceList"), err, () => location.reload());
       toast("Falha ao carregar a topologia", { text: err.message, type: "danger", timeout: 8000 });
       return;
     }
@@ -2897,24 +2905,26 @@
         if (open) setTimeout(() => $("#deviceSearch").focus(), 180);
       };
     }
-    /* Em tela estreita a lista é um painel sobreposto ao mapa, e o estado
-       inicial dela é fechado — abrir por cima do mapa assim que a tela carrega
-       esconderia justamente o que a pessoa veio ver. No desktop ela continua
-       sendo uma coluna, aberta por padrão. */
-    const sincronizaBotaoLista = (hidden) => {
-      $("#toggleSide").innerHTML = icon(hidden ? "chevronRight" : "chevronLeft");
-      $("#toggleSide").setAttribute("aria-label", hidden ? "Mostrar lista de equipamentos" : "Ocultar lista de equipamentos");
-      $("#toggleSide").setAttribute("aria-expanded", String(!hidden));
-    };
-    if (matchMedia("(max-width: 1100px)").matches) {
-      $("#topoMain").classList.add("is-side-hidden");
-      sincronizaBotaoLista(true);
+    /* Algumas variações da topologia ainda exibem a lista lateral. Na tela
+       principal ela foi removida, então o controle é montado somente quando
+       essa variação oferece o botão. */
+    const sideButton = $("#toggleSide");
+    if (sideButton) {
+      const sincronizaBotaoLista = (hidden) => {
+        sideButton.innerHTML = icon(hidden ? "chevronRight" : "chevronLeft");
+        sideButton.setAttribute("aria-label", hidden ? "Mostrar lista de equipamentos" : "Ocultar lista de equipamentos");
+        sideButton.setAttribute("aria-expanded", String(!hidden));
+      };
+      if (matchMedia("(max-width: 1100px)").matches) {
+        $("#topoMain").classList.add("is-side-hidden");
+        sincronizaBotaoLista(true);
+      }
+      sideButton.onclick = () => {
+        const hidden = $("#topoMain").classList.toggle("is-side-hidden");
+        sincronizaBotaoLista(hidden);
+        setTimeout(() => { if (isGeo()) { layout(); renderAll(); applyTransform(false); } else fit(); }, 60);
+      };
     }
-    $("#toggleSide").onclick = () => {
-      const hidden = $("#topoMain").classList.toggle("is-side-hidden");
-      sincronizaBotaoLista(hidden);
-      setTimeout(() => { if (isGeo()) { layout(); renderAll(); applyTransform(false); } else fit(); }, 60);
-    };
     // O botão de animação do tráfego é opcional na barra: sem ele, o fluxo
     // fica no padrão e o resto da tela continua funcionando.
     const btnFlow = $("#btnFlow");

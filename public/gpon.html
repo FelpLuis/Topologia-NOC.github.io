@@ -11,10 +11,10 @@
 <link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
-<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-5">
 <script src="/js/auth-guard.js"></script>
 </head>
-<body>
+<body class="topology-no-sidebar">
 <a class="skip-link" href="#stage">Ir para o mapa da topologia GPON</a>
 <header data-appbar></header>
 
@@ -25,7 +25,6 @@
     <div class="topo-layout">
       <div class="topo-toolbar">
         <div class="row" style="gap:var(--s-2)">
-          <button class="btn btn-sm btn-icon" id="toggleSide" type="button" title="Ocultar lista de equipamentos" aria-label="Ocultar lista de equipamentos"></button>
           <div>
             <span class="kicker" id="topoKicker">Rede de acesso óptico — clique para expandir</span>
             <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Topologia GPON</h1>
@@ -38,6 +37,10 @@
             <button type="button" data-view="geo" aria-pressed="false" title="POPs e equipamentos GPON sobre o mapa do OpenStreetMap, na localização cadastrada">Mapa</button>
             <button type="button" data-view="lista" aria-pressed="false">Lista</button>
           </div>
+          <button class="btn btn-sm topo-filter-toggle" id="toggleFilters" type="button" aria-expanded="false" aria-controls="filterPanel">
+            <span id="filterButtonIcon" aria-hidden="true"></span><span>Filtros</span>
+            <span class="topo-filter-count" id="activeFilterCount" hidden>0</span>
+          </button>
           <button class="btn btn-sm" id="expandAll" type="button">Expandir tudo</button>
           <button class="btn btn-sm" id="btnFlow" type="button" aria-pressed="true">Tráfego</button>
           <button class="btn btn-sm" id="btnLayout" type="button" aria-pressed="false"
@@ -45,33 +48,26 @@
           <button class="btn btn-sm btn-primary" id="btnManage" type="button"
                   data-action="topology.edit">Gerenciar rede</button>
         </div>
+
+        <div class="topo-filter-panel" id="filterPanel" aria-hidden="true" inert>
+          <div class="topo-filter-panel-inner">
+            <div class="input-affix topo-filter-search">
+              <span class="affix-icon" id="iconSearch"></span>
+              <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
+            </div>
+            <div class="row wrap topo-filter-categories" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
+            <div class="topo-filter-summary">
+              <span class="dim" id="listCount">—</span>
+              <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
+            </div>
+            <div class="topo-filter-results">
+              <div class="device-list" id="deviceList"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="topo-main" id="topoMain">
-        <aside class="topo-side">
-          <div class="input-affix">
-            <span class="affix-icon" id="iconSearch"></span>
-            <input class="input" id="deviceSearch" type="search" placeholder="Filtrar equipamentos…" aria-label="Filtrar equipamentos">
-          </div>
-
-          <div class="row wrap" style="gap:6px" id="catFilters" role="group" aria-label="Filtrar por categoria"></div>
-
-          <div class="row-between" style="font-size:var(--fs-11)">
-            <span class="dim" id="listCount">—</span>
-            <button class="btn btn-ghost btn-sm" id="clearFilters" type="button">Limpar</button>
-          </div>
-
-          <div class="topo-side-scroll grow">
-            <div class="device-list" id="deviceList"></div>
-          </div>
-
-          <div class="card" style="padding:var(--s-3);font-size:var(--fs-11)">
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot"></i><span>Porta livre e disponível</span></div>
-            <div class="row" style="gap:var(--s-2)"><i class="dot" style="background:var(--purple-400)"></i><span>Rota da rede óptica</span></div>
-          </div>
-        </aside>
-
         <section class="topo-stage" id="stage" tabindex="0" role="application"
                  aria-label="Mapa da topologia GPON. Use as setas para deslocar e as teclas mais e menos para aproximar.">
           <div class="topo-world" id="world">
@@ -79,6 +75,12 @@
             <div class="topo-basemap" id="basemap" aria-hidden="true" hidden></div>
             <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-legend" id="legend">
+            <div class="row"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
+            <div class="row"><i class="dot"></i><span>Porta livre e disponível</span></div>
+            <div class="row"><i class="dot" style="background:var(--purple-400)"></i><span>Rota da rede óptica</span></div>
           </div>
 
           <!-- POPs ainda sem localização cadastrada não têm onde ser desenhados. -->
@@ -133,6 +135,6 @@
 <script src="/js/noc-ui.js"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
-<script src="/js/noc-topology.js"></script>
+<script src="/js/noc-topology.js?v=20260818-3"></script>
 </body>
 </html>

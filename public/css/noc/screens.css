@@ -280,11 +280,50 @@
   font-size: var(--fs-11);
   white-space: nowrap;
 }
+.topo-filter-panel-inner-fibra {
+  align-items: stretch;
+  gap: var(--s-5);
+}
+.topo-filter-fibra {
+  flex: 1 1 560px;
+  max-height: 250px;
+  overflow: auto;
+  padding-right: var(--s-2);
+}
+.topo-filter-equipment {
+  flex: 1 1 420px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-left: var(--s-4);
+  border-left: 1px solid var(--line);
+}
+.topo-filter-equipment .topo-filter-search { flex: none; width: 100%; }
+.topo-filter-results {
+  flex: 1 1 340px;
+  min-width: 280px;
+  max-height: 220px;
+  overflow: auto;
+  padding-left: var(--s-4);
+  border-left: 1px solid var(--line);
+}
+.topo-filter-results .list-group:last-child { margin-bottom: 0; }
+.topo-filter-results-equipment {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  max-height: 170px;
+  padding: var(--s-2) 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--line);
+}
 .topo-main {
   display: grid;
   grid-template-columns: 312px minmax(0, 1fr);
   min-height: 0;
 }
+.topology-no-sidebar .topo-main { grid-template-columns: minmax(0, 1fr); }
 .topo-main.is-side-hidden { grid-template-columns: minmax(0, 1fr); }
 .topo-main.is-side-hidden .topo-side { display: none; }
 .topo-side {
@@ -335,6 +374,25 @@
   .topo-filter-search,
   .topo-filter-categories { flex: none; width: 100%; min-width: 0; }
   .topo-filter-summary { justify-content: space-between; }
+  .topo-filter-results {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    max-height: 200px;
+    padding: var(--s-3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .topo-filter-panel-inner-fibra { gap: var(--s-3); }
+  .topo-filter-fibra { flex: none; width: 100%; max-height: 220px; }
+  .topo-filter-equipment {
+    flex: none;
+    width: 100%;
+    min-width: 0;
+    padding: var(--s-3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
 }
 
 .topo-stage {
@@ -499,16 +557,32 @@
 }
 .topo-legend {
   position: absolute;
-  left: var(--s-4);
+  left: 50%;
   bottom: var(--s-4);
+  transform: translateX(-50%);
   padding: var(--s-3) var(--s-4);
   border-radius: var(--r-md);
   font-size: var(--fs-11);
   color: var(--text-2);
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  white-space: nowrap;
 }
 .topo-legend .row { gap: var(--s-2); }
+
+@media (max-width: 760px) {
+  .topo-legend {
+    left: var(--s-3);
+    right: var(--s-3);
+    bottom: var(--s-3);
+    transform: none;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: var(--s-2) var(--s-4);
+    white-space: normal;
+  }
+}
 
 /* Barra de edição do layout do mapa (posição dos POPs) */
 .topo-layout-bar {
