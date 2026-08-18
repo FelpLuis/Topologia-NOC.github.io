@@ -17,15 +17,15 @@ const env = {
   GOOGLE_CALENDAR_TOKEN_KEY: "test-only-key-with-at-least-32-characters"
 };
 
-test("autorização do Google Agenda permite eventos, lê a lista, usa PKCE e acesso offline", async () => {
+test("vínculo do Gmail importa a agenda em modo somente leitura com PKCE e acesso offline", async () => {
   const redirectUri = "https://noc.example.test/api/calendar/google/callback";
   const authorization = new URL(await buildGoogleCalendarAuthorizationUrl(env, redirectUri, "secure-state", "v".repeat(64)));
   assert.equal(authorization.origin, "https://accounts.google.com");
   assert.equal(authorization.searchParams.get("access_type"), "offline");
   assert.equal(authorization.searchParams.get("prompt"), "consent");
   assert.equal(authorization.searchParams.get("code_challenge_method"), "S256");
-  assert.match(authorization.searchParams.get("scope"), /calendar\.events/);
-  assert.match(authorization.searchParams.get("scope"), /calendar\.calendarlist\.readonly/);
+  assert.match(authorization.searchParams.get("scope"), /calendar\.readonly/);
+  assert.doesNotMatch(authorization.searchParams.get("scope"), /calendar\.events/);
 });
 
 test("refresh token é cifrado por usuário e recuperado somente com a mesma chave", async () => {

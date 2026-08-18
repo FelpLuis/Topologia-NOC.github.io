@@ -20,16 +20,13 @@ import {
   decryptGoogleRefreshToken,
   encryptGoogleRefreshToken,
   exchangeGoogleCalendarCode,
-  createGoogleEvent,
-  deleteGoogleEvent,
   fetchGoogleCalendars,
   fetchGoogleEvents,
   fetchGoogleProfile,
   googleCalendarEnabled,
   googleCalendarRedirectUri,
   refreshGoogleAccessToken,
-  sha256Base64Url as googleSha256Base64Url,
-  updateGoogleEvent
+  sha256Base64Url as googleSha256Base64Url
 } from "./google-calendar.js";
 
 const COOKIE_NAME = "__Host-topologia_noc_session";
@@ -388,17 +385,17 @@ const ROLES = [
 // a aparecer em Plataforma → Perfis, onde o acesso é dado por perfil.
 // [code, name, description, route, active, icon, sort, nav]
 const SCREENS = [
-  ["network", "Topologia", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
+  ["network", "Topologia BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/", 1, "topology", 10, 1],
   ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
-  ["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
+  //["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
-  ["isp-cadastro", "Cadastro de ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
-  ["pops", "POPs e anel óptico", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
+  ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
+  ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
-  ["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
+  //["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
 ];
 
 // Catálogo de ações (funcionalidades) do sistema.
@@ -1619,7 +1616,9 @@ async function handleGoogleCalendarCallback(env, request) {
       fetchGoogleProfile(tokens.access_token),
       fetchGoogleCalendars(tokens.access_token)
     ]);
-    const selected = calendars.filter(calendar => calendar.primary || calendar.selected).map(calendar => calendar.id);
+    // Basta entrar no Gmail: todas as agendas legíveis da conta pessoal são
+    // vinculadas automaticamente, sem uma segunda etapa de seleção.
+    const selected = calendars.map(calendar => calendar.id).slice(0, 20);
     const [encryptedRefreshToken, encryptedAccessToken] = await Promise.all([
       encryptGoogleRefreshToken(env, user.id, tokens.refresh_token),
       encryptGoogleRefreshToken(env, user.id, tokens.access_token, "access")
@@ -1637,12 +1636,13 @@ async function handleGoogleCalendarCallback(env, request) {
         access_token_ciphertext=excluded.access_token_ciphertext,
         access_token_expires_at=excluded.access_token_expires_at,
         calendars_json=excluded.calendars_json,
+        alert_minutes=10,
         active=1,
         updated_at=CURRENT_TIMESTAMP,
         last_sync_at=CURRENT_TIMESTAMP,
         last_error=NULL
     `).bind(user.id, profile.id || null, profile.email, encryptedRefreshToken, encryptedAccessToken,
-      accessTokenExpiresAt, JSON.stringify(selected.slice(0, 20))).run();
+      accessTokenExpiresAt, JSON.stringify(selected)).run();
     await audit(env, request, user, "GOOGLE_CALENDAR_CONNECTED", "google_calendar", String(user.id), null, null, {
       email: profile.email,
       calendars: selected.length
@@ -1740,41 +1740,6 @@ async function handleGoogleCalendarStatus(env, request) {
       calendars: [],
       needs_reconnect: true
     });
-  }
-}
-
-async function handleGoogleCalendarSettings(env, request) {
-  const user = await getCurrentUser(env, request);
-  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
-  const row = await calendarConnection(env, user.id);
-  if (!row) return json({ error: "GOOGLE_CALENDAR_NOT_CONNECTED" }, 409);
-  let body;
-  try { body = await readJson(request, 32768); }
-  catch { return json({ error: "INVALID_JSON" }, 400); }
-  const alertMinutes = Number(body.alert_minutes);
-  const requested = Array.isArray(body.calendars) ? [...new Set(body.calendars.map(String).filter(Boolean))] : null;
-  if (!Number.isInteger(alertMinutes) || alertMinutes < 0 || alertMinutes > 1440) {
-    return json({ error: "GOOGLE_CALENDAR_ALERT_MINUTES_INVALID" }, 400);
-  }
-  if (!requested || !requested.length || requested.length > 20) {
-    return json({ error: "GOOGLE_CALENDAR_SELECTION_INVALID" }, 400);
-  }
-
-  try {
-    const tokens = await googleCalendarAccess(env, row);
-    const available = new Set((await fetchGoogleCalendars(tokens.access_token)).map(calendar => calendar.id));
-    if (requested.some(id => !available.has(id))) return json({ error: "GOOGLE_CALENDAR_SELECTION_INVALID" }, 400);
-    const before = { calendars: selectedCalendarIds(row), alert_minutes: Number(row.alert_minutes) };
-    const after = { calendars: requested, alert_minutes: alertMinutes };
-    await getDB(env).prepare(`
-      UPDATE google_calendar_connections
-      SET calendars_json=?,alert_minutes=?,updated_at=CURRENT_TIMESTAMP,last_error=NULL WHERE user_id=?
-    `).bind(JSON.stringify(requested), alertMinutes, user.id).run();
-    await audit(env, request, user, "GOOGLE_CALENDAR_SETTINGS_UPDATED", "google_calendar", String(user.id), before, after);
-    return json({ ok: true, ...after });
-  } catch (error) {
-    console.error(JSON.stringify({ message: "Google Calendar settings failed", userId: user.id, error: error instanceof Error ? error.message : String(error) }));
-    return json({ error: "GOOGLE_CALENDAR_RECONNECT_REQUIRED" }, 502);
   }
 }
 
@@ -1887,13 +1852,63 @@ async function handleAgendaBootstrap(env, request) {
 
   const permissions = await permissionsOf(env, gate.user);
   const connection = await calendarConnection(env, gate.user.id);
+  let importedEvents = [];
+  let importError = null;
+  if (connection) {
+    try {
+      const access = await googleCalendarAccess(env, connection);
+      const remoteEvents = await fetchGoogleEvents(access.access_token, selectedCalendarIds(connection), {
+        timeMin: range.start,
+        timeMax: range.end,
+        maxPerCalendar: 100
+      });
+      const alreadySynced = new Set(rows
+        .filter(row => row.google_calendar_id && row.google_event_id)
+        .map(row => `${row.google_calendar_id}:${row.google_event_id}`));
+      importedEvents = remoteEvents
+        .filter(event => !alreadySynced.has(`${event.calendar_id}:${event.id}`))
+        .map(event => ({
+          id: `gmail:${event.calendar_id}:${event.id}`,
+          owner_type: "user",
+          owner_user_id: gate.user.id,
+          sector_id: null,
+          sector_name: null,
+          sector_color: "#06b6d4",
+          creator_name: connection.google_email || "Gmail",
+          title: event.title,
+          description: "",
+          location: event.location || "",
+          start: event.start,
+          end: event.end || event.start,
+          all_day: event.all_day,
+          alert_email: false,
+          alert_popup: false,
+          alert_minutes: 10,
+          html_link: event.html_link,
+          source: "gmail",
+          can_edit: false,
+          can_delete: false
+        }));
+    } catch (error) {
+      importError = error instanceof Error ? error.message : String(error);
+      console.error(JSON.stringify({ message: "Gmail agenda import failed", userId: gate.user.id, error: importError }));
+    }
+  }
+  const localEvents = rows.map(row => ({ ...safeAgendaEvent(row),
+    can_edit: Boolean(row.can_edit) && permissions.has("agenda.edit"),
+    can_delete: Boolean(row.can_edit) && permissions.has("agenda.delete")
+  }));
   return json({
     user: { id: gate.user.id, name: gate.user.display_name, email: gate.user.email || null },
-    sectors, events: rows.map(row => ({ ...safeAgendaEvent(row),
-      can_edit: Boolean(row.can_edit) && permissions.has("agenda.edit"),
-      can_delete: Boolean(row.can_edit) && permissions.has("agenda.delete")
-    })),
-    google: { configured: googleCalendarReady(env), connected: Boolean(connection), email: connection?.google_email || null },
+    sectors,
+    events: [...localEvents, ...importedEvents].sort((a, b) => new Date(a.start) - new Date(b.start)),
+    google: {
+      configured: googleCalendarReady(env),
+      connected: Boolean(connection),
+      email: connection?.google_email || null,
+      imported: importedEvents.length,
+      import_error: importError
+    },
     can: { create: permissions.has("agenda.create"), edit: permissions.has("agenda.edit"), delete: permissions.has("agenda.delete") }
   });
 }
@@ -1911,38 +1926,9 @@ function normalizedAgendaInput(body, previous = null) {
   return {
     title, description, location, all_day: allDay,
     start_at: start.toISOString(), end_at: end.toISOString(),
-    alert_email: body.alert_email === undefined ? Boolean(previous?.alert_email ?? true) : Boolean(body.alert_email),
+    alert_email: false,
     alert_popup: body.alert_popup === undefined ? Boolean(previous?.alert_popup ?? true) : Boolean(body.alert_popup),
     alert_minutes: alertMinutes
-  };
-}
-
-async function agendaAttendees(db, sectorId, excludeEmail) {
-  if (!sectorId) return [];
-  const rows = (await db.prepare(`
-    SELECT lower(u.email) email FROM user_sectors us JOIN users u ON u.id=us.user_id
-    WHERE us.sector_id=? AND u.active=1 AND u.email IS NOT NULL AND instr(u.email,'@')>1
-  `).bind(sectorId).all()).results || [];
-  return [...new Set(rows.map(x => x.email).filter(email => email !== String(excludeEmail || "").toLowerCase()))];
-}
-
-async function syncAgendaEventToGoogle(env, user, event, existing = null) {
-  const syncUserId = Number(existing?.creator_user_id || user.id);
-  const row = await calendarConnection(env, syncUserId);
-  if (!row) return { sync_error: "Vincule sua conta Google para sincronizar este compromisso." };
-  const calendarId = existing?.google_calendar_id || selectedCalendarIds(row)[0];
-  if (!calendarId) return { sync_error: "Escolha uma agenda Google nas configurações." };
-  const access = await googleCalendarAccess(env, row);
-  const attendees = await agendaAttendees(getDB(env), event.sector_id, row.google_email);
-  const payload = { ...event, attendees, local_id: existing?.id || event.id };
-  const google = existing?.google_event_id
-    ? await updateGoogleEvent(access.access_token, calendarId, existing.google_event_id, payload)
-    : await createGoogleEvent(access.access_token, calendarId, payload);
-  return {
-    google_calendar_id: calendarId,
-    google_event_id: String(google.id || existing?.google_event_id || ""),
-    google_html_link: google.htmlLink || existing?.google_html_link || null,
-    sync_error: null
   };
 }
 
@@ -1978,13 +1964,8 @@ async function handleAgendaEventCreate(env, request) {
     event.title,event.description,event.location,event.start_at,event.end_at,event.all_day?1:0,
     event.alert_email?1:0,event.alert_popup?1:0,event.alert_minutes).run();
   const id = Number(result.meta.last_row_id);
-  let sync = {};
-  try { sync = await syncAgendaEventToGoogle(env, gate.user, { ...event, id, sector_id: sectorId }); }
-  catch (error) { sync = { sync_error: (error instanceof Error ? error.message : String(error)).slice(0, 500) }; }
-  await db.prepare(`UPDATE agenda_events SET google_calendar_id=?,google_event_id=?,google_html_link=?,sync_error=? WHERE id=?`)
-    .bind(sync.google_calendar_id || null,sync.google_event_id || null,sync.google_html_link || null,sync.sync_error || null,id).run();
   const after = await agendaEventForUser(db, gate.user.id, id);
-  await audit(env,request,gate.user,"AGENDA_EVENT_CREATE","agenda_event",id,null,{...event,owner_type:ownerType,sector_id:sectorId,synced:Boolean(sync.google_event_id)});
+  await audit(env,request,gate.user,"AGENDA_EVENT_CREATE","agenda_event",id,null,{...event,owner_type:ownerType,sector_id:sectorId});
   return json(safeAgendaEvent({ ...after, can_edit: 1, creator_name: gate.user.display_name }),201);
 }
 
@@ -1997,16 +1978,11 @@ async function handleAgendaEventUpdate(env, request, id) {
   let body; try { body = await readJson(request, 32768); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const event = normalizedAgendaInput(body, before);
   if (!event) return json({ error: "COMPROMISSO_INVALIDO" }, 400);
-  let sync = {};
-  try { sync = await syncAgendaEventToGoogle(env, gate.user, { ...event, id, sector_id: before.sector_id }, before); }
-  catch (error) { sync = { sync_error: (error instanceof Error ? error.message : String(error)).slice(0, 500) }; }
   await db.prepare(`
     UPDATE agenda_events SET title=?,description=?,location=?,start_at=?,end_at=?,all_day=?,alert_email=?,alert_popup=?,
-      alert_minutes=?,google_calendar_id=COALESCE(?,google_calendar_id),google_event_id=COALESCE(?,google_event_id),
-      google_html_link=COALESCE(?,google_html_link),sync_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+      alert_minutes=?,sync_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?
   `).bind(event.title,event.description,event.location,event.start_at,event.end_at,event.all_day?1:0,event.alert_email?1:0,
-    event.alert_popup?1:0,event.alert_minutes,sync.google_calendar_id||null,sync.google_event_id||null,
-    sync.google_html_link||null,sync.sync_error||null,id).run();
+    event.alert_popup?1:0,event.alert_minutes,id).run();
   const after = await agendaEventForUser(db, gate.user.id, id);
   await audit(env,request,gate.user,"AGENDA_EVENT_UPDATE","agenda_event",id,safeAgendaEvent({...before,can_edit:1}),safeAgendaEvent({...after,can_edit:1}));
   return json(safeAgendaEvent({ ...after, can_edit: 1, creator_name: gate.user.display_name }));
@@ -2018,19 +1994,9 @@ async function handleAgendaEventDelete(env, request, id) {
   const db = getDB(env);
   const before = await agendaEventForUser(db, gate.user.id, id);
   if (!before) return json({ error: "COMPROMISSO_NAO_ENCONTRADO" }, 404);
-  let syncError = null;
-  if (before.google_event_id && before.google_calendar_id) {
-    try {
-      const connection = await calendarConnection(env, before.creator_user_id);
-      if (connection) {
-        const access = await googleCalendarAccess(env, connection);
-        await deleteGoogleEvent(access.access_token, before.google_calendar_id, before.google_event_id);
-      }
-    } catch (error) { syncError = error instanceof Error ? error.message : String(error); }
-  }
   await db.prepare(`DELETE FROM agenda_events WHERE id=?`).bind(id).run();
-  await audit(env,request,gate.user,"AGENDA_EVENT_DELETE","agenda_event",id,safeAgendaEvent({...before,can_edit:1}),null,{google_sync_error:syncError});
-  return json({ ok: true, google_sync_error: syncError });
+  await audit(env,request,gate.user,"AGENDA_EVENT_DELETE","agenda_event",id,safeAgendaEvent({...before,can_edit:1}),null);
+  return json({ ok: true });
 }
 
 async function handleSectors(env, request) {
@@ -3695,9 +3661,6 @@ export default {
 
         if (url.pathname === "/api/calendar/status" && request.method === "GET")
           return await handleGoogleCalendarStatus(env, request);
-
-        if (url.pathname === "/api/calendar/settings" && request.method === "PUT")
-          return await handleGoogleCalendarSettings(env, request);
 
         if (url.pathname === "/api/calendar/google" && request.method === "DELETE")
           return await handleGoogleCalendarDisconnect(env, request);

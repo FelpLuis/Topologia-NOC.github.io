@@ -65,8 +65,8 @@
     });
     const google = state.data.google || {};
     $("#googleState").innerHTML = google.connected
-      ? `<span class="badge badge-ok">${icon("check")} Google vinculado</span> ${esc(google.email || "")}`
-      : `<span class="badge">Google não vinculado</span> <button class="btn btn-sm" data-link-google type="button">Vincular</button>`;
+      ? `<span class="badge badge-ok">${icon("check")} Gmail vinculado</span> ${esc(google.email || "")}${google.import_error ? ` <span class="dim">· importação temporariamente indisponível</span>` : ` <span class="dim">· ${Number(google.imported || 0)} importado(s)</span>`}`
+      : `<span class="badge">Agenda pessoal não importada</span> <button class="btn btn-sm" data-link-google type="button">Entrar com Gmail e vincular</button>`;
     $("[data-link-google]")?.addEventListener("click", () => location.href=`/api/calendar/google/start?return_to=${encodeURIComponent(location.pathname)}`);
   }
 
@@ -86,12 +86,12 @@
       const isToday = day.toDateString()===today.toDateString();
       return `<div class="calendar-day ${sameMonth?"":"is-outside"} ${isToday?"is-today":""}" data-day="${day.toISOString()}">
         <span class="day-number">${day.getDate()}</span>
-        ${list.map(e=>`<button class="day-event" style="--event-color:${esc(colorOf(e))}" data-event="${e.id}" title="${esc(e.title)}">
+        ${list.map(e=>`<button class="day-event" style="--event-color:${esc(colorOf(e))}" data-event="${esc(e.id)}" title="${esc(e.title)}">
           ${e.all_day?"":new Date(e.start).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})+" · "}${esc(e.title)}</button>`).join("")}
         ${events.filter(e=>new Date(e.start)<next&&new Date(e.end)>day).length>4?'<small class="dim">mais compromissos…</small>':""}
       </div>`;
     }).join("");
-    $$('[data-event]').forEach(b=>b.onclick=e=>{e.stopPropagation();openEvent(state.events.find(x=>x.id===+b.dataset.event));});
+    $$('[data-event]').forEach(b=>b.onclick=e=>{e.stopPropagation();openEvent(state.events.find(x=>String(x.id)===b.dataset.event));});
     $$('[data-day]').forEach(day=>day.onclick=()=>openEvent(null,new Date(day.dataset.day)));
   }
 
@@ -99,13 +99,13 @@
     const list=filtered().filter(e=>new Date(e.end)>=new Date()).slice(0,20);
     $("#upcomingList").innerHTML=list.length?list.map(e=>{
       const d=new Date(e.start);
-      return `<button class="upcoming-item" style="--event-color:${esc(colorOf(e))}" data-upcoming="${e.id}" type="button">
+      return `<button class="upcoming-item" style="--event-color:${esc(colorOf(e))}" data-upcoming="${esc(e.id)}" type="button">
         <span class="upcoming-date"><b>${d.getDate()}</b><small>${d.toLocaleDateString("pt-BR",{month:"short"}).replace(".","")}</small></span>
         <span style="text-align:left"><b>${esc(e.title)}</b><br><small class="dim">${e.all_day?"Dia todo":d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}${e.location?" · "+esc(e.location):""}</small><br>
         <span class="calendar-owner" style="--event-color:${esc(colorOf(e))}"><i></i>${esc(e.sector_name||"Minha agenda")}</span></span>
       </button>`;
     }).join(""):`<div class="empty"><span class="empty-icon">${icon("calendar")}</span><b>Nenhum compromisso próximo</b><p>Use “Novo compromisso” para começar.</p></div>`;
-    $$('[data-upcoming]').forEach(b=>b.onclick=()=>openEvent(state.events.find(e=>e.id===+b.dataset.upcoming)));
+    $$('[data-upcoming]').forEach(b=>b.onclick=()=>openEvent(state.events.find(e=>String(e.id)===b.dataset.upcoming)));
   }
 
   function render(){renderFilters();renderCalendar();renderUpcoming();}
@@ -125,7 +125,7 @@
         <div class="agenda-form-grid"><div class="field"><label for="eventStart">Início</label><input class="input" id="eventStart" type="datetime-local" value="${localInput(start)}"></div><div class="field"><label for="eventEnd">Término</label><input class="input" id="eventEnd" type="datetime-local" value="${localInput(end)}"></div></div>
         <label class="row" style="gap:8px"><input type="checkbox" id="eventAllDay" ${event?.all_day?"checked":""}> Compromisso de dia inteiro</label>
         <div class="field"><label for="eventDescription">Descrição</label><textarea class="textarea" id="eventDescription" rows="3">${esc(event?.description||"")}</textarea></div>
-        <div class="agenda-alerts"><b>${icon("bell")} Alertas</b><label><input type="checkbox" id="alertEmail" ${event?.alert_email!==false?"checked":""}> E-mail</label><label><input type="checkbox" id="alertPopup" ${event?.alert_popup!==false?"checked":""}> Popup</label><label class="row" style="gap:6px"><input class="input" style="width:80px" id="alertMinutes" type="number" min="0" max="1440" value="${event?.alert_minutes??10}"> min antes</label></div>
+        <div class="agenda-alerts"><b>${icon("bell")} Alerta em popup</b><label><input type="checkbox" id="alertPopup" ${event?.alert_popup!==false?"checked":""}> Ativo</label><label class="row" style="gap:6px"><input class="input" style="width:80px" id="alertMinutes" type="number" min="0" max="1440" value="${event?.alert_minutes??10}"> min antes</label></div>
         <span class="field-error" id="eventError" hidden></span>
       </div>
       <div class="modal-foot"><span>${event?.sync_error?`<small class="dim">${icon("alert")} ${esc(event.sync_error)}</small>`:""}</span><span class="row">${event?.can_delete?'<button class="btn btn-danger" data-delete type="button">Excluir</button>':""}<button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Salvar</button></span></div>`,
@@ -133,17 +133,17 @@
         $("[data-save]",host).onclick=async()=>{
           const owner=$("#eventOwner",host).value.split(":"), startValue=new Date($("#eventStart",host).value), endValue=new Date($("#eventEnd",host).value);
           const error=$("#eventError",host); if(!$("#eventTitle",host).value.trim()||!Number.isFinite(startValue.getTime())||!Number.isFinite(endValue.getTime())||endValue<=startValue){error.hidden=false;error.textContent="Informe título e um término posterior ao início.";return}
-          const payload={title:$("#eventTitle",host).value.trim(),owner_type:owner[0],sector_id:owner[1]?Number(owner[1]):null,location:$("#eventLocation",host).value.trim(),description:$("#eventDescription",host).value.trim(),start:startValue.toISOString(),end:endValue.toISOString(),all_day:$("#eventAllDay",host).checked,alert_email:$("#alertEmail",host).checked,alert_popup:$("#alertPopup",host).checked,alert_minutes:Number($("#alertMinutes",host).value)};
+          const payload={title:$("#eventTitle",host).value.trim(),owner_type:owner[0],sector_id:owner[1]?Number(owner[1]):null,location:$("#eventLocation",host).value.trim(),description:$("#eventDescription",host).value.trim(),start:startValue.toISOString(),end:endValue.toISOString(),all_day:$("#eventAllDay",host).checked,alert_email:false,alert_popup:$("#alertPopup",host).checked,alert_minutes:Number($("#alertMinutes",host).value)};
           if(payload.alert_popup&&"Notification" in window&&Notification.permission==="default")await Notification.requestPermission();
-          try{await NOC.api(event?`/api/agenda/events/${event.id}`:"/api/agenda/events",{method:event?"PATCH":"POST",body:JSON.stringify(payload)});close();await load();toast(event?"Compromisso atualizado":"Compromisso criado",{text:"Alertas e sincronização foram configurados.",type:"ok"});}
+          try{await NOC.api(event?`/api/agenda/events/${event.id}`:"/api/agenda/events",{method:event?"PATCH":"POST",body:JSON.stringify(payload)});close();await load();toast(event?"Compromisso atualizado":"Compromisso criado",{text:"O alerta em popup foi configurado.",type:"ok"});}
           catch(err){error.hidden=false;error.textContent=err.message}
         };
-        $("[data-delete]",host)?.addEventListener("click",()=>askConfirm({title:"Excluir compromisso?",text:"Ele também será removido do Google Agenda quando estiver sincronizado.",confirmLabel:"Excluir",danger:true,onConfirm:async()=>{try{await NOC.api(`/api/agenda/events/${event.id}`,{method:"DELETE"});close();await load();toast("Compromisso excluído",{type:"ok"})}catch(err){toast("Não foi possível excluir",{text:err.message,type:"danger"})}}}));
+        $("[data-delete]",host)?.addEventListener("click",()=>askConfirm({title:"Excluir compromisso?",text:"O compromisso será removido somente do NOC. A agenda importada permanece somente leitura.",confirmLabel:"Excluir",danger:true,onConfirm:async()=>{try{await NOC.api(`/api/agenda/events/${event.id}`,{method:"DELETE"});close();await load();toast("Compromisso excluído",{type:"ok"})}catch(err){toast("Não foi possível excluir",{text:err.message,type:"danger"})}}}));
       }
     });
   }
 
-  function openDetails(e){modal({labelledBy:"eventDetailsTitle",html:`<div class="modal-head"><div><span class="kicker">${esc(e.sector_name||"Agenda pessoal")}</span><h2 id="eventDetailsTitle">${esc(e.title)}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><p><b>Quando:</b> ${new Date(e.start).toLocaleString("pt-BR")} até ${new Date(e.end).toLocaleString("pt-BR")}</p>${e.location?`<p><b>Local:</b> ${esc(e.location)}</p>`:""}${e.description?`<p>${esc(e.description)}</p>`:""}<p class="dim">Criado por ${esc(e.creator_name||"usuário do setor")}</p></div><div class="modal-foot"><span></span><span class="row">${e.html_link?'<a class="btn" target="_blank" rel="noopener" href="'+esc(e.html_link)+'">Abrir no Google</a>':""}<button class="btn btn-primary" data-close>Fechar</button></span></div>`});}
+  function openDetails(e){modal({labelledBy:"eventDetailsTitle",html:`<div class="modal-head"><div><span class="kicker">${esc(e.sector_name||"Agenda pessoal")}</span><h2 id="eventDetailsTitle">${esc(e.title)}</h2></div><button class="btn btn-ghost btn-icon" data-close>${icon("close")}</button></div><div class="modal-body stack"><p><b>Quando:</b> ${new Date(e.start).toLocaleString("pt-BR")} até ${new Date(e.end).toLocaleString("pt-BR")}</p>${e.location?`<p><b>Local:</b> ${esc(e.location)}</p>`:""}${e.description?`<p>${esc(e.description)}</p>`:""}<p class="dim">Criado por ${esc(e.creator_name||"usuário do setor")}</p></div><div class="modal-foot"><span></span><span class="row">${e.html_link?'<a class="btn" target="_blank" rel="noopener" href="'+esc(e.html_link)+'">Abrir compromisso</a>':""}<button class="btn btn-primary" data-close>Fechar</button></span></div>`});}
 
   async function boot(){UI.mountShell();$("#prevBtn").innerHTML=icon("chevronLeft");$("#nextBtn").innerHTML=icon("chevronRight");$("#newEventBtn").innerHTML=icon("plus")+" Novo compromisso";$("#prevBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()-1);load()};$("#nextBtn").onclick=()=>{state.cursor.setMonth(state.cursor.getMonth()+1);load()};$("#todayBtn").onclick=()=>{state.cursor=new Date();state.cursor.setDate(1);load()};$("#newEventBtn").onclick=()=>openEvent();try{await NOC.loadAccess();NOC.applyActions();await load()}catch(err){toast("Não foi possível carregar a agenda",{text:err.message,type:"danger",timeout:8000})}}
   boot();

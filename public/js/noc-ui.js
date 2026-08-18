@@ -204,6 +204,7 @@ window.UI = (() => {
     { code: "pops", label: "Cadastro de POPs Backbone", href: "/pops.html", icon: "pops", sector: "noc", desc: "Inventário por POP e rotas ópticas" },
     { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", sector: "noc", desc: "Painel operacional para TV" },
     { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", sector: "noc", desc: "Perfis, ações, telas, usuários e auditoria" },
+    { code: "trafego", label: "Tráfego", desc: "Monitoramento de tráfego, utilização e erros por interface", href: "/trafego.html", icon: "trafego"},
   ];
 
   /* Setores fixos do menu. As telas existentes (incluindo GPON e ISP) ficam
@@ -356,7 +357,7 @@ window.UI = (() => {
     initCalendarAlerts();
   });
 
-  /* ---------------- Google Agenda e alertas ---------------- */
+  /* ---------------- agenda pessoal vinculada pelo Gmail ---------------- */
   async function calendarApi(url, options = {}) {
     const response = await fetch(url, {
       credentials: "same-origin",
@@ -381,8 +382,8 @@ window.UI = (() => {
       wide: true,
       html: `
         <div class="modal-head">
-          <div><span class="kicker">${icon("bell")} Compromissos</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Agenda Google</h2>
-          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Vincule sua conta pessoal Google (Gmail) e receba avisos enquanto o NOC estiver aberto.</p></div>
+          <div><span class="kicker">${icon("bell")} Compromissos</span><h2 id="calendarSettingsTitle" style="margin-top:8px">Agenda pessoal</h2>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:6px">Entre no Gmail uma vez para importar sua agenda e receber os avisos no NOC.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body" data-calendar-body><div class="empty"><b>Consultando sua agenda…</b></div></div>
@@ -393,11 +394,11 @@ window.UI = (() => {
           body.innerHTML = configured ? `
             <div class="empty">
               <span style="display:inline-flex;margin-bottom:12px">${icon("bell", "icon icon-lg")}</span>
-              <b>Nenhuma conta pessoal Google vinculada</b>
-              <p>Use sua conta @gmail.com. Esse vínculo é separado do login corporativo do NOC, tem acesso somente leitura e pode ser removido a qualquer momento.</p>
-              <button class="btn btn-primary" data-calendar-connect type="button">Vincular conta pessoal Google</button>
+              <b>Nenhuma agenda pessoal vinculada</b>
+              <p>Faça login com sua conta pessoal do Gmail. As agendas dessa conta serão importadas automaticamente.</p>
+              <button class="btn btn-primary" data-calendar-connect type="button">Entrar com Gmail e vincular</button>
             </div>` : `
-            <div class="notice notice-warn">${icon("alert")}<span><b>Integração ainda não configurada</b><br>O administrador precisa cadastrar as credenciais do Google Calendar no servidor.</span></div>`;
+            <div class="notice notice-warn">${icon("alert")}<span><b>Vínculo com Gmail ainda não disponível</b><br>Fale com o administrador da plataforma.</span></div>`;
           $("[data-calendar-connect]", body)?.addEventListener("click", () => {
             location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
           });
@@ -408,38 +409,18 @@ window.UI = (() => {
           if (!status.connected) return renderDisconnected(status.configured);
           if (status.needs_reconnect) {
             body.innerHTML = `
-              <div class="notice notice-warn">${icon("alert")}<span><b>A conexão com ${esc(status.email || "Google")} expirou.</b><br>Vincule novamente a conta para retomar os alertas.</span></div>
-              <button class="btn btn-primary" data-calendar-reconnect type="button">Vincular novamente</button>`;
+              <div class="notice notice-warn">${icon("alert")}<span><b>A conexão com ${esc(status.email || "Gmail")} expirou.</b><br>Entre novamente no Gmail para retomar a importação e os alertas.</span></div>
+              <button class="btn btn-primary" data-calendar-reconnect type="button">Entrar novamente no Gmail</button>`;
             $("[data-calendar-reconnect]", body).onclick = () => {
               location.href = `/api/calendar/google/start?return_to=${encodeURIComponent(calendarReturnTo())}`;
             };
             return;
           }
           body.innerHTML = `
-            <div class="notice notice-info">${icon("check")}<span><b>${esc(status.email || "Conta Google vinculada")}</b><br>A plataforma só lê os compromissos das agendas marcadas.</span></div>
-            <div class="field" style="margin-top:var(--s-4)">
-              <label for="calendarAlertMinutes">Avisar com antecedência</label>
-              <select class="select" id="calendarAlertMinutes">
-                ${[[0,"No horário"],[5,"5 minutos"],[10,"10 minutos"],[15,"15 minutos"],[30,"30 minutos"],[60,"1 hora"],[120,"2 horas"],[1440,"1 dia"]].map(([value,label]) => `<option value="${value}" ${Number(status.alert_minutes) === value ? "selected" : ""}>${label}</option>`).join("")}
-              </select>
-            </div>
-            <fieldset style="border:0;padding:0;margin:var(--s-4) 0 0">
-              <legend style="font-weight:700;font-size:var(--fs-13);margin-bottom:8px">Agendas acompanhadas</legend>
-              <div class="stack" style="gap:6px;max-height:240px;overflow:auto">
-                ${(status.calendars || []).map(calendar => `
-                  <label class="row" style="padding:9px 10px;border:1px solid var(--line);border-radius:var(--radius-sm);cursor:pointer">
-                    <input type="checkbox" data-calendar-id="${esc(calendar.id)}" ${calendar.enabled ? "checked" : ""}>
-                    <i style="width:10px;height:10px;border-radius:50%;background:${esc(calendar.backgroundColor || "var(--blue-500)")}"></i>
-                    <span class="grow">${esc(calendar.summary)}${calendar.primary ? ' <small class="dim">(principal)</small>' : ""}</span>
-                  </label>`).join("") || '<p class="dim">Nenhuma agenda disponível nessa conta.</p>'}
-              </div>
-            </fieldset>
+            <div class="notice notice-info">${icon("check")}<span><b>${esc(status.email || "Gmail vinculado")}</b><br>${(status.calendars || []).length || 1} agenda(s) importada(s) automaticamente. Os avisos aparecem 10 minutos antes.</span></div>
             <div class="row-between wrap" style="margin-top:var(--s-5);gap:var(--s-3)">
               <button class="btn" data-notification-permission type="button">${icon("bell")} Ativar notificação do navegador</button>
-              <span class="row">
-                <button class="btn btn-danger" data-calendar-disconnect type="button">Desvincular</button>
-                <button class="btn btn-primary" data-calendar-save type="button">Salvar</button>
-              </span>
+              <button class="btn btn-danger" data-calendar-disconnect type="button">Desvincular Gmail</button>
             </div>`;
 
           const permission = $("[data-notification-permission]", body);
@@ -449,33 +430,16 @@ window.UI = (() => {
             const result = await Notification.requestPermission();
             if (result === "granted") { permission.textContent = "Notificações do navegador ativas"; permission.disabled = true; }
           });
-          $("[data-calendar-save]", body).onclick = async event => {
-            const selected = $$('[data-calendar-id]:checked', body).map(input => input.dataset.calendarId);
-            if (!selected.length) return toast("Escolha ao menos uma agenda", { type: "warn" });
-            event.currentTarget.disabled = true;
-            try {
-              await calendarApi("/api/calendar/settings", {
-                method: "PUT",
-                body: JSON.stringify({ calendars: selected, alert_minutes: Number($("#calendarAlertMinutes", body).value) })
-              });
-              close();
-              toast("Agendas atualizadas", { text: "Os próximos compromissos já serão acompanhados.", type: "ok" });
-              pollCalendarEvents(true);
-            } catch (error) {
-              toast("Não foi possível salvar", { text: error.message, type: "danger" });
-              event.currentTarget.disabled = false;
-            }
-          };
           $("[data-calendar-disconnect]", body).onclick = () => confirm({
-            title: "Desvincular a conta Google?",
-            text: "As agendas deixam de ser consultadas e os alertas são interrompidos.",
+            title: "Desvincular o Gmail?",
+            text: "A agenda deixa de ser importada e os alertas são interrompidos.",
             confirmLabel: "Desvincular",
             danger: true,
             onConfirm: async () => {
               try {
                 await calendarApi("/api/calendar/google", { method: "DELETE" });
                 close();
-                toast("Conta Google desvinculada", { type: "ok" });
+                toast("Gmail desvinculado", { type: "ok" });
               } catch (error) { toast("Não foi possível desvincular", { text: error.message, type: "danger" }); }
             }
           });
@@ -524,7 +488,7 @@ window.UI = (() => {
           </div>`).join("")}
         </div>
         <div class="modal-foot"><span></span><span class="row">
-          ${first.html_link ? '<button class="btn" data-open-google type="button">Abrir no Google Agenda</button>' : ""}
+          ${first.html_link ? '<button class="btn" data-open-google type="button">Abrir compromisso</button>' : ""}
           <button class="btn btn-primary" data-close type="button">Entendi</button>
         </span></div>`,
       onMount: host => {
@@ -576,8 +540,8 @@ window.UI = (() => {
     if (calendarAlertsStarted) return;
     calendarAlertsStarted = true;
     const params = new URLSearchParams(location.search);
-    if (params.get("calendar") === "connected") toast("Conta Google vinculada", { text: "Escolha as agendas e a antecedência no menu do usuário.", type: "ok", timeout: 7000 });
-    if (params.has("calendar_error")) toast("Não foi possível vincular a conta Google", { text: "Tente novamente pelo menu do usuário.", type: "danger", timeout: 7000 });
+    if (params.get("calendar") === "connected") toast("Agenda pessoal importada", { text: "O Gmail foi vinculado e os alertas já estão ativos.", type: "ok", timeout: 7000 });
+    if (params.has("calendar_error")) toast("Não foi possível vincular o Gmail", { text: "Tente novamente pelo menu do usuário.", type: "danger", timeout: 7000 });
     if (params.has("calendar") || params.has("calendar_error")) {
       params.delete("calendar"); params.delete("calendar_error");
       history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`);
@@ -615,7 +579,7 @@ window.UI = (() => {
         </div>
         <div class="menu-sep"></div>
         <a class="menu-item" href="/change-password.html">${icon("lock")} Trocar senha</a>
-        <button class="menu-item" data-calendar-menu type="button">${icon("bell")} Agenda Google</button>
+        <button class="menu-item" data-calendar-menu type="button">${icon("bell")} Agenda pessoal</button>
         <button class="menu-item" data-theme-menu type="button">${icon("moon")} Alternar tema</button>
         <button class="menu-item" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
         <div class="menu-sep"></div>

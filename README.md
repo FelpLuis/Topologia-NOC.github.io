@@ -257,25 +257,24 @@ uma identidade precisa corresponder ao e-mail verificado de um usuário existent
 Depois de validar o acesso corporativo, `PASSWORD_LOGIN_ENABLED=false` desativa o
 login por senha local.
 
-### Conta pessoal Google e alertas de compromissos
+### Importação da agenda pessoal pelo Gmail
 
-Cada usuário autenticado pode abrir o menu do perfil, escolher **Agenda Google**
-e vincular a própria conta pessoal Google (`@gmail.com`). Esse vínculo é
-independente do login corporativo usado para entrar no NOC. A integração pede
-acesso aos eventos e leitura da lista de agendas (`calendar.events` e
-`calendar.calendarlist.readonly`), permite escolher onde sincronizar e mostra
-um pop-up no NOC quando o compromisso entra na antecedência configurada. Se o
+Cada usuário autenticado abre **Agenda pessoal**, escolhe **Entrar com Gmail e
+vincular** e faz login na própria conta `@gmail.com`. Não há seleção ou
+configuração adicional: as agendas acessíveis nessa conta são importadas
+automaticamente e os avisos aparecem 10 minutos antes do compromisso. Esse
+vínculo é independente do login corporativo usado para entrar no NOC. Se o
 usuário autorizar, o navegador também exibe uma notificação do sistema.
 
 A tela **Agenda** reúne a agenda pessoal do usuário e uma agenda para cada setor
 ao qual ele pertence. Os setores são cadastrados em **Gerenciar plataforma →
 Setores** e funcionam como grupos de autorização: no cadastro ou na edição de
 um usuário, marque um ou mais setores. Compromissos setoriais ficam visíveis
-somente aos membros, são gravados no Google Agenda do organizador e convidam os
-demais membros que possuem e-mail cadastrado. Cada compromisso pode ativar
-lembrete por e-mail, popup ou ambos.
+somente aos membros e ficam armazenados no NOC. A agenda importada do Gmail é
+somente leitura e cada compromisso interno pode ativar um alerta em popup.
 
-No Google Cloud, habilite a Google Calendar API e configure a tela de
+Nos bastidores, o administrador precisa habilitar a API de agenda no Google
+Cloud e configurar a tela de
 consentimento OAuth com o tipo de público **Externo**. O tipo **Interno** aceita
 somente contas da organização e, portanto, não serve para contas pessoais Gmail.
 Depois, crie um cliente do tipo **Aplicativo da Web** e cadastre a URI de
