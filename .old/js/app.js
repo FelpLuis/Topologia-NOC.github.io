@@ -418,7 +418,7 @@ let universalEditorIndex = null;
 let universalEditorBackup = null;
 
 const visibleConfig = {
-  coreTitle: "NÚCLEO / ASCENTY — FLUXO PRINCIPAL",
+  coreTitle: "BACKBONE • ANEL ÓPTICO",
   ringTitle: "ANEL ÓPTICO DOS POPs",
   ringLabel: "ANEL — ROTAS AÉREAS E SUBTERRÂNEAS",
   popSectionTitle: "EQUIPAMENTOS POR POP",
