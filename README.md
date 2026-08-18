@@ -584,6 +584,27 @@ Há dois caminhos para cadastrar a localização:
   aparece na lista "fora do mapa" com o botão **Colocar aqui**, que o solta no centro da
   vista para então ser arrastado.
 
+### Cor de estado no mapa
+
+A linha de enlace é pintada pelo `operStatus` das interfaces sincronizadas do Zabbix
+(1 = up, 2 = down), o mesmo dado que alimenta o status dos equipamentos:
+
+| Linha | Significado |
+| --- | --- |
+| **verde** | as pontas monitoradas do enlace estão no ar |
+| **âmbar** | parte do feixe caiu (ex.: 1 de 3 enlaces do caminho) |
+| **vermelho** | todos os enlaces do caminho estão fora do ar |
+| cinza | nenhuma ponta monitorada — a cor não afirma o que não foi medido |
+
+A animação de tráfego some das linhas vermelhas: fluxo correndo sobre um enlace caído
+seria a informação errada. As rotas do anel (tracejado roxo) não recebem cor — elas vêm
+do cadastro de rotas do POP, não do Zabbix.
+
+O POP segue o pior estado entre os equipamentos que o Zabbix monitora: **verde** no ar,
+**âmbar** com parte fora, e **vermelho piscando** quando todos os equipamentos dele
+caíram — no alfinete do mapa e no card. Quem pediu menos movimento
+(`prefers-reduced-motion`) recebe o vermelho fixo, sem piscar.
+
 Não há biblioteca de mapa de terceiros: `public/js/noc-geo.js` implementa a projeção
 Web Mercator e a camada de tiles em ~180 linhas, porque o CSP do Worker só libera
 script próprio (`script-src 'self'`) e porque os tiles precisam viver dentro do

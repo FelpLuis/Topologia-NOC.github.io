@@ -545,6 +545,19 @@
     return [...map.values()];
   }
 
+  /* Cor da linha: verde quando o Zabbix vê as duas pontas no ar, vermelho
+     quando alguma caiu, âmbar quando só parte do feixe caiu. Enlace sem
+     interface monitorada continua cinza — a linha não afirma o que não foi
+     medido. */
+  function edgeStatus(conns) {
+    const estados = conns.map(NOC.linkStatus).filter((s) => s !== "sem-dado");
+    if (!estados.length) return { classe: "", titulo: "sem dado do Zabbix" };
+    const caidos = estados.filter((s) => s === "down").length;
+    if (!caidos) return { classe: "is-up", titulo: "no ar" };
+    if (caidos === estados.length) return { classe: "is-down", titulo: "fora do ar" };
+    return { classe: "is-partial", titulo: `${caidos} de ${estados.length} enlaces fora do ar` };
+  }
+
   function renderEdges() {
     const parts = [];
     const rings = ringLinks();
@@ -565,11 +578,15 @@
       const d = curve(a, b);
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const label = e.conns.length > 1 ? `${e.conns.length} enlaces` : `${e.conns[0].portaOrigem} ↔ ${e.conns[0].portaDestino}`;
+      const est = edgeStatus(e.conns);
+      /* A linha só anima o fluxo quando o enlace está no ar: um enlace caído
+         com tráfego correndo por cima seria a informação errada. */
+      const fluxo = state.flow && !dim && est.classe !== "is-down";
       parts.push(`
-        <path class="topo-edge ${active ? "is-active" : ""} ${dim ? "is-dim" : ""}" d="${d}" data-edge="${i}"><title>${esc(label)}</title></path>
-        ${state.flow && !dim ? `<path class="topo-flow" d="${d}"/>` : ""}
+        <path class="topo-edge ${est.classe} ${active ? "is-active" : ""} ${dim ? "is-dim" : ""}" d="${d}" data-edge="${i}"><title>${esc(label)} — ${esc(est.titulo)}</title></path>
+        ${fluxo ? `<path class="topo-flow" d="${d}"/>` : ""}
         <g data-edge="${i}" style="${dim ? "opacity:.22" : ""}">
-          <rect class="topo-edge-chip" x="${mx - 44}" y="${my - 26}" width="88" height="19" rx="6"/>
+          <rect class="topo-edge-chip ${est.classe}" x="${mx - 44}" y="${my - 26}" width="88" height="19" rx="6"/>
           <text class="topo-edge-label" x="${mx}" y="${my - 12}" text-anchor="middle">${esc(label)}</text>
         </g>`);
     });
@@ -586,6 +603,17 @@
     });
   }
 
+  /* Estado operacional do POP, do jeito que a caixa e o alfinete precisam.
+     POP com todos os equipamentos fora do ar pisca em vermelho: é a única
+     situação que exige alguém agora. */
+  const ESTADOS = {
+    offline: { classe: "is-offline", titulo: "todos os equipamentos fora do ar", badge: "badge-danger", dot: "dot-danger", rotulo: "Offline" },
+    degradado: { classe: "is-degradado", titulo: "parte dos equipamentos fora do ar", badge: "badge-warn", dot: "dot-warn", rotulo: "Degradado" },
+    online: { classe: "is-online", titulo: "no ar", badge: "badge-ok", dot: "dot-ok", rotulo: "Online" },
+    "sem-dado": { classe: "", titulo: "sem dado do Zabbix", badge: "", dot: "", rotulo: "" },
+  };
+  const siteEstado = (siteId) => ESTADOS[siteId === SEM_POP ? "sem-dado" : NOC.popStatus(siteId)] || ESTADOS["sem-dado"];
+
   function renderSites() {
     const host = $("#nodes");
     host.innerHTML = mapSites().map((s) => {
@@ -596,17 +624,19 @@
       const temEquip = st.list.length > 0;
       const dim = state.query && !st.list.some(matches);
       const pendente = s.id === SEM_POP;
+      const estado = siteEstado(s.id);
 
       /* No mapa geográfico, POP fechado é um alfinete: o card inteiro sobre
-         cada cidade tapava o mapa. A cor acompanha a ocupação e o número é a
-         quantidade de equipamentos, então o alfinete já diz o essencial. */
+         cada cidade tapava o mapa. A cor é o estado operacional vindo do
+         Zabbix e o número é a quantidade de equipamentos, então o alfinete já
+         diz o essencial — e pisca em vermelho quando o POP inteiro cai. */
       if (b.marcador) {
         const posicionadoM = !!state.geoDraft[s.id];
-        return `<button class="topo-marker ${NOC.occClass(st.ocup)} ${dim ? "is-dim" : ""} ${state.editLayout && posicionadoM ? "is-locating" : ""}"
+        return `<button class="topo-marker ${estado.classe} ${dim ? "is-dim" : ""} ${state.editLayout && posicionadoM ? "is-locating" : ""}"
                   type="button" data-box="${esc(s.id)}" data-marker="${esc(s.id)}"
                   style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px"
-                  title="${esc(s.nome)} — ${st.list.length} equipamento(s), ${st.ocup}% de ocupação"
-                  aria-label="${esc(s.nome)}, ${st.list.length} equipamentos, ${st.ocup}% de ocupação. ${state.editLayout ? "Arraste para posicionar." : "Abrir o card."}">
+                  title="${esc(s.nome)} — ${esc(estado.titulo)}, ${st.list.length} equipamento(s), ${st.ocup}% de ocupação"
+                  aria-label="${esc(s.nome)}, ${esc(estado.titulo)}, ${st.list.length} equipamentos, ${st.ocup}% de ocupação. ${state.editLayout ? "Arraste para posicionar." : "Abrir o card."}">
           <span class="marker-icon">${icon("pops")}</span>
           ${st.list.length ? `<span class="marker-count">${st.list.length}</span>` : ""}
           <span class="marker-label">${esc(s.nome)}</span>
@@ -631,7 +661,7 @@
       }).join("") : "";
 
       const posicionado = isGeo() ? !!state.geoDraft[s.id] : !!state.layout[s.id];
-      return `<section class="topo-site ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""} ${state.editLayout && posicionado && isGeo() ? "is-locating" : ""}"
+      return `<section class="topo-site ${estado.classe} ${aberto ? "is-expanded" : ""} ${pendente ? "" : "is-core"} ${dim ? "is-dim" : ""} ${state.editLayout && posicionado ? "is-placed" : ""} ${state.editLayout && posicionado && isGeo() ? "is-locating" : ""}"
                 data-box="${esc(s.id)}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">
         ${b.geo ? '<span class="site-pin"></span>' : ""}
         ${b.geo ? `<button class="site-close" type="button" data-collapse="${esc(s.id)}"
@@ -644,6 +674,7 @@
           <span class="grow" style="min-width:0">
             <span class="row" style="gap:6px">
               <span class="badge ${pendente ? "badge-warn" : "badge-brand"}">${esc(s.tipo)}</span>
+              ${estado.rotulo ? `<span class="badge ${estado.badge}"><i class="dot ${estado.dot}"></i>${estado.rotulo}</span>` : ""}
             </span>
             <b class="truncate" style="display:block;margin-top:6px">${esc(s.nome)}</b>
             <small class="dim truncate" style="display:block">${esc(s.local)}</small>

@@ -334,6 +334,30 @@ window.NOC = (() => {
       .map((p) => ({ porta: p, conexao: portConnection(e.id, p.numero) }));
   }
 
+  /* Estado de um enlace documentado, lido das duas pontas. É o que pinta a
+     linha no mapa: verde só quando as portas monitoradas estão no ar, vermelho
+     quando alguma caiu. Sem nenhuma ponta monitorada o enlace fica "sem-dado" e
+     a linha não ganha cor — pintá-la de verde afirmaria algo que o Zabbix não
+     disse. */
+  function linkStatus(c) {
+    const porta = (id, numero) => (state.topology?.equipamentos || [])
+      .find((e) => e.id === id)?.portas
+      ?.find((p) => Number(p.numero) === Number(numero));
+    const pontas = [porta(c?.origem, c?.portaOrigem), porta(c?.destino, c?.portaDestino)].filter(monitorada);
+    if (!pontas.length) return "sem-dado";
+    return pontas.every(noAr) ? "up" : "down";
+  }
+
+  /* Estado do POP: o pior entre os equipamentos que o Zabbix monitora. Todos
+     fora do ar = POP offline; algum fora ou degradado = degradado. */
+  function popStatus(popId) {
+    const estados = devicesOfPop(popId).map(statusInfo).filter((s) => s.dot);
+    if (!estados.length) return "sem-dado";
+    if (estados.every((s) => s.label === "Offline")) return "offline";
+    if (estados.some((s) => s.label !== "Online")) return "degradado";
+    return "online";
+  }
+
   /* ---------------- Zabbix ---------------- */
   /* Espelho do inventário de interfaces. A fonte é o Zabbix; o D1 guarda o
      resultado da última sincronização, então a leitura aqui é sempre barata. */
@@ -463,7 +487,7 @@ window.NOC = (() => {
     loadTopologyOnce, trafego,
     pops, popById, popCoords, popRecord, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
-    usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, skeleton, errorState,
+    usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, linkStatus, popStatus, skeleton, errorState,
     zabbix, interfaceStatus, formatBps, deviceConnection,
   };
 })();
