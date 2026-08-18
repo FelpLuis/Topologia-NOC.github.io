@@ -205,12 +205,11 @@
      do mapa (nível 3 ≈ continente, nível 18 ≈ rua). MARKER é o alfinete que
      representa o POP fechado. */
   const GEO_PAD = 190, GEO_Z_MIN = 3, GEO_Z_MAX = 18, MARKER = 46;
-  /* Região padrão do mapa: a Baixada Santista, onde está a rede. É o que abre
-     quando nenhum POP tem coordenada ainda — sem uma região de referência não
-     haveria onde soltar o primeiro POP. O recorte vai de Cubatão e da Serra ao
-     norte até a orla de Praia Grande ao sul, e de São Vicente a Bertioga:
-     Santos, São Vicente, Praia Grande, Cubatão e Guarujá aparecem juntos. */
-  const BAIXADA = { norte: -23.67, sul: -24.09, oeste: -46.75, leste: -46.10 };
+  /* Vista padrão do mapa geográfico: a Baixada Santista a partir de Cubatão,
+     no nível 12. É com ela que a tela abre — a rede inteira cabe e as ruas
+     ainda são legíveis — e é o ponto de apoio para posicionar um POP que ainda
+     não tem coordenada. */
+  const VISTA_PADRAO = { lat: -23.896750, lon: -46.433127, zoom: 12 };
   const stage = () => $("#stage");
   const world = () => $("#world");
 
@@ -283,24 +282,45 @@
     state.ty = 0;
   }
 
-  /* "Ajustar à tela" do modo geográfico. A Baixada Santista entra sempre no
-     enquadramento — é onde a rede está, e é ela que precisa aparecer inteira
-     ao abrir o mapa, inclusive para posicionar um POP que ainda não tem
-     coordenada. POP fora dela alarga a moldura, nunca a encolhe. */
+  /* Vista de abertura: o ponto de referência no centro, no nível padrão. */
+  function geoPadrao() {
+    const st = stage().getBoundingClientRect();
+    const p = GEO.project(VISTA_PADRAO.lat, VISTA_PADRAO.lon);
+    const k = 2 ** VISTA_PADRAO.zoom;
+    state.geo = { k, ox: p.x * k - st.width / 2, oy: p.y * k - st.height / 2 };
+    state.scale = 1;
+    state.tx = 0;
+    state.ty = 0;
+    layout();
+    renderAll();
+    applyTransform();
+  }
+
+  /* "Ajustar à tela" do modo geográfico: enquadra os POPs já localizados, sem
+     nunca aproximar mais que o nível padrão — dois POPs vizinhos jogariam o
+     mapa para a escala de quarteirão, longe da vista de trabalho. Sem nenhum
+     POP localizado, volta à vista de abertura. */
   function geoFit() {
-    const cantos = [
-      GEO.project(BAIXADA.norte, BAIXADA.oeste),
-      GEO.project(BAIXADA.sul, BAIXADA.leste),
-      ...geoSites().map((s) => {
-        const c = coordsOf(s.id);
-        return GEO.project(c.lat, c.lon);
-      }),
-    ];
+    const pontos = geoSites().map((s) => {
+      const c = coordsOf(s.id);
+      return GEO.project(c.lat, c.lon);
+    });
+    if (!pontos.length) return geoPadrao();
     enquadrar(
-      { x: Math.min(...cantos.map((p) => p.x)), y: Math.min(...cantos.map((p) => p.y)) },
-      { x: Math.max(...cantos.map((p) => p.x)), y: Math.max(...cantos.map((p) => p.y)) },
-      20
+      { x: Math.min(...pontos.map((p) => p.x)), y: Math.min(...pontos.map((p) => p.y)) },
+      { x: Math.max(...pontos.map((p) => p.x)), y: Math.max(...pontos.map((p) => p.y)) },
+      90
     );
+    if (state.geo.k > 2 ** VISTA_PADRAO.zoom) {
+      // Reaproveita o centro já calculado e apenas afrouxa a escala.
+      const st = stage().getBoundingClientRect();
+      const centro = {
+        x: (state.geo.ox + st.width / 2) / state.geo.k,
+        y: (state.geo.oy + st.height / 2) / state.geo.k,
+      };
+      const k = 2 ** VISTA_PADRAO.zoom;
+      state.geo = { k, ox: centro.x * k - st.width / 2, oy: centro.y * k - st.height / 2 };
+    }
     layout();
     renderAll();
     applyTransform();
@@ -2237,8 +2257,10 @@
     syncLayoutButton();
     renderBasemap();
     if (!mapa) return;
-    // Cada modo tem o seu enquadramento: trocar de modo reenquadra.
-    setTimeout(() => { layout(); renderAll(); fit(); }, 30);
+    /* Cada modo tem o seu enquadramento: trocar de modo reenquadra. O mapa
+       geográfico sempre abre na vista padrão, e não no ajuste aos POPs — é o
+       enquadramento de trabalho, o mesmo toda vez. */
+    setTimeout(() => { layout(); renderAll(); if (isGeo()) geoPadrao(); else fit(); }, 30);
   }
 
   async function boot() {

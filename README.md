@@ -563,9 +563,12 @@ cadastro do POP dentro da topologia — portanto passam pelo mesmo `PUT /api/top
 pela mesma auditoria e pela mesma ação `pops.edit`. Sem coordenada, o POP continua
 inteiro no modo Esquema e aparece na lista "fora do mapa" no modo Mapa OSM.
 
-O mapa abre sempre com a **Baixada Santista** inteira enquadrada — é onde a rede está,
-e é ela que precisa estar visível para posicionar um POP que ainda não tem coordenada.
-POP fora dessa região alarga a moldura, nunca a encolhe.
+O mapa abre sempre na mesma vista de trabalho: a Baixada Santista a partir de Cubatão
+(-23.896750, -46.433127) no **nível 12**, definida em `VISTA_PADRAO`. É o enquadramento
+em que a rede inteira cabe com as ruas ainda legíveis, e é o apoio para posicionar um POP
+que ainda não tem coordenada. O botão **ajustar à tela** recentraliza nos POPs já
+localizados, mas nunca aproxima mais que esse nível — dois POPs vizinhos jogariam o mapa
+para a escala de quarteirão.
 
 No mapa geográfico o POP é um **alfinete**, não o card: a cor acompanha a ocupação e o
 número é a quantidade de equipamentos. O card só abre no clique, um de cada vez, e
