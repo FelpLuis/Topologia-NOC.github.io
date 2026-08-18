@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-2">
 <script src="/js/auth-guard.js"></script>
 </head>
-<body>
+<body class="topology-no-sidebar">
 <a class="skip-link" href="#stage">Ir para o mapa da topologia</a>
 <header data-appbar></header>
 
@@ -26,7 +26,6 @@
 
       <div class="topo-toolbar">
         <div class="row" style="gap:var(--s-2)">
-          <button class="btn btn-sm btn-icon" id="toggleSide" type="button" title="Ocultar lista de equipamentos" aria-label="Ocultar lista de equipamentos"></button>
           <div>
             <span class="kicker" id="topoKicker">Visão por localidade — clique para expandir</span>
             <h1 style="font-size:var(--fs-20);margin-top:2px" id="topoTitle">Topologia de rede</h1>
@@ -70,18 +69,6 @@
       </div>
 
       <div class="topo-main" id="topoMain">
-        <aside class="topo-side">
-          <div class="topo-side-scroll grow">
-            <div class="device-list" id="deviceList"></div>
-          </div>
-
-          <div class="card" style="padding:var(--s-3);font-size:var(--fs-11)">
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
-            <div class="row" style="gap:var(--s-2);margin-bottom:6px"><i class="dot"></i><span>Porta livre e disponível</span></div>
-            <div class="row" style="gap:var(--s-2)"><i class="dot" style="background:var(--purple-400)"></i><span>Rota do anel óptico</span></div>
-          </div>
-        </aside>
-
         <section class="topo-stage" id="stage" tabindex="0" role="application"
                  aria-label="Mapa da topologia. Use as setas para deslocar e as teclas mais e menos para aproximar.">
           <div class="topo-world" id="world">
@@ -89,6 +76,12 @@
             <div class="topo-basemap" id="basemap" aria-hidden="true" hidden></div>
             <svg class="topo-svg" id="edges" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div id="nodes"></div>
+          </div>
+
+          <div class="panel topo-legend" id="legend">
+            <div class="row"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
+            <div class="row"><i class="dot"></i><span>Porta livre e disponível</span></div>
+            <div class="row"><i class="dot" style="background:var(--purple-400)"></i><span>Rota do anel óptico</span></div>
           </div>
 
           <!-- POPs ainda sem localização cadastrada não têm onde ser desenhados. -->
