@@ -38,14 +38,32 @@
   }
 
   function renderFilters() {
-    const calendars = [{ key:"user", name:"Minha agenda", color:"#06b6d4" },
-      ...(state.data.sectors || []).map(s => ({ key:`sector:${s.id}`, name:s.name, color:s.color }))];
-    $("#calendarFilters").innerHTML = calendars.map(c => `<label class="chip" style="--event-color:${esc(c.color)}">
-      <input type="checkbox" data-calendar-filter="${c.key}" ${state.visible.has(c.key)?"checked":""}>
-      <i class="dot" style="background:${esc(c.color)}"></i>${esc(c.name)}</label>`).join("");
-    $$('[data-calendar-filter]').forEach(input => input.onchange = () => {
-      if (input.checked) state.visible.add(input.dataset.calendarFilter); else state.visible.delete(input.dataset.calendarFilter);
-      renderCalendar(); renderUpcoming();
+    const sectors = state.data.sectors || [];
+    const sectorKeys = sectors.map(sector => `sector:${sector.id}`);
+    const personalActive = state.visible.has("user");
+    const sectorActive = sectorKeys.some(key => state.visible.has(key));
+    const sectorNames = sectors.map(sector => sector.name).join(", ");
+    $("#calendarFilters").innerHTML = `<span class="dim">Exibir:</span>
+      <button class="chip" data-agenda-kind="personal" aria-pressed="${personalActive}" type="button">
+        <i class="dot" style="background:#06b6d4"></i>Minha agenda
+      </button>
+      ${sectors.length ? `<button class="chip" data-agenda-kind="sector" aria-pressed="${sectorActive}" type="button" title="${esc(sectorNames)}">
+        <i class="dot" style="background:${esc(sectors[0].color || "#2563eb")}"></i>Agenda do setor${sectors.length > 1 ? ` <span class="count">${sectors.length}</span>` : ""}
+      </button>` : '<span class="badge">Nenhum setor vinculado</span>'}`;
+    $$('[data-agenda-kind]').forEach(button => button.onclick = () => {
+      const personal = button.dataset.agendaKind === "personal";
+      const currentlyActive = personal ? state.visible.has("user") : sectorKeys.some(key => state.visible.has(key));
+      const otherActive = personal ? sectorKeys.some(key => state.visible.has(key)) : state.visible.has("user");
+      if (currentlyActive && !otherActive) {
+        toast("Mantenha uma agenda selecionada", { text: "Escolha a agenda pessoal, a agenda do setor ou as duas.", type: "info" });
+        return;
+      }
+      if (personal) {
+        if (currentlyActive) state.visible.delete("user"); else state.visible.add("user");
+      } else {
+        sectorKeys.forEach(key => currentlyActive ? state.visible.delete(key) : state.visible.add(key));
+      }
+      renderFilters(); renderCalendar(); renderUpcoming();
     });
     const imported = state.data.import || {};
     $("#importState").innerHTML = `<span class="badge ${Number(imported.total) ? "badge-ok" : ""}">${icon("calendar")} ${Number(imported.total || 0)} importado(s)</span>
