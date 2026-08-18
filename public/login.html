@@ -8,9 +8,9 @@
 <link rel="icon" href="/assets/brand/updown-symbol.png">
 <meta name="theme-color" content="#050d17">
 <meta name="color-scheme" content="dark light">
-<link rel="stylesheet" href="/css/noc/tokens.css">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-1">
 <link rel="stylesheet" href="/css/noc/base.css">
-<link rel="stylesheet" href="/css/noc/components.css?v=20260817-3">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260818-1">
 <link rel="stylesheet" href="/css/noc/screens.css">
 </head>
 <body>
@@ -58,10 +58,11 @@
          dado que não foi medido — o mesmo princípio que a tela interna segue
          em "Sem dado inventado" (FRONT-NOC-V2.md). -->
     <div class="auth-stats">
-      <div><strong>Zabbix</strong><small>Status em tempo real</small></div>
-      <div><strong>RBAC</strong><small>Perfis e permissões</small></div>
-      <div><strong>Anel óptico</strong><small>Rotas entre POPs</small></div>
-      <div><strong>Auditoria</strong><small>Toda ação registrada</small></div>
+      <div><strong>NOC</strong><small>Monitore a rede em tempo real</small></div>
+      <div><strong>Financeiro</strong><small>Controle seu caixa e compromissos</small></div>
+      <div><strong>Logística</strong><small>Tenha a agenda na palma da mão</small></div>
+      <div><strong>Comercial</strong><small>Prospect clientes como um toque de magica</small></div>
+      <div><strong>HelpDesk</strong><small>O suporte como você nunca viu</small></div>
     </div>
   </section>
 
@@ -73,8 +74,8 @@
       </a>
 
       <span class="kicker">Acesso seguro</span>
-      <h1 class="page-title" style="font-size:var(--fs-32)">Entrar no NOC</h1>
-      <p class="page-sub">Use as credenciais corporativas. A sessão dura 24 horas neste dispositivo ou 1 hora sem manter o acesso.</p>
+      <h1 class="page-title" style="font-size:var(--fs-32)">Acessar a UpDown</h1>
+      <p class="page-sub">Use as credenciais corporativas.</p>
 
       <!-- method="post": mesmo que o JS falhe e o navegador faça o envio nativo,
            usuário e senha vão no corpo, nunca na barra de endereço. -->
@@ -106,7 +107,7 @@
           <label class="switch">
             <input type="checkbox" id="remember" checked>
             <span class="switch-track"></span>
-            <span style="font-size:var(--fs-13)">Manter conectado por 24 horas</span>
+            <span style="font-size:var(--fs-13)">Manter conectado</span>
           </label>
           <button class="btn btn-ghost btn-sm" type="button" id="helpAccess">Esqueci a senha</button>
         </div>

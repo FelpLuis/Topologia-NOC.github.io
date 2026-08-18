@@ -111,6 +111,14 @@
   --info-text: #8fe4ff;
 
   --focus-ring: 0 0 0 3px rgba(29, 201, 255, .45);
+
+  /* Cromia do shell inspirada na arte oficial: o índigo sustenta a marca na
+     barra superior, enquanto a navegação desce para um azul mais frio. */
+  --appbar-bg: linear-gradient(105deg, rgba(27, 8, 118, .97) 0%, rgba(34, 12, 184, .96) 58%, rgba(49, 15, 126, .97) 100%);
+  --appbar-line: rgba(205, 105, 231, .34);
+  --appbar-glow: rgba(29, 201, 255, .18);
+  --sidebar-bg: linear-gradient(180deg, rgba(12, 35, 72, .97) 0%, rgba(7, 44, 64, .98) 100%);
+  --sidebar-line: rgba(29, 201, 255, .22);
 }
 
 /* ---------------- Tema claro ---------------- */
@@ -155,4 +163,10 @@
   --info-text: #0a5ed6;
 
   --focus-ring: 0 0 0 3px rgba(11, 116, 255, .35);
+
+  --appbar-bg: linear-gradient(105deg, #1b0876 0%, #220cb8 58%, #31107e 100%);
+  --appbar-line: rgba(205, 105, 231, .42);
+  --appbar-glow: rgba(29, 201, 255, .22);
+  --sidebar-bg: linear-gradient(180deg, #eef1ff 0%, #e8f8fc 100%);
+  --sidebar-line: rgba(11, 116, 255, .20);
 }
