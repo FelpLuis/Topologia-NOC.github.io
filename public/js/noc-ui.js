@@ -194,7 +194,7 @@ window.UI = (() => {
   /* O menu é montado a partir das telas liberadas para o perfil (/api/access).
      Esta lista é só o desenho inicial, usada enquanto o acesso não chega. */
   const NAV_PADRAO = [
-    { code: "network", label: "Topologia", href: "/", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
+    { code: "network", label: "Topologia BACKBONE", href: "/", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
     { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", sector: "noc", desc: "Mapa da topologia da rede GPON" },
     { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
     { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "pops", sector: "noc", desc: "Clientes ISP e caminhos de fibra no mapa" },
