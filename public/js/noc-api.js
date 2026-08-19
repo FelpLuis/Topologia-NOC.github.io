@@ -31,6 +31,15 @@ window.NOC = (() => {
   function mensagemDeErro(data, status) {
     if (data?.error === "FORBIDDEN") return `Seu perfil não tem a permissão necessária (${data.permission || "acesso"}).`;
     if (data?.error === "TOPOLOGIA_INVALIDA") return "A topologia enviada está incompleta.";
+    const crmErrors = {
+      SETOR_NAO_PERMITIDO: "Seu usuário não está vinculado a este setor.",
+      ETAPA_INVALIDA: "Escolha uma etapa válida para o setor.",
+      RESPONSAVEL_INVALIDO: "O responsável precisa estar vinculado ao setor.",
+      REGISTRO_CRM_INVALIDO: "Revise os campos obrigatórios do CRM.",
+      REGISTRO_CRM_NAO_ENCONTRADO: "Este registro não existe ou pertence a outro setor.",
+      INTERACAO_INVALIDA: "Escolha o tipo e descreva a interação.",
+    };
+    if (crmErrors[data?.error]) return crmErrors[data.error];
     const connectionErrors = {
       IP_DE_GERENCIA_INVALIDO: "Informe um endereço IPv4 ou IPv6 válido.",
       PROTOCOLO_INVALIDO: "Escolha SSH ou TELNET.",

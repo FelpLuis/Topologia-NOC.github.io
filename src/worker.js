@@ -366,8 +366,58 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE TABLE IF NOT EXISTS alert_reads (
   alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Sempre gravado em ISO pelo Worker, como first_seen_at e reopened_at. O
+  -- padrão do SQLite ("2026-08-19 10:00:00") fica aqui só como rede de
+  -- segurança: comparado com o ISO de reopened_at, o espaço perde para o "T"
+  -- e uma leitura mais nova passaria por mais antiga.
   read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (alert_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_stages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL DEFAULT '#2563eb',
+  sort INTEGER NOT NULL DEFAULT 0,
+  is_closed INTEGER NOT NULL DEFAULT 0,
+  is_won INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  UNIQUE(sector_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS crm_cases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sector_id INTEGER NOT NULL REFERENCES sectors(id),
+  stage_id INTEGER NOT NULL REFERENCES crm_stages(id),
+  assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  creator_user_id INTEGER NOT NULL REFERENCES users(id),
+  title TEXT NOT NULL,
+  customer_name TEXT NOT NULL,
+  customer_document TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low','normal','high','urgent')),
+  estimated_value REAL NOT NULL DEFAULT 0,
+  next_contact_at TEXT,
+  details TEXT NOT NULL DEFAULT '',
+  tags TEXT NOT NULL DEFAULT '',
+  closed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS crm_activities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id INTEGER NOT NULL REFERENCES crm_cases(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL DEFAULT 'note' CHECK(kind IN ('note','call','whatsapp','email','meeting','status','system')),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
@@ -397,6 +447,10 @@ CREATE INDEX IF NOT EXISTS idx_device_target_credentials_user ON device_target_c
 CREATE INDEX IF NOT EXISTS idx_alerts_abertos ON alerts(resolved_at,grau,last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_origem ON alerts(origem,resolved_at);
 CREATE INDEX IF NOT EXISTS idx_alert_reads_user ON alert_reads(user_id,alert_id);
+CREATE INDEX IF NOT EXISTS idx_crm_cases_sector_stage ON crm_cases(sector_id,stage_id,updated_at);
+CREATE INDEX IF NOT EXISTS idx_crm_cases_assignee ON crm_cases(assigned_user_id,updated_at);
+CREATE INDEX IF NOT EXISTS idx_crm_cases_next_contact ON crm_cases(next_contact_at);
+CREATE INDEX IF NOT EXISTS idx_crm_activities_case ON crm_activities(case_id,created_at);
 `;
 
 
@@ -436,6 +490,7 @@ const SCREENS = [
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
+  ["crm", "Central CRM", "Leads, clientes, solicitações e histórico separados por setor", "/crm.html", 1, "users", 25, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
   //["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
 ];
@@ -470,6 +525,12 @@ const ACTIONS = [
   ["agenda.create", "Cadastrar compromissos", "Criar compromissos pessoais e nos setores vinculados", "agenda", "Agenda", 20],
   ["agenda.edit", "Editar compromissos", "Alterar compromissos próprios ou dos setores vinculados", "agenda", "Agenda", 30],
   ["agenda.delete", "Excluir compromissos", "Excluir compromissos próprios ou dos setores vinculados", "agenda", "Agenda", 40],
+
+  ["crm.view", "Consultar CRM", "Ver registros dos setores aos quais o usuário pertence", "crm", "CRM", 10],
+  ["crm.create", "Cadastrar no CRM", "Criar leads, oportunidades e solicitações nos setores permitidos", "crm", "CRM", 20],
+  ["crm.edit", "Editar CRM", "Alterar dados, responsáveis, etapas e próximos contatos", "crm", "CRM", 30],
+  ["crm.interact", "Registrar interações", "Adicionar ligações, mensagens, reuniões, e-mails e notas ao histórico", "crm", "CRM", 40],
+  ["crm.delete", "Excluir do CRM", "Excluir registros e todo o histórico relacionado", "crm", "CRM", 50],
 
   ["fibra.edit", "Editar caminhos de fibra", "Criar e alterar cabos, traçados e caixas ópticas no mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 10],
   ["fibra.delete", "Excluir caminhos de fibra", "Remover cabos, traçados e caixas ópticas do mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 20],
@@ -522,6 +583,7 @@ const ROLE_PERMISSIONS = {
   gerente: [
     ...TOPOLOGY_ACTIONS, "trafego.settings",
     "agenda.view","agenda.create","agenda.edit","agenda.delete",
+    "crm.view","crm.create","crm.edit","crm.interact","crm.delete",
     "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
   ],
   analista: [
@@ -529,30 +591,31 @@ const ROLE_PERMISSIONS = {
     "topology.equipment.delete","topology.port.edit","topology.link.create","topology.link.delete",
     "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
-    "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view"
+    "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view",
+    "crm.view","crm.create","crm.edit","crm.interact"
   ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","platform","legado"],
-  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda"],
-  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","legado"],
-  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda"]
+  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","platform","legado"],
+  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","legado"],
+  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm"],
+  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","legado"],
+  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -1022,6 +1085,14 @@ async function ensureDatabaseImpl(env) {
     `).run();
   });
 
+  // A Central CRM aparece no bloco Comercial, mas seus registros e funis são
+  // separados pelo setor escolhido. A associação explícita também corrige
+  // instalações nas quais a tela entrou primeiro no bloco padrão (NOC).
+  await db.prepare(`
+    UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='comercial')
+    WHERE code='crm'
+  `).run();
+
   // As concessões são montadas como statements e enviadas em batch: sozinhas,
   // cada uma custava uma ida ao D1 e são dezenas por partida a frio.
   const grantPermission = (roleId, code) => permMap[code]
@@ -1118,6 +1189,21 @@ async function ensureDatabaseImpl(env) {
       grantPermission(roleId, "agenda.delete")
     ]));
     if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "sectors.manage")]);
+  });
+
+  // O CRM acompanha os perfis operacionais existentes. Depois da primeira
+  // concessão, a Plataforma continua sendo a fonte de verdade das permissões.
+  await seedOnce(db, "seed.crm.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.flatMap(roleId => [
+      grantScreen(roleId, "crm"),
+      grantPermission(roleId, "crm.view"),
+      grantPermission(roleId, "crm.create"),
+      grantPermission(roleId, "crm.edit"),
+      grantPermission(roleId, "crm.interact")
+    ]));
+    if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "crm.delete")]);
   });
 
   // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
@@ -1904,6 +1990,210 @@ async function handleSectorUpdate(env, request, id) {
   } catch { return json({ error: "SETOR_JA_EXISTE" },409); }
 }
 
+/* ---------------- CRM dividido por setor ---------------- */
+const CRM_STAGE_TEMPLATES = {
+  comercial: [["lead","Lead","#8b5cf6",10,0,0],["qualificacao","Qualificação","#06b6d4",20,0,0],["proposta","Proposta","#f59e0b",30,0,0],["negociacao","Negociação","#2563eb",40,0,0],["ganho","Ganho","#22c55e",50,1,1],["perdido","Perdido","#ef4444",60,1,0]],
+  atendimento: [["novo","Novo","#06b6d4",10,0,0],["atendimento","Em atendimento","#2563eb",20,0,0],["aguardando","Aguardando cliente","#f59e0b",30,0,0],["resolvido","Resolvido","#22c55e",40,1,1]],
+  logistica: [["pendente","Pendente","#f59e0b",10,0,0],["separacao","Em separação","#8b5cf6",20,0,0],["rota","Em rota","#2563eb",30,0,0],["entregue","Entregue","#22c55e",40,1,1]],
+  sac: [["novo","Novo","#ec4899",10,0,0],["analise","Em análise","#8b5cf6",20,0,0],["retorno","Aguardando retorno","#f59e0b",30,0,0],["resolvido","Resolvido","#22c55e",40,1,1]],
+  financeiro: [["pendente","Pendente","#ef4444",10,0,0],["negociacao","Em negociação","#f59e0b",20,0,0],["pagamento","Aguardando pagamento","#2563eb",30,0,0],["quitado","Quitado","#22c55e",40,1,1]],
+  noc: [["aberto","Aberto","#ef4444",10,0,0],["diagnostico","Diagnóstico","#f59e0b",20,0,0],["execucao","Em execução","#2563eb",30,0,0],["monitoramento","Monitoramento","#8b5cf6",40,0,0],["resolvido","Resolvido","#22c55e",50,1,1]],
+  default: [["novo","Novo","#06b6d4",10,0,0],["andamento","Em andamento","#2563eb",20,0,0],["aguardando","Aguardando","#f59e0b",30,0,0],["concluido","Concluído","#22c55e",40,1,1]]
+};
+
+async function crmAccessibleSectors(db, user) {
+  if (user.role === "administrador") return (await db.prepare(`
+    SELECT id,code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
+  `).all()).results || [];
+  return (await db.prepare(`
+    SELECT s.id,s.code,s.name,s.color,s.icon,s.sort FROM sectors s
+    JOIN user_sectors us ON us.sector_id=s.id
+    WHERE us.user_id=? AND s.active=1 ORDER BY s.sort,s.name
+  `).bind(user.id).all()).results || [];
+}
+
+async function ensureCrmStages(db, sectors) {
+  const statements = [];
+  for (const sector of sectors) {
+    const template = CRM_STAGE_TEMPLATES[sector.code] || CRM_STAGE_TEMPLATES.default;
+    for (const [code,name,color,sort,isClosed,isWon] of template) statements.push(db.prepare(`
+      INSERT OR IGNORE INTO crm_stages(sector_id,code,name,color,sort,is_closed,is_won,active)
+      VALUES(?,?,?,?,?,?,?,1)
+    `).bind(sector.id,code,name,color,sort,isClosed,isWon));
+  }
+  if (statements.length) await db.batch(statements);
+}
+
+function crmSectorIds(sectors) {
+  return sectors.map(s => Number(s.id)).filter(Number.isInteger);
+}
+
+function normalizedCrmInput(body, previous = null) {
+  const text = (key, max) => String(body[key] ?? previous?.[key] ?? "").trim().slice(0,max);
+  const title = text("title",300), customerName = text("customer_name",300);
+  const priority = String(body.priority ?? previous?.priority ?? "normal");
+  const sectorId = Number(body.sector_id ?? previous?.sector_id);
+  const stageId = Number(body.stage_id ?? previous?.stage_id);
+  const rawAssignee = body.assigned_user_id === undefined ? previous?.assigned_user_id : body.assigned_user_id;
+  const assignedUserId = rawAssignee == null || rawAssignee === "" ? null : Number(rawAssignee);
+  const value = Number(body.estimated_value ?? previous?.estimated_value ?? 0);
+  const rawNext = body.next_contact_at === undefined ? previous?.next_contact_at : body.next_contact_at;
+  let nextContactAt = null;
+  if (rawNext) {
+    const date = new Date(rawNext);
+    if (!Number.isFinite(date.getTime())) return null;
+    nextContactAt = date.toISOString();
+  }
+  if (!title || !customerName || !Number.isInteger(sectorId) || !Number.isInteger(stageId) ||
+      (assignedUserId != null && !Number.isInteger(assignedUserId)) ||
+      !["low","normal","high","urgent"].includes(priority) || !Number.isFinite(value) || value < 0) return null;
+  const tagsSource = body.tags === undefined ? previous?.tags : body.tags;
+  const tags = (Array.isArray(tagsSource) ? tagsSource.join(",") : String(tagsSource || ""))
+    .split(",").map(x => x.trim()).filter(Boolean).slice(0,20).join(", ").slice(0,500);
+  return {
+    sector_id:sectorId, stage_id:stageId, assigned_user_id:assignedUserId,
+    title, customer_name:customerName, customer_document:text("customer_document",40),
+    phone:text("phone",60), email:text("email",320), city:text("city",160), address:text("address",500),
+    source:text("source",160), priority, estimated_value:value, next_contact_at:nextContactAt,
+    details:text("details",12000), tags
+  };
+}
+
+async function validateCrmRelations(db, input, allowedSectorIds) {
+  if (!allowedSectorIds.includes(input.sector_id)) return "SETOR_NAO_PERMITIDO";
+  const stage = await db.prepare(`SELECT id,is_closed,is_won,name FROM crm_stages WHERE id=? AND sector_id=? AND active=1`)
+    .bind(input.stage_id,input.sector_id).first();
+  if (!stage) return "ETAPA_INVALIDA";
+  if (input.assigned_user_id != null && !(await db.prepare(`
+    SELECT 1 FROM users u JOIN user_sectors us ON us.user_id=u.id
+    WHERE u.id=? AND us.sector_id=? AND u.active=1
+  `).bind(input.assigned_user_id,input.sector_id).first())) return "RESPONSAVEL_INVALIDO";
+  return stage;
+}
+
+async function crmCaseForUser(db, user, id) {
+  const visibility = user.role === "administrador" ? "1=1" : `EXISTS(
+    SELECT 1 FROM user_sectors visible WHERE visible.user_id=? AND visible.sector_id=c.sector_id
+  )`;
+  const statement = db.prepare(`
+    SELECT c.*,s.name sector_name,s.color sector_color,st.name stage_name,st.color stage_color,
+      st.is_closed,st.is_won,u.display_name assigned_name,creator.display_name creator_name
+    FROM crm_cases c JOIN sectors s ON s.id=c.sector_id JOIN crm_stages st ON st.id=c.stage_id
+    LEFT JOIN users u ON u.id=c.assigned_user_id JOIN users creator ON creator.id=c.creator_user_id
+    WHERE c.id=? AND ${visibility}
+  `);
+  return user.role === "administrador" ? statement.bind(id).first() : statement.bind(id,user.id).first();
+}
+
+async function handleCrm(env, request) {
+  const gate = await requirePermission(env,request,"crm.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env), sectors = await crmAccessibleSectors(db,gate.user);
+  await ensureCrmStages(db,sectors);
+  const ids = crmSectorIds(sectors);
+  if (!ids.length) return json({ sectors:[],stages:[],users:[],cases:[],can:{
+    create:false,edit:false,interact:false,delete:false
+  }});
+  const placeholders = ids.map(() => "?").join(",");
+  const [stagesResult,usersResult,casesResult,permissions] = await Promise.all([
+    db.prepare(`SELECT id,sector_id,code,name,color,sort,is_closed,is_won FROM crm_stages WHERE active=1 AND sector_id IN (${placeholders}) ORDER BY sector_id,sort,id`).bind(...ids).all(),
+    db.prepare(`SELECT DISTINCT u.id,u.display_name,us.sector_id FROM users u JOIN user_sectors us ON us.user_id=u.id WHERE u.active=1 AND us.sector_id IN (${placeholders}) ORDER BY u.display_name`).bind(...ids).all(),
+    db.prepare(`
+      SELECT c.*,s.name sector_name,s.color sector_color,st.name stage_name,st.color stage_color,
+        st.is_closed,st.is_won,u.display_name assigned_name,
+        (SELECT MAX(a.created_at) FROM crm_activities a WHERE a.case_id=c.id) last_activity_at
+      FROM crm_cases c JOIN sectors s ON s.id=c.sector_id JOIN crm_stages st ON st.id=c.stage_id
+      LEFT JOIN users u ON u.id=c.assigned_user_id
+      WHERE c.sector_id IN (${placeholders}) ORDER BY st.is_closed,c.updated_at DESC LIMIT 1000
+    `).bind(...ids).all(),
+    permissionsOf(env,gate.user)
+  ]);
+  return json({ sectors,stages:stagesResult.results||[],users:usersResult.results||[],cases:casesResult.results||[],
+    can:{create:permissions.has("crm.create"),edit:permissions.has("crm.edit"),interact:permissions.has("crm.interact"),delete:permissions.has("crm.delete")} });
+}
+
+async function handleCrmCaseGet(env, request, id) {
+  const gate = await requirePermission(env,request,"crm.view");
+  if (gate.response) return gate.response;
+  const db=getDB(env), item=await crmCaseForUser(db,gate.user,id);
+  if (!item) return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
+  const activities=(await db.prepare(`
+    SELECT a.id,a.kind,a.body,a.created_at,u.display_name user_name FROM crm_activities a
+    JOIN users u ON u.id=a.user_id WHERE a.case_id=? ORDER BY a.created_at DESC,a.id DESC LIMIT 300
+  `).bind(id).all()).results||[];
+  return json({case:item,activities});
+}
+
+async function handleCrmCaseCreate(env, request) {
+  const gate=await requirePermission(env,request,"crm.create");
+  if(gate.response)return gate.response;
+  let body;try{body=await readJson(request,65536)}catch{return json({error:"INVALID_JSON"},400)}
+  const input=normalizedCrmInput(body); if(!input)return json({error:"REGISTRO_CRM_INVALIDO"},400);
+  const db=getDB(env),sectors=await crmAccessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
+  const relation=await validateCrmRelations(db,input,crmSectorIds(sectors));
+  if(typeof relation==="string")return json({error:relation},relation==="SETOR_NAO_PERMITIDO"?403:400);
+  const result=await db.prepare(`
+    INSERT INTO crm_cases(sector_id,stage_id,assigned_user_id,creator_user_id,title,customer_name,customer_document,
+      phone,email,city,address,source,priority,estimated_value,next_contact_at,details,tags,closed_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(input.sector_id,input.stage_id,input.assigned_user_id,gate.user.id,input.title,input.customer_name,
+    input.customer_document,input.phone,input.email,input.city,input.address,input.source,input.priority,
+    input.estimated_value,input.next_contact_at,input.details,input.tags,relation.is_closed?new Date().toISOString():null).run();
+  const id=Number(result.meta.last_row_id);
+  await db.prepare(`INSERT INTO crm_activities(case_id,user_id,kind,body) VALUES(?,?,?,?)`)
+    .bind(id,gate.user.id,"system",`Registro criado na etapa ${relation.name}.`).run();
+  const after=await crmCaseForUser(db,gate.user,id);
+  await audit(env,request,gate.user,"CRM_CASE_CREATE","crm_case",id,null,after);
+  return json(after,201);
+}
+
+async function handleCrmCaseUpdate(env, request, id) {
+  const gate=await requirePermission(env,request,"crm.edit"); if(gate.response)return gate.response;
+  const db=getDB(env),before=await crmCaseForUser(db,gate.user,id);
+  if(!before)return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
+  let body;try{body=await readJson(request,65536)}catch{return json({error:"INVALID_JSON"},400)}
+  const input=normalizedCrmInput(body,before); if(!input)return json({error:"REGISTRO_CRM_INVALIDO"},400);
+  const sectors=await crmAccessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
+  const relation=await validateCrmRelations(db,input,crmSectorIds(sectors));
+  if(typeof relation==="string")return json({error:relation},relation==="SETOR_NAO_PERMITIDO"?403:400);
+  await db.prepare(`
+    UPDATE crm_cases SET sector_id=?,stage_id=?,assigned_user_id=?,title=?,customer_name=?,customer_document=?,phone=?,
+      email=?,city=?,address=?,source=?,priority=?,estimated_value=?,next_contact_at=?,details=?,tags=?,closed_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(input.sector_id,input.stage_id,input.assigned_user_id,input.title,input.customer_name,input.customer_document,
+    input.phone,input.email,input.city,input.address,input.source,input.priority,input.estimated_value,input.next_contact_at,
+    input.details,input.tags,relation.is_closed?(before.closed_at||new Date().toISOString()):null,id).run();
+  if(Number(before.stage_id)!==input.stage_id)await db.prepare(`INSERT INTO crm_activities(case_id,user_id,kind,body) VALUES(?,?,?,?)`)
+    .bind(id,gate.user.id,"status",`Etapa alterada de ${before.stage_name} para ${relation.name}.`).run();
+  const after=await crmCaseForUser(db,gate.user,id);
+  await audit(env,request,gate.user,"CRM_CASE_UPDATE","crm_case",id,before,after);
+  return json(after);
+}
+
+async function handleCrmActivityCreate(env, request, id) {
+  const gate=await requirePermission(env,request,"crm.interact"); if(gate.response)return gate.response;
+  const db=getDB(env),item=await crmCaseForUser(db,gate.user,id);
+  if(!item)return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
+  let body;try{body=await readJson(request,32768)}catch{return json({error:"INVALID_JSON"},400)}
+  const kind=String(body.kind||"note"),content=String(body.body||"").trim().slice(0,8000);
+  if(!["note","call","whatsapp","email","meeting"].includes(kind)||!content)return json({error:"INTERACAO_INVALIDA"},400);
+  const result=await db.prepare(`INSERT INTO crm_activities(case_id,user_id,kind,body) VALUES(?,?,?,?)`)
+    .bind(id,gate.user.id,kind,content).run();
+  await db.prepare(`UPDATE crm_cases SET updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  const activity=await db.prepare(`SELECT a.id,a.kind,a.body,a.created_at,u.display_name user_name FROM crm_activities a JOIN users u ON u.id=a.user_id WHERE a.id=?`)
+    .bind(result.meta.last_row_id).first();
+  await audit(env,request,gate.user,"CRM_ACTIVITY_CREATE","crm_activity",result.meta.last_row_id,null,activity,{case_id:id});
+  return json(activity,201);
+}
+
+async function handleCrmCaseDelete(env, request, id) {
+  const gate=await requirePermission(env,request,"crm.delete"); if(gate.response)return gate.response;
+  const db=getDB(env),before=await crmCaseForUser(db,gate.user,id);
+  if(!before)return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
+  await db.prepare(`DELETE FROM crm_cases WHERE id=?`).bind(id).run();
+  await audit(env,request,gate.user,"CRM_CASE_DELETE","crm_case",id,before,null);
+  return json({ok:true});
+}
+
 async function handleMe(env, request) {
   const user = await getCurrentUser(env, request);
   if (!user) return json({ authenticated: false }, 401);
@@ -2065,6 +2355,14 @@ async function runZabbixSync(env, { userId = null, source = "api" } = {}) {
       atencao: settings.limiteAtencao,
       tolerancia: settings.toleranciaLeitura
     });
+
+    /* Os alertas da home nascem do mesmo inventário que acabou de ser gravado.
+       Falhar aqui não pode invalidar uma sincronização que deu certo. */
+    try {
+      await gerarAlertasDaRede(db, { inventario: await loadInventoryFromDb(db), settings, forcar: true });
+    } catch (error) {
+      console.error(JSON.stringify({ message: "Falha ao derivar alertas após a sincronização", error: error?.message || String(error) }));
+    }
 
     return { ok: true, run_id: runId, ...counts };
   } catch (error) {
@@ -2626,6 +2924,504 @@ async function handleZabbix(request, env, url) {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Home — a tela de abertura da plataforma
+// ---------------------------------------------------------------------------
+
+/* A home não inventa número nenhum: os clientes vêm do mesmo snapshot da OLT
+   que a tela GPON lê, o tráfego vem do espelho do Zabbix que o painel de
+   Tráfego usa e os alertas nascem das mesmas regras daquele painel.
+
+   A diferença é que aqui os alertas ficam gravados. "Ainda não visto por este
+   usuário" é informação por pessoa: precisa sobreviver ao recarregamento da
+   página, à troca de navegador e ao fato de o painel de tráfego derivar a lista
+   inteira do zero a cada leitura. Por isso cada alerta tem uma impressão
+   digital estável, o que some do ciclo é marcado como resolvido, e a leitura é
+   uma linha por (alerta, usuário). */
+
+const ALERTAS_RETENCAO_DIAS = 7;
+const ALERTAS_INTERVALO_MS = 60000;   // no máximo uma derivação por minuto
+const ALERTAS_LIMITE_CICLO = 200;     // teto do lote gravado por ciclo
+const ALERTAS_GERACAO_KEY = "alerts.generated_at";
+const ORIGEM_REDE = "rede";
+const PESO_GRAU = { critico: 0, atencao: 1, info: 2 };
+
+/* Um cliente é contado como online quando a OLT diz que ele está. O coletor
+   normaliza a fase da ONU para "online"; qualquer outra coisa (los, dyinggasp,
+   offline, powerfail) é ausência de serviço e entra em offline — assim os três
+   números continuam somando o total, que é como o NOC lê o painel. */
+const CLIENTE_ONLINE = /^(online|up|ativo|ativa|working|ok|conectado)$/;
+
+export function resumirClientesGpon(clientes = []) {
+  const total = clientes.length;
+  const online = clientes.filter((c) =>
+    CLIENTE_ONLINE.test(String(c?.status ?? "").trim().toLowerCase())).length;
+  return { total, online, offline: total - online };
+}
+
+/* O SQLite grava "YYYY-MM-DD HH:MM:SS" em UTC; quando quem grava é o Worker,
+   vem ISO com Z. As duas formas precisam virar o mesmo instante. */
+function instanteDe(valor) {
+  const texto = String(valor ?? "").trim();
+  if (!texto) return null;
+  const iso = texto.includes("T") ? texto : `${texto.replace(" ", "T")}Z`;
+  const t = Date.parse(/Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`);
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * Tráfego do período: o de agora, o menor e o volume total transportado.
+ *
+ * `atualBps` chega pronto de quem acabou de ler as interfaces — essa leitura é
+ * mais nova que a última amostra agregada. Sem ele, a última amostra responde.
+ *
+ * `total_bytes` é a integral da série: bits/s ao longo do tempo viram bytes.
+ * Um intervalo maior que `limiteIntervaloSegundos` é coleta interrompida e não
+ * é integrado — preencher esse buraco seria inventar tráfego que ninguém mediu.
+ */
+export function resumirTrafego(amostras = [], { atualBps = null, limiteIntervaloSegundos = 900 } = {}) {
+  const serie = amostras
+    .map((a) => ({
+      em: a.taken_at,
+      ms: instanteDe(a.taken_at),
+      entrada: Number(a.in_bps) || 0,
+      saida: Number(a.out_bps) || 0,
+      bps: (Number(a.in_bps) || 0) + (Number(a.out_bps) || 0)
+    }))
+    .filter((a) => a.ms !== null);
+
+  const ultima = serie.length ? serie[serie.length - 1] : null;
+  const atual = atualBps !== null && Number.isFinite(Number(atualBps))
+    ? Number(atualBps)
+    : (ultima?.bps ?? 0);
+
+  let minimo = null;
+  let maximo = null;
+  let bytes = 0;
+  for (let i = 0; i < serie.length; i++) {
+    const bps = serie[i].bps;
+    if (minimo === null || bps < minimo) minimo = bps;
+    if (maximo === null || bps > maximo) maximo = bps;
+    if (i === 0) continue;
+    const segundos = (serie[i].ms - serie[i - 1].ms) / 1000;
+    if (segundos <= 0 || segundos > limiteIntervaloSegundos) continue;
+    bytes += (((serie[i].bps + serie[i - 1].bps) / 2) * segundos) / 8;
+  }
+
+  return {
+    atual,
+    minimo: minimo ?? 0,
+    maximo: maximo ?? 0,
+    total_bytes: Math.round(bytes),
+    entrada: ultima?.entrada ?? 0,
+    saida: ultima?.saida ?? 0,
+    amostras: serie.length,
+    coletado_em: ultima?.em || null,
+    serie: compactarSerie(serie, 120)
+  };
+}
+
+/* A miniatura da home tem pouco mais de cem pixels de largura útil: mandar
+   2 000 pontos por ela só engorda a resposta. A redução mantém o pico de cada
+   balde, que é o que dá forma à curva de tráfego. */
+export function compactarSerie(serie = [], maximoPontos = 120) {
+  if (serie.length <= maximoPontos) return serie.map((p) => ({ em: p.em, bps: p.bps }));
+  const passo = serie.length / maximoPontos;
+  const saida = [];
+  for (let i = 0; i < maximoPontos; i++) {
+    const inicio = Math.floor(i * passo);
+    const fim = Math.min(serie.length, Math.max(inicio + 1, Math.floor((i + 1) * passo)));
+    let melhor = serie[inicio];
+    for (let j = inicio; j < fim; j++) if (serie[j].bps > melhor.bps) melhor = serie[j];
+    saida.push({ em: melhor.em, bps: melhor.bps });
+  }
+  return saida;
+}
+
+/* Mesmo formato do painel de tráfego, para que o mesmo número não apareça com
+   duas caras diferentes em telas vizinhas. */
+function formatarBps(valor) {
+  const n = Number(valor);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const unidades = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"];
+  const i = Math.min(Math.floor(Math.log10(n) / 3), unidades.length - 1);
+  const escala = n / 1000 ** i;
+  return `${escala >= 100 ? Math.round(escala) : escala.toFixed(escala >= 10 ? 1 : 2)} ${unidades[i]}`;
+}
+
+/**
+ * Alertas da rede, derivados do inventário do Zabbix com as mesmas regras do
+ * painel de tráfego — enlace fora do ar primeiro, depois o que está prestes a
+ * sair, depois o que atrapalha a leitura.
+ *
+ * A impressão digital identifica o alerta ao longo do tempo. O grau entra nela
+ * de propósito: quando uma interface passa de "utilização alta" para
+ * "saturação", o evento é outro e volta a aparecer como não visto, mesmo para
+ * quem já tinha lido o aviso anterior.
+ */
+export function derivarAlertasDaRede(inventario = {}, settings = DEFAULT_TRAFEGO_SETTINGS) {
+  const hosts = inventario.hosts || [];
+  const interfaces = inventario.interfaces || [];
+  const ajustes = settings.interfaces || {};
+
+  const chaveDe = (i) => `${i.hostid}:${i.if_index}`;
+  const ajusteDe = (i) => ajustes[chaveDe(i)] || null;
+  const ignorada = (i) => Boolean(ajusteDe(i)?.ignorar);
+  const rotuloInterface = (i) => ajusteDe(i)?.interface || i.if_name || "—";
+  const descricaoInterface = (i) => {
+    const ajuste = ajusteDe(i);
+    return ajuste && Object.hasOwn(ajuste, "descricao") ? ajuste.descricao : (i.if_alias || "");
+  };
+
+  const nomeDoHost = new Map(hosts.map((h) => [String(h.hostid), h.equipamento_id || h.name || h.host || "?"]));
+  const equipamentoDe = (i) => nomeDoHost.get(String(i.hostid)) || "?";
+  const carga = (i) => Math.max(Number(i.in_bps) || 0, Number(i.out_bps) || 0);
+  const capacidade = (i) => Number(i.speed_bps) || 0;
+  const leituraValida = (i) => !(capacidade(i) > 0 && carga(i) > capacidade(i) * settings.toleranciaLeitura);
+  const utilizacao = (i) => (capacidade(i) > 0 && leituraValida(i) ? (carga(i) * 100) / capacidade(i) : null);
+
+  const lista = [];
+  const enlaces = deriveLinks({ hosts, interfaces });
+  const emEnlace = new Set();
+
+  for (const l of enlaces) {
+    emEnlace.add(chaveDe(l.a));
+    emEnlace.add(chaveDe(l.b));
+    if (l.a.oper_status === 1 && l.b.oper_status === 1) continue;
+    const lado = l.a.oper_status !== 1 ? l.a : l.b;
+    lista.push({
+      fingerprint: `rede:enlace-fora:${[chaveDe(l.a), chaveDe(l.b)].sort().join("::")}`,
+      grau: "critico",
+      titulo: `Enlace fora do ar — ${equipamentoDe(lado)} ${rotuloInterface(lado)}`,
+      texto: `${equipamentoDe(l.a)} ${rotuloInterface(l.a)} ↔ ${equipamentoDe(l.b)} ${rotuloInterface(l.b)} • ${capacityLabel(l.a.speed_bps)}`,
+      alvo_tipo: "trafego",
+      alvo_chave: "enlaces"
+    });
+  }
+
+  for (const i of interfaces) {
+    if (ignorada(i)) continue;
+    const u = utilizacao(i);
+    if (u === null || u <= settings.limiteAtencao) continue;
+    const grave = u > settings.limiteCritico;
+    lista.push({
+      fingerprint: `rede:utilizacao:${grave ? "critico" : "atencao"}:${chaveDe(i)}`,
+      grau: grave ? "critico" : "atencao",
+      titulo: `${grave ? "Saturação" : "Utilização alta"} — ${equipamentoDe(i)} ${rotuloInterface(i)}`,
+      texto: `${descricaoInterface(i) || "sem descrição"} • ${formatarBps(carga(i))} de ${formatarBps(capacidade(i))} (${u.toFixed(1)}%)`,
+      alvo_tipo: "trafego",
+      alvo_chave: "interfaces"
+    });
+  }
+
+  for (const i of interfaces) {
+    // Interface descrita é interface que deveria estar servindo alguma coisa.
+    if (ignorada(i) || i.oper_status !== 2 || !descricaoInterface(i)) continue;
+    if (emEnlace.has(chaveDe(i))) continue;
+    lista.push({
+      fingerprint: `rede:descrita-fora:${chaveDe(i)}`,
+      grau: "atencao",
+      titulo: `Interface descrita e fora do ar — ${equipamentoDe(i)} ${rotuloInterface(i)}`,
+      texto: `Descrição: ${descricaoInterface(i)}`,
+      alvo_tipo: "trafego",
+      alvo_chave: "interfaces"
+    });
+  }
+
+  for (const i of interfaces) {
+    if (ignorada(i) || leituraValida(i)) continue;
+    lista.push({
+      fingerprint: `rede:leitura-inconsistente:${chaveDe(i)}`,
+      grau: "info",
+      titulo: `Leitura inconsistente — ${equipamentoDe(i)} ${rotuloInterface(i)}`,
+      texto: `O Zabbix informou ${formatarBps(carga(i))} numa porta de ${formatarBps(capacidade(i))}. Fora dos totais até a coleta se corrigir.`,
+      alvo_tipo: "trafego",
+      alvo_chave: "interfaces"
+    });
+  }
+
+  const semVinculo = hosts.filter((h) => !h.equipamento_id).length;
+  if (semVinculo) {
+    lista.push({
+      fingerprint: "rede:hosts-sem-equipamento",
+      grau: "info",
+      titulo: `${semVinculo} host monitorado sem equipamento vinculado`,
+      texto: "O tráfego é contado, mas não aparece agrupado por equipamento. Vincule na guia Equipamentos do painel de tráfego.",
+      alvo_tipo: "trafego",
+      alvo_chave: "equipamentos"
+    });
+  }
+
+  return lista.sort((a, b) => PESO_GRAU[a.grau] - PESO_GRAU[b.grau]).slice(0, ALERTAS_LIMITE_CICLO);
+}
+
+/**
+ * Grava o ciclo de alertas de uma origem.
+ *
+ * O que voltou a aparecer é reaberto; o que sumiu do ciclo é resolvido — e não
+ * apagado, para que quem ainda não abriu o sistema hoje não perca o registro.
+ * Reabrir devolve o alerta à condição de não visto: as leituras anteriores
+ * àquele momento são descartadas, porque o evento é outro.
+ */
+async function sincronizarAlertas(db, origem, lista) {
+  const agora = new Date().toISOString();
+
+  const statements = lista.map((a) => db.prepare(`
+    INSERT INTO alerts(fingerprint,origem,grau,titulo,texto,alvo_tipo,alvo_chave,first_seen_at,last_seen_at)
+    VALUES (?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(fingerprint) DO UPDATE SET
+      grau=excluded.grau, titulo=excluded.titulo, texto=excluded.texto,
+      alvo_tipo=excluded.alvo_tipo, alvo_chave=excluded.alvo_chave,
+      last_seen_at=excluded.last_seen_at,
+      reopened_at=CASE WHEN alerts.resolved_at IS NOT NULL
+                       THEN excluded.last_seen_at ELSE alerts.reopened_at END,
+      resolved_at=NULL
+  `).bind(a.fingerprint, origem, a.grau, a.titulo, a.texto, a.alvo_tipo, a.alvo_chave, agora, agora));
+
+  statements.push(db.prepare(`
+    UPDATE alerts SET resolved_at=? WHERE origem=? AND resolved_at IS NULL AND last_seen_at<>?
+  `).bind(agora, origem, agora));
+
+  statements.push(db.prepare(`
+    DELETE FROM alert_reads
+    WHERE read_at < COALESCE((SELECT a.reopened_at FROM alerts a WHERE a.id=alert_reads.alert_id), '')
+  `));
+
+  const limite = new Date(Date.now() - ALERTAS_RETENCAO_DIAS * 86400000).toISOString();
+  statements.push(db.prepare(`
+    DELETE FROM alerts WHERE resolved_at IS NOT NULL AND resolved_at < ?
+  `).bind(limite));
+
+  await db.batch(statements);
+  return lista.length;
+}
+
+/* Derivação sob demanda, limitada a uma vez por minuto. O cron de cinco minutos
+   continua sendo o caminho normal; isto é o que faz a home funcionar em
+   desenvolvimento e logo depois de um deploy, sem esperar o próximo ciclo. */
+async function gerarAlertasDaRede(db, { inventario = null, settings = null, forcar = false } = {}) {
+  if (!forcar) {
+    const ultimo = await db.prepare(`SELECT value FROM platform_meta WHERE key=?`)
+      .bind(ALERTAS_GERACAO_KEY).first();
+    const quando = instanteDe(ultimo?.value);
+    if (quando !== null && Date.now() - quando < ALERTAS_INTERVALO_MS) return false;
+  }
+
+  const ajustes = settings || await loadTrafegoSettings(db);
+  const dados = inventario || await loadInventoryFromDb(db);
+  await sincronizarAlertas(db, ORIGEM_REDE, derivarAlertasDaRede(dados, ajustes));
+  await db.prepare(`
+    INSERT OR REPLACE INTO platform_meta(key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+  `).bind(ALERTAS_GERACAO_KEY, new Date().toISOString()).run();
+  return true;
+}
+
+/* Alertas abertos que este usuário ainda não abriu. A leitura é individual: o
+   que um operador marcou como visto continua pendente para os colegas. */
+async function alertasNaoVistos(db, userId, limite = 50) {
+  const [naoVistos, abertos] = await Promise.all([
+    db.prepare(`
+      SELECT a.id, a.origem, a.grau, a.titulo, a.texto, a.alvo_tipo, a.alvo_chave,
+             a.first_seen_at, a.last_seen_at
+      FROM alerts a
+      LEFT JOIN alert_reads r ON r.alert_id=a.id AND r.user_id=?
+      WHERE a.resolved_at IS NULL AND r.alert_id IS NULL
+      ORDER BY CASE a.grau WHEN 'critico' THEN 0 WHEN 'atencao' THEN 1 ELSE 2 END,
+               a.last_seen_at DESC
+      LIMIT ?
+    `).bind(userId, limite).all(),
+    db.prepare(`
+      SELECT a.grau,
+             COUNT(*) AS total,
+             SUM(CASE WHEN r.alert_id IS NULL THEN 1 ELSE 0 END) AS nao_vistos
+      FROM alerts a
+      LEFT JOIN alert_reads r ON r.alert_id=a.id AND r.user_id=?
+      WHERE a.resolved_at IS NULL
+      GROUP BY a.grau
+    `).bind(userId).all()
+  ]);
+
+  const porGrau = { critico: 0, atencao: 0, info: 0 };
+  const abertosPorGrau = { critico: 0, atencao: 0, info: 0 };
+  for (const linha of abertos.results || []) {
+    const grau = Object.hasOwn(porGrau, linha.grau) ? linha.grau : "info";
+    porGrau[grau] += Number(linha.nao_vistos) || 0;
+    abertosPorGrau[grau] += Number(linha.total) || 0;
+  }
+
+  return {
+    total: porGrau.critico + porGrau.atencao + porGrau.info,
+    abertos: abertosPorGrau.critico + abertosPorGrau.atencao + abertosPorGrau.info,
+    por_grau: porGrau,
+    abertos_por_grau: abertosPorGrau,
+    lista: naoVistos.results || []
+  };
+}
+
+/**
+ * Clientes autenticados por status, sem abrir o snapshot inteiro da OLT.
+ *
+ * O caminho barato é a leitura compacta de status, que o coletor atualiza a
+ * cada ciclo. Enquanto ela ainda não cobre todos os clientes — o intervalo
+ * entre uma sincronização completa e o primeiro delta — o snapshot completo
+ * responde, porque um total certo vale o custo dessa leitura ocasional.
+ */
+async function resumoClientesGpon(env) {
+  const db = getDB(env);
+  const estado = await db.prepare(`
+    SELECT source, synced_at, clients_count FROM gpon_snapshot_state WHERE id=1
+  `).first();
+
+  if (estado) {
+    const total = Number(estado.clients_count) || 0;
+    const compacto = await db.prepare(`SELECT data_json, synced_at FROM gpon_status_snapshot WHERE id=1`).first();
+    let linhas = [];
+    if (compacto?.data_json) {
+      try {
+        const lido = JSON.parse(compacto.data_json);
+        if (Array.isArray(lido)) linhas = lido;
+      } catch { /* leitura corrompida cai no snapshot completo */ }
+    }
+
+    const base = {
+      configurado: true,
+      fonte: estado.source || "Coletor GPON",
+      sincronizado_em: compacto?.synced_at || estado.synced_at || null
+    };
+
+    if (linhas.length >= total && total > 0) return { ...base, ...resumirClientesGpon(linhas) };
+
+    try {
+      const snapshot = await loadGponSnapshot(env);
+      if (snapshot) return { ...base, ...resumirClientesGpon(snapshot.clients || []) };
+    } catch (error) {
+      console.error(JSON.stringify({ message: "Snapshot GPON indisponível para a home", error: error?.message || String(error) }));
+    }
+    return { ...base, parcial: true, ...resumirClientesGpon(linhas) };
+  }
+
+  // Sem snapshot no banco, resta a fonte direta — quando ela existe.
+  if (!String(env.GPON_CLIENTS_URL || "").trim()) {
+    return { configurado: false, fonte: null, sincronizado_em: null, total: 0, online: 0, offline: 0,
+      mensagem: "O coletor ainda não enviou a primeira atualização GPON." };
+  }
+  const feed = await carregarFeedGpon(env);
+  return {
+    configurado: Boolean(feed?.configured),
+    indisponivel: Boolean(feed?.unavailable),
+    fonte: feed?.source || null,
+    sincronizado_em: feed?.synced_at || null,
+    mensagem: feed?.message || null,
+    ...resumirClientesGpon(feed?.clients || [])
+  };
+}
+
+/**
+ * GET /api/home/overview — os três blocos da tela de abertura.
+ *
+ * Cada bloco respeita a permissão da tela de onde o dado vem: quem não pode
+ * abrir o painel de tráfego também não vê os números dele aqui. O bloco volta
+ * com `permitido:false` em vez de sumir, para a home explicar a ausência em vez
+ * de deixar um buraco na tela.
+ */
+async function handleHomeOverview(env, request, url) {
+  const user = await requireUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+
+  const db = getDB(env);
+  const permissoes = await permissionsOf(env, user);
+  const podeVerRede = permissoes.has("zabbix.view");
+  const podeVerClientes = permissoes.has("topology.view");
+
+  const settings = await loadTrafegoSettings(db);
+  const horas = boundedInteger(url.searchParams.get("horas"), settings.historicoHoras, 1, 168);
+
+  const [inventario, amostras, clientes] = await Promise.all([
+    loadInventoryFromDb(db),
+    db.prepare(`
+      SELECT taken_at, in_bps, out_bps FROM zabbix_traffic_snapshots
+      WHERE taken_at >= datetime('now', ?) ORDER BY taken_at LIMIT 2000
+    `).bind(`-${horas} hours`).all(),
+    podeVerClientes
+      ? resumoClientesGpon(env).catch((error) => {
+          console.error(JSON.stringify({ message: "Falha ao resumir clientes GPON", error: error?.message || String(error) }));
+          return { configurado: true, indisponivel: true, total: 0, online: 0, offline: 0,
+            mensagem: "A base de clientes não respondeu nesta atualização." };
+        })
+      : Promise.resolve(null)
+  ]);
+
+  /* A leitura de agora sai das interfaces espelhadas, mais novas que a última
+     amostra agregada. A regra de validade é a mesma do painel de tráfego:
+     porta lendo acima da própria capacidade fica fora dos totais. */
+  let atualBps = 0;
+  for (const i of inventario.interfaces) {
+    const entrada = Number(i.in_bps) || 0;
+    const saida = Number(i.out_bps) || 0;
+    const capacidade = Number(i.speed_bps) || 0;
+    if (capacidade > 0 && Math.max(entrada, saida) > capacidade * settings.toleranciaLeitura) continue;
+    atualBps += entrada + saida;
+  }
+
+  await gerarAlertasDaRede(db, { inventario, settings }).catch((error) => {
+    console.error(JSON.stringify({ message: "Falha ao derivar alertas da rede", error: error?.message || String(error) }));
+  });
+
+  const alertas = await alertasNaoVistos(db, user.id);
+
+  return json({
+    usuario: { id: user.id, nome: user.display_name || user.username, papel: user.role },
+    clientes: podeVerClientes
+      ? { permitido: true, ...clientes }
+      : { permitido: false, total: 0, online: 0, offline: 0 },
+    trafego: podeVerRede
+      ? {
+          permitido: true,
+          horas,
+          interfaces: inventario.interfaces.length,
+          interfaces_up: inventario.interfaces.filter((i) => i.oper_status === 1).length,
+          ...resumirTrafego(amostras.results || [], { atualBps })
+        }
+      : { permitido: false, horas, atual: 0, minimo: 0, maximo: 0, total_bytes: 0, serie: [] },
+    alertas: { permitido: true, ...alertas }
+  });
+}
+
+/**
+ * POST /api/home/alerts/read — marca alertas como vistos por este usuário.
+ *
+ * Sem corpo marca tudo o que está aberto; com { "ids": [1,2] }, só os
+ * informados. Marcar é sempre por usuário: nada some da fila dos colegas.
+ */
+async function handleAlertsRead(env, request) {
+  const user = await requireUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+
+  let body = {};
+  try { body = await readJson(request, 65536); } catch { body = {}; }
+
+  const ids = Array.isArray(body.ids)
+    ? body.ids.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0).slice(0, 500)
+    : [];
+
+  const db = getDB(env);
+  const agora = new Date().toISOString();
+  if (ids.length) {
+    const marcadores = ids.map(() => "?").join(",");
+    await db.prepare(`
+      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at)
+      SELECT id, ?, ? FROM alerts WHERE resolved_at IS NULL AND id IN (${marcadores})
+    `).bind(user.id, agora, ...ids).run();
+  } else {
+    await db.prepare(`
+      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at)
+      SELECT id, ?, ? FROM alerts WHERE resolved_at IS NULL
+    `).bind(user.id, agora).run();
+  }
+
+  return json({ ok: true, ...(await alertasNaoVistos(db, user.id)) });
+}
 
 function safeUserRow(u) {
   if (!u) return null;
@@ -3470,12 +4266,18 @@ function normalizarCaixaGpon(c, i) {
 async function handleGponClients(env, request) {
   const gate = await requirePermission(env, request, "topology.view");
   if (gate.response) return gate.response;
+  return json(await carregarFeedGpon(env));
+}
+
+/* Leitura da OLT no formato de dados. handleGponClients apenas a embrulha em
+   uma resposta; a home usa os mesmos números sem uma segunda ida à fonte. */
+async function carregarFeedGpon(env) {
   const endpoint = String(env.GPON_CLIENTS_URL || "").trim();
   if (!endpoint) {
     const snapshot = await loadGponSnapshot(env);
-    if (snapshot) return respostaGpon(snapshot);
-    return json({ configured: false, source: "Aguardando primeira sincronização", synced_at: null,
-      clients: [], boxes: [], alerts: [], message: "O coletor ainda não enviou a primeira atualização GPON." });
+    if (snapshot) return payloadGpon(snapshot);
+    return { configured: false, source: "Aguardando primeira sincronização", synced_at: null,
+      clients: [], boxes: [], alerts: [], message: "O coletor ainda não enviou a primeira atualização GPON." };
   }
   try {
     const sourceUrl = new URL(endpoint);
@@ -3488,21 +4290,21 @@ async function handleGponClients(env, request) {
     const tamanho = Number(upstream.headers.get("content-length") || 0);
     if (tamanho > 8 * 1024 * 1024) throw new Error("Resposta GPON maior que 8 MiB");
     const raw = await upstream.json();
-    return respostaGpon(raw?.data || raw);
+    return payloadGpon(raw?.data || raw);
   } catch (error) {
     console.error(JSON.stringify({ message: "Falha na integração GPON", error: error?.message || String(error) }));
     const snapshot = await loadGponSnapshot(env);
-    if (snapshot) return respostaGpon(snapshot, "A fonte direta está indisponível; exibindo a última sincronização recebida.");
-    return json({ configured: true, unavailable: true, source: "Integração OLT", synced_at: null,
-      clients: [], boxes: [], alerts: [], message: "A fonte da OLT não respondeu nesta atualização." });
+    if (snapshot) return payloadGpon(snapshot, "A fonte direta está indisponível; exibindo a última sincronização recebida.");
+    return { configured: true, unavailable: true, source: "Integração OLT", synced_at: null,
+      clients: [], boxes: [], alerts: [], message: "A fonte da OLT não respondeu nesta atualização." };
   }
 }
 
-function respostaGpon(data, message = "") {
+function payloadGpon(data, message = "") {
   const clients = primeiroGpon(data?.clients, data?.clientes, data?.onus, data?.subscribers, Array.isArray(data) ? data : []);
   const boxes = primeiroGpon(data?.boxes, data?.caixas, data?.ctos, []);
   const alerts = primeiroGpon(data?.alerts, data?.alertas, []);
-  return json({
+  return {
     configured: true,
     source: String(primeiroGpon(data?.source, data?.fonte, "Coletor ZTE + IXC Provedor")),
     synced_at: primeiroGpon(data?.synced_at, data?.updated_at, data?.atualizado_em, new Date().toISOString()),
@@ -3510,7 +4312,7 @@ function respostaGpon(data, message = "") {
     boxes: (Array.isArray(boxes) ? boxes : []).map(normalizarCaixaGpon),
     alerts: Array.isArray(alerts) ? alerts.filter(alert => !alert?.client_id) : [],
     ...(message ? { message } : {})
-  });
+  };
 }
 
 async function loadGponSnapshot(env) {
@@ -3778,6 +4580,24 @@ export default {
           if(request.method==="DELETE")return await handleAgendaEventDelete(env,request,id);
         }
 
+        if (url.pathname === "/api/crm" && request.method === "GET")
+          return await handleCrm(env,request);
+
+        if (url.pathname === "/api/crm/cases" && request.method === "POST")
+          return await handleCrmCaseCreate(env,request);
+
+        const crmActivityMatch=url.pathname.match(/^\/api\/crm\/cases\/(\d+)\/activities$/);
+        if(crmActivityMatch && request.method==="POST")
+          return await handleCrmActivityCreate(env,request,Number(crmActivityMatch[1]));
+
+        const crmCaseMatch=url.pathname.match(/^\/api\/crm\/cases\/(\d+)$/);
+        if(crmCaseMatch){
+          const id=Number(crmCaseMatch[1]);
+          if(request.method==="GET")return await handleCrmCaseGet(env,request,id);
+          if(request.method==="PATCH")return await handleCrmCaseUpdate(env,request,id);
+          if(request.method==="DELETE")return await handleCrmCaseDelete(env,request,id);
+        }
+
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
           return await handleZabbix(request, env, url);
@@ -3813,6 +4633,12 @@ export default {
 
         if (url.pathname === "/api/topology/permissions" && request.method === "GET")
           return await handleTopologyPermissions(env,request);
+
+        if (url.pathname === "/api/home/overview" && request.method === "GET")
+          return await handleHomeOverview(env, request, url);
+
+        if (url.pathname === "/api/home/alerts/read" && request.method === "POST")
+          return await handleAlertsRead(env, request);
 
         if (url.pathname === "/api/gpon/clients" && request.method === "GET")
           return await handleGponClients(env,request);

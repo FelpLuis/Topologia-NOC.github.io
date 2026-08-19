@@ -112,7 +112,7 @@
         <div class="stack" style="gap:var(--s-2)">
           ${list.length ? list.map((e) => {
             const o = NOC.occupancy(e);
-            return `<a class="device-row" href="/?device=${encodeURIComponent(e.id)}" style="text-decoration:none;color:inherit">
+            return `<a class="device-row" href="/topologia.html?device=${encodeURIComponent(e.id)}" style="text-decoration:none;color:inherit">
               <div class="row-top">
                 <div class="grow" style="min-width:0">
                   <b class="truncate">${esc(e.nome)}</b><br>
@@ -128,7 +128,7 @@
           }).join("") : `<div class="empty" style="padding:var(--s-5) 0">
               <b>Nenhum equipamento vinculado</b>
               <p>Vincule equipamentos a este POP em Topologia → Gerenciar rede.</p>
-              <a class="btn btn-sm" href="/?pop=${encodeURIComponent(pop.id)}" style="margin-top:8px">Abrir POP na topologia</a>
+              <a class="btn btn-sm" href="/topologia.html?pop=${encodeURIComponent(pop.id)}" style="margin-top:8px">Abrir POP na topologia</a>
             </div>`}
         </div>
 
@@ -137,7 +137,7 @@
     }).join("") : `<div class="card"><div class="empty">
         <span class="empty-icon">${icon("pops")}</span><b>Nenhum POP cadastrado</b>
         <p>Cadastre os POPs para organizar os equipamentos por localidade.</p>
-        <a class="btn btn-sm btn-primary" href="/" style="margin-top:var(--s-3)">Ir para a topologia</a></div></div>`;
+        <a class="btn btn-sm btn-primary" href="/topologia.html" style="margin-top:var(--s-3)">Ir para a topologia</a></div></div>`;
   }
 
   /* ---------------- pendências ---------------- */
@@ -161,7 +161,7 @@
               <td>${esc(e.categoria || "—")}</td>
               <td class="num">${e.portas.length}</td>
               <td class="num">${NOC.usedPorts(e)}</td>
-              <td><a class="btn btn-sm btn-primary" href="/?device=${encodeURIComponent(e.id)}">Vincular a um POP</a></td>
+              <td><a class="btn btn-sm btn-primary" href="/topologia.html?device=${encodeURIComponent(e.id)}">Vincular a um POP</a></td>
             </tr>`).join("")}</tbody>
           </table></div>
         </div>

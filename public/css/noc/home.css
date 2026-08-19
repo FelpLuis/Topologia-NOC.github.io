@@ -1,0 +1,109 @@
+/* ============================================================
+   UPDOWN NOC — Home
+   Três blocos sobre a mesma grade: clientes, tráfego e a fila de
+   alertas de quem está logado. Os componentes vêm de
+   components.css; aqui só existe o que é específico da abertura.
+   ============================================================ */
+
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: var(--s-5);
+  margin-top: var(--s-5);
+}
+
+/* A fila de alertas é uma lista: ela ocupa a linha inteira, enquanto os dois
+   blocos de números dividem a linha de cima. */
+.home-card-wide { grid-column: 1 / -1; }
+
+.home-card .card-body { display: grid; gap: var(--s-5); }
+
+/* ---------- Números ---------- */
+
+/* Três leituras lado a lado. Abaixo de 420px viram uma coluna: o número é o
+   que precisa continuar legível, não a disposição. */
+.home-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.home-stat {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: var(--s-4);
+  min-width: 0;
+}
+.home-stat > span {
+  display: block;
+  font-size: var(--fs-10);
+  font-weight: 800;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.home-stat > strong {
+  display: block;
+  margin-top: 6px;
+  font: 700 var(--fs-24)/1.05 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+.home-stat > small { display: block; margin-top: 4px; color: var(--text-3); font-size: var(--fs-11); }
+
+.home-stat.is-ok > strong { color: var(--ok-500); }
+.home-stat.is-danger > strong { color: var(--danger-500); }
+.home-stat.is-accent { border-color: var(--info-line); background: var(--grad-brand-soft); }
+
+/* ---------- Proporção online/offline ---------- */
+.home-split {
+  display: flex;
+  height: 8px;
+  border-radius: var(--r-full);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.home-split > i { display: block; height: 100%; transition: width var(--dur-3) var(--ease); }
+.home-split > i.on { background: linear-gradient(90deg, #2fd6a0, #1dc9ff); }
+.home-split > i.off { background: linear-gradient(90deg, #ff5f74, #ff3d68); }
+
+.home-legend { display: flex; flex-wrap: wrap; gap: var(--s-4); font-size: var(--fs-11); color: var(--text-3); }
+.home-legend b { color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+/* ---------- Miniatura do tráfego ---------- */
+.home-spark { display: block; width: 100%; height: 72px; overflow: visible; }
+.home-spark-area { fill: url(#homeSparkFill); }
+.home-spark-line { fill: none; stroke: var(--cyan-400); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.home-spark-min { stroke: var(--text-3); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+
+/* ---------- Fila de alertas ---------- */
+.home-alerts { display: grid; gap: var(--s-3); }
+
+.home-alert {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  padding: var(--s-3) var(--s-4);
+}
+.home-alert::before { content: ""; align-self: stretch; border-radius: var(--r-full); background: var(--text-3); }
+.home-alert.is-critico::before { background: var(--danger-500); }
+.home-alert.is-atencao::before { background: var(--warn-500); }
+.home-alert.is-info::before { background: var(--cyan-400); }
+
+.home-alert b { display: block; font-size: var(--fs-13); }
+.home-alert p { margin-top: 3px; color: var(--text-3); font-size: var(--fs-11); line-height: var(--lh-base); }
+.home-alert time { display: block; margin-top: 4px; color: var(--text-3); font-size: var(--fs-10); font-family: var(--font-mono); }
+.home-alert .row { flex: none; }
+
+.home-alert-badges { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+@media (max-width: 640px) {
+  .home-stats { grid-template-columns: minmax(0, 1fr); }
+  .home-alert { grid-template-columns: 4px minmax(0, 1fr); }
+  .home-alert .row { grid-column: 2; justify-content: flex-start; }
+}

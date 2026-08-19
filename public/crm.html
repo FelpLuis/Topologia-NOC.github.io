@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Central CRM</title>
+<meta name="description" content="CRM operacional com funis e históricos separados por setor.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/crm.css?v=20260819-1">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+<div class="shell">
+  <aside data-sidebar></aside>
+  <main class="content" id="main">
+    <div class="page-head crm-head">
+      <div>
+        <span class="kicker">Relacionamento por setor</span>
+        <h1 class="page-title">Central CRM</h1>
+        <p class="page-sub">Leads, clientes, solicitações, responsáveis e próximos contatos em um histórico único.</p>
+      </div>
+      <button class="btn btn-primary" id="newCaseBtn" type="button" data-action="crm.create"></button>
+    </div>
+
+    <section class="crm-kpis" id="crmKpis" aria-label="Resumo do CRM"></section>
+
+    <section class="card crm-controls" aria-label="Filtros do CRM">
+      <div class="crm-sector-tabs" id="sectorTabs"></div>
+      <div class="crm-filters">
+        <div class="input-affix crm-search"><span class="affix-icon" id="searchIcon"></span><input class="input" id="crmSearch" type="search" placeholder="Buscar cliente, telefone, documento ou assunto"></div>
+        <select class="select" id="statusFilter" aria-label="Situação"><option value="open">Em aberto</option><option value="all">Todos</option><option value="closed">Concluídos</option></select>
+        <select class="select" id="ownerFilter" aria-label="Responsável"><option value="">Todos os responsáveis</option></select>
+        <button class="btn btn-icon" id="refreshBtn" type="button" aria-label="Atualizar CRM"></button>
+      </div>
+    </section>
+
+    <section id="crmContent" aria-live="polite"></section>
+  </main>
+</div>
+<nav data-mobile-nav aria-label="Navegação"></nav>
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-crm.js?v=20260819-1"></script>
+</body>
+</html>

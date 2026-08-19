@@ -16,6 +16,7 @@ window.UI = (() => {
 
   /* ---------------- ícones ---------------- */
   const PATHS = {
+    home: '<path d="M4 11.2 12 4.5l8 6.7"/><path d="M6.3 10.2V19a1 1 0 0 0 1 1h9.4a1 1 0 0 0 1-1v-8.8"/><path d="M10 20v-5h4v5"/>',
     topology: '<circle cx="5" cy="12" r="2.4"/><circle cx="19" cy="6" r="2.4"/><circle cx="19" cy="18" r="2.4"/><path d="M7.2 11l9.5-4.2M7.2 13l9.5 4.2"/>',
     pops: '<path d="M12 21s7-5.7 7-11a7 7 0 1 0-14 0c0 5.3 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     dashboard: '<path d="M3 12h4l2.5 7 4-15 2.5 8h5"/>',
@@ -215,7 +216,9 @@ window.UI = (() => {
   /* O menu é montado a partir das telas liberadas para o perfil (/api/access).
      Esta lista é só o desenho inicial, usada enquanto o acesso não chega. */
   const NAV_PADRAO = [
-    { code: "network", label: "Topologia BACKBONE", href: "/", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
+    { code: "home", label: "Home", href: "/", icon: "home", sector: "noc", desc: "Clientes, tráfego da rede e alertas não vistos" },
+    { code: "crm", label: "Central CRM", href: "/crm.html", icon: "users", sector: "comercial", desc: "Leads, clientes e solicitações separados por setor" },
+    { code: "network", label: "Topologia BACKBONE", href: "/topologia.html", icon: "topology", sector: "noc", desc: "Mapa por localidade, equipamentos e portas" },
     { code: "gpon", label: "Topologia GPON", href: "/gpon.html", icon: "topology", sector: "noc", desc: "Mapa da topologia da rede GPON" },
     { code: "gpon-mapa", label: "Mapas GPON", href: "/gpon-mapa.html", icon: "pops", sector: "noc", desc: "Clientes, caixas, POPs, drops e caminho ponta a ponta" },
     //{ code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
@@ -749,6 +752,7 @@ window.UI = (() => {
     ["/", "Focar a busca sem sair do teclado"],
     ["Ctrl / ⌘ + B", "Recolher ou expandir o menu lateral"],
     ["T", "Alternar tema claro e escuro"],
+    ["G depois H", "Ir para a Home"],
     ["G depois T", "Ir para a Topologia"],
     ["G depois D", "Ir para o Dashboard NOC"],
     ["G depois P", "Ir para os POPs"],
@@ -791,7 +795,7 @@ window.UI = (() => {
       if (e.key.toLowerCase() === "t") { toggleTheme(); return; }
       if (e.key.toLowerCase() === "g") { gPressed = true; setTimeout(() => (gPressed = false), 1200); return; }
       if (gPressed) {
-        const map = { t: "/", d: "/dashboard.html", p: "/pops.html", a: "/platform.html" };
+        const map = { h: "/", t: "/topologia.html", d: "/dashboard.html", p: "/pops.html", a: "/platform.html" };
         const dest = map[e.key.toLowerCase()];
         if (dest) { gPressed = false; location.href = dest; }
       }

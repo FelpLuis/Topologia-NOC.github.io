@@ -288,7 +288,7 @@
                       <br><small class="truncate">${esc(e.modelo || "")} • ${esc(e.categoria || "")}</small>
                     </div>
                     <div class="row" style="gap:6px">
-                      <a class="btn btn-sm" href="/?device=${encodeURIComponent(e.id)}">Abrir</a>
+                      <a class="btn btn-sm" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir</a>
                       <button class="btn btn-sm" type="button" data-unlink="${esc(e.id)}" ${canEdit ? "" : "disabled"}>Desvincular</button>
                     </div>
                   </div>

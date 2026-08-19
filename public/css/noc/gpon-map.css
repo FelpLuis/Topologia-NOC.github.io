@@ -84,10 +84,10 @@
 .gpon-kpi strong { display: block; margin-top: 4px; font: 700 var(--fs-20) var(--font-mono); font-variant-numeric: tabular-nums; }
 .gpon-kpi small { color: var(--text-3); font-size: var(--fs-10); }
 
-/* ---------- Área de trabalho: lista, mapa e detalhe ---------- */
+/* ---------- Área de trabalho: painel, mapa e detalhe ---------- */
 .gpon-workspace {
   display: grid;
-  grid-template-columns: 260px minmax(420px, 1fr) 310px;
+  grid-template-columns: 288px minmax(420px, 1fr) 310px;
   min-height: 620px;
   /* dvh, e não vh: no celular a barra do navegador entra na conta e o mapa
      ficava mais alto que a janela. O desconto é do cabeçalho da página. */
@@ -96,67 +96,189 @@
   border-radius: var(--r-md);
   overflow: hidden;
   background: var(--surface-1);
+  transition: grid-template-columns var(--dur-3) var(--ease-out);
 }
-.gpon-side,
+/* Painel recolhido: a coluna zera e o mapa toma a largura inteira. */
+.gpon-workspace.side-off { grid-template-columns: 0 minmax(420px, 1fr) 310px; }
+.gpon-workspace.side-off .gpon-side { opacity: 0; pointer-events: none; }
+
+.gpon-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-1);
+  transition: opacity var(--dur-2) var(--ease-out);
+}
 .gpon-detail {
   min-width: 0;
   padding: var(--s-3);
+  border-left: 1px solid var(--line);
   background: var(--surface-1);
   overflow: auto;
 }
-.gpon-side { border-right: 1px solid var(--line); }
-.gpon-detail { border-left: 1px solid var(--line); }
 
-/* Camadas: o alvo de toque é o rótulo inteiro, não a caixinha de 13px. */
-.gpon-layers {
+/* Cabeça fixa do painel: busca, foco e filtros não rolam junto com a lista —
+   eles são os controles que o operador usa o tempo todo. */
+.gpon-side-top {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s-1);
-  margin: var(--s-3) 0;
-  font-size: var(--fs-11);
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
 }
-.gpon-layers label {
+.gpon-side-body { flex: 1; min-height: 0; overflow: auto; padding: var(--s-2) var(--s-3) var(--s-3); }
+
+/* ---------- Foco do mapa ---------- */
+.gpon-focus { display: grid; gap: 5px; }
+.gpon-focus label {
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+}
+.gpon-focus .select { width: 100%; }
+.gpon-focus-hint {
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- Filtros de estado ---------- */
+.gpon-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.gpon-filters .chip { min-height: 28px; padding: 0 10px; font-size: var(--fs-11); }
+.gpon-filters .chip .count {
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font-size: var(--fs-10);
+  opacity: 1;
+}
+.gpon-filters .chip[data-status="offline"][aria-pressed="true"] {
+  background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text);
+}
+.gpon-filters .chip[data-status="signal"][aria-pressed="true"] {
+  background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text);
+}
+.gpon-filters .chip[data-status="online"][aria-pressed="true"] {
+  background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-text);
+}
+
+/* ---------- Camadas ----------
+   Botões de alternância, e não caixas de seleção de 13 px: o alvo de toque é
+   o cartão inteiro e o estado ligado/desligado se lê de longe, na sala. */
+.gpon-layers { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.gpon-layer {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  min-height: 32px;
+  gap: 6px;
+  min-height: 34px;
   padding: 0 var(--s-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  cursor: pointer;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: var(--fs-11);
+  font-weight: 600;
+  text-align: left;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.gpon-layers label:hover { background: var(--surface-2); }
-.gpon-layers input { accent-color: var(--brand-500); flex: none; }
-
-.gpon-side-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--s-3) 0 var(--s-2);
-  border-top: 1px solid var(--line);
+.gpon-layer .icon { width: 15px; height: 15px; flex: none; }
+.gpon-layer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpon-layer:hover { color: var(--text-1); border-color: var(--line-strong); }
+.gpon-layer[aria-pressed="true"] {
+  background: var(--grad-brand-soft);
+  border-color: var(--info-line);
+  color: var(--cyan-300);
 }
+:root[data-theme="light"] .gpon-layer[aria-pressed="true"] { color: var(--brand-600); }
+.gpon-layer[aria-pressed="false"] .icon { opacity: .5; }
 
-.gpon-alerts { display: grid; gap: var(--s-2); max-height: 250px; overflow: auto; }
-.gpon-clients { display: grid; gap: var(--s-1); max-height: 230px; overflow: auto; padding-right: 2px; }
+/* ---------- Abas do painel ---------- */
+.gpon-side-tabs { display: flex; width: 100%; }
+.gpon-side-tabs button { flex: 1; gap: 6px; display: inline-flex; align-items: center; justify-content: center; }
+.gpon-side-tabs button b {
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  font: 700 var(--fs-10) var(--font-mono);
+}
+.gpon-side-tabs button[aria-pressed="true"] b { background: rgba(255, 255, 255, .22); }
+
+/* ---------- Lista de clientes ---------- */
+.gpon-clients { display: grid; gap: 5px; align-content: start; }
+.gpon-alerts { display: grid; gap: 6px; align-content: start; }
+
 .gpon-client-row {
   display: grid;
-  grid-template-columns: 9px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
   gap: var(--s-2);
   width: 100%;
-  padding: var(--s-2) var(--s-2);
-  border: 1px solid var(--line);
+  padding: 7px var(--s-2);
+  border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   color: var(--text-1);
   text-align: left;
   cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
 }
-.gpon-client-row:hover, .gpon-client-row[aria-current="true"] { border-color: var(--cyan-400); }
-.gpon-client-row i { width: 8px; height: 8px; margin-top: 3px; border-radius: var(--r-full); background: var(--ok-500); }
-.gpon-client-row.is-alert i { background: var(--danger-500); }
-.gpon-client-row b, .gpon-client-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gpon-client-row b { font-size: var(--fs-10); }
-.gpon-client-row small { margin-top: 2px; color: var(--text-3); font-size: var(--fs-10); }
-.gpon-list-more { padding: var(--s-1); color: var(--text-3); font-size: var(--fs-10); text-align: center; }
+.gpon-client-row:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.gpon-client-row[aria-current="true"] {
+  border-color: var(--cyan-400);
+  background: var(--grad-brand-soft);
+  box-shadow: inset 2px 0 var(--cyan-400);
+}
+.gpon-client-row > i {
+  width: 8px; height: 8px;
+  border-radius: var(--r-full);
+  background: var(--ok-500);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.gpon-client-row.is-off > i { background: var(--danger-500); box-shadow: 0 0 0 3px var(--danger-bg); }
+.gpon-client-row.is-low > i { background: var(--warn-500); box-shadow: 0 0 0 3px var(--warn-bg); }
+.gpon-client-main { min-width: 0; }
+.gpon-client-main b, .gpon-client-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpon-client-main b { font-size: var(--fs-11); }
+.gpon-client-main small { margin-top: 1px; color: var(--text-3); font-size: var(--fs-10); }
+.gpon-client-meta { display: flex; align-items: center; gap: 4px; flex: none; }
+.gpon-client-meta em {
+  font: 600 var(--fs-10) var(--font-mono);
+  font-style: normal;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.gpon-client-row.is-low .gpon-client-meta em { color: var(--warn-text); }
+.gpon-client-row.is-off .gpon-client-meta em { color: var(--danger-text); }
+.gpon-client-meta u {
+  padding: 1px 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  text-decoration: none;
+}
+
+.gpon-list-more {
+  width: 100%;
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  font-weight: 600;
+}
+.gpon-list-more:hover { color: var(--cyan-300); border-color: var(--cyan-400); }
+.gpon-list-note { padding: var(--s-2); color: var(--text-3); font-size: var(--fs-10); text-align: center; }
+.gpon-side-empty { min-height: 160px; padding: var(--s-4) var(--s-2); }
+
 .gpon-alert {
   width: 100%;
   padding: var(--s-2) var(--s-3);
@@ -167,14 +289,30 @@
   color: var(--text-1);
   text-align: left;
 }
-.gpon-alert:hover { border-color: var(--line-strong); border-left-color: var(--warn-500); }
+.gpon-alert:hover { border-color: var(--line-strong); border-left-color: var(--warn-500); background: var(--surface-3); }
 .gpon-alert.is-critical { border-left-color: var(--danger-500); }
 .gpon-alert b, .gpon-alert small { display: block; }
 .gpon-alert b { font-size: var(--fs-11); }
 .gpon-alert small { margin-top: 3px; color: var(--text-3); font-size: var(--fs-10); }
 
-.gpon-legend { display: grid; gap: var(--s-2); margin-top: var(--s-3); padding: var(--s-3); font-size: var(--fs-10); }
-.gpon-legend div { display: flex; align-items: center; gap: var(--s-2); }
+/* ---------- Legenda ---------- */
+.gpon-legend {
+  padding: var(--s-2) var(--s-3) var(--s-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface-1);
+  font-size: var(--fs-10);
+}
+.gpon-legend summary {
+  padding: var(--s-2) 0;
+  color: var(--text-3);
+  font-size: var(--fs-10);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  cursor: pointer;
+}
+.gpon-legend summary:hover { color: var(--text-1); }
+.gpon-legend div { display: flex; align-items: center; gap: var(--s-2); padding: 2px 0; color: var(--text-3); }
 .gpon-swatch {
   width: 12px; height: 12px;
   flex: none;
@@ -184,8 +322,10 @@
   box-shadow: 0 0 0 1px var(--line-strong);
 }
 .sw-client-off { background: var(--danger-500); }
+.sw-client-warn { background: var(--warn-500); }
 .sw-box { border-radius: 3px; background: var(--purple-400); }
 .sw-pop { background: var(--brand-500); }
+.sw-cluster { background: var(--grad-brand); border-style: dashed; }
 .gpon-line { width: 24px; height: 0; flex: none; border-top: 3px solid var(--cyan-400); }
 .line-network { border-color: var(--purple-400); border-top-style: dashed; }
 
@@ -213,34 +353,45 @@
 .gpon-route-drop { stroke: var(--cyan-400); stroke-width: 3; opacity: .85; }
 .gpon-route-drop.is-alert { stroke: var(--danger-500); stroke-dasharray: 7 5; }
 
-.gpon-marker {
+/* Marcadores e agrupamentos são posicionados pela propriedade `translate`
+   (aplicada em linha pelo JS), não por left/top: assim `transform` fica livre
+   para a centralização e `scale` para o realce, e o navegador compõe a
+   posição na GPU em vez de refazer o layout a cada quadro de arrasto. */
+.gpon-marker, .gpon-cluster {
   position: absolute;
+  left: 0; top: 0;
+  transform: translate(-50%, -50%);
+  transition: scale var(--dur-1) var(--ease);
+  cursor: pointer;
+}
+.gpon-marker {
   display: grid;
   place-items: center;
-  transform: translate(-50%, -50%);
-  width: 32px; height: 32px;
+  width: 30px; height: 30px;
   border: 2px solid var(--surface-1);
   border-radius: var(--r-full);
   background: var(--ok-500);
   color: var(--text-on-brand);
   box-shadow: 0 3px 12px rgba(0, 0, 0, .45);
-  cursor: pointer;
   z-index: 3;
 }
 .gpon-marker:hover,
 .gpon-marker:focus-visible,
 .gpon-marker.is-selected {
   z-index: 5;
-  transform: translate(-50%, -50%) scale(1.14);
+  scale: 1.18;
   box-shadow: 0 0 0 4px rgba(29, 201, 255, .28), 0 3px 12px rgba(0, 0, 0, .45);
 }
 .gpon-marker.is-offline, .gpon-marker.is-critical { background: var(--danger-500); }
-.gpon-marker.is-box { width: 26px; height: 26px; border-radius: 6px; background: var(--purple-400); }
-.gpon-marker.is-pop { width: 38px; height: 38px; background: var(--brand-500); }
-.gpon-marker .icon { width: 16px; height: 16px; }
+.gpon-marker.is-warn { background: var(--warn-500); color: #21160a; }
+.gpon-marker.is-box { width: 24px; height: 24px; border-radius: 6px; background: var(--purple-400); }
+.gpon-marker.is-pop { width: 38px; height: 38px; background: var(--brand-500); z-index: 4; }
+.gpon-marker .icon { width: 15px; height: 15px; }
+.gpon-marker.is-pop .icon { width: 18px; height: 18px; }
 
-/* Mesmo tratamento do rótulo do POP na topologia: vidro do tema, não uma
-   caixa preta que só funciona no tema escuro. */
+/* Rótulo: sempre nos POPs, e no cliente só quando o zoom já é de rua ou ele
+   está selecionado. Milhares de etiquetas ao mesmo tempo não se leem, e cada
+   uma delas é um nó a mais para o navegador compor. */
 .gpon-marker-label {
   position: absolute;
   left: 50%;
@@ -254,9 +405,83 @@
   font: 700 var(--fs-10) var(--font-sans);
   white-space: nowrap;
   pointer-events: none;
+  display: none;
+}
+.gpon-marker.has-label .gpon-marker-label,
+.gpon-marker:hover .gpon-marker-label,
+.gpon-marker:focus-visible .gpon-marker-label,
+.gpon-marker.is-selected .gpon-marker-label { display: block; }
+
+/* Agrupamento: a bolha que substitui centenas de marcadores fora do zoom de
+   rua. O anel externo dá a sensação de volume sem custar outro elemento. */
+.gpon-cluster {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-full);
+  background: radial-gradient(circle at 32% 28%, rgba(29, 201, 255, .95), rgba(11, 116, 255, .92));
+  color: var(--text-on-brand);
+  box-shadow: 0 0 0 6px rgba(11, 116, 255, .18), 0 6px 18px rgba(0, 0, 0, .38);
+  z-index: 2;
+}
+.gpon-cluster b { font: 800 var(--fs-11) var(--font-mono); font-variant-numeric: tabular-nums; }
+.gpon-cluster:hover, .gpon-cluster:focus-visible { scale: 1.1; z-index: 6; }
+.gpon-cluster.is-warn {
+  background: radial-gradient(circle at 32% 28%, rgba(255, 208, 122, .95), rgba(255, 176, 32, .92));
+  box-shadow: 0 0 0 6px rgba(255, 176, 32, .18), 0 6px 18px rgba(0, 0, 0, .38);
+  color: #21160a;
+}
+.gpon-cluster.is-critical {
+  background: radial-gradient(circle at 32% 28%, rgba(255, 156, 170, .95), rgba(255, 95, 116, .94));
+  box-shadow: 0 0 0 6px rgba(255, 95, 116, .20), 0 6px 18px rgba(0, 0, 0, .38);
+}
+/* Ponto de alerta no canto da bolha: quantos daqueles clientes estão fora. */
+.gpon-cluster i {
+  position: absolute;
+  right: 2px; top: 2px;
+  width: 9px; height: 9px;
+  border: 2px solid var(--surface-1);
+  border-radius: var(--r-full);
+  background: var(--danger-500);
 }
 
+/* ---------- Controles sobre o mapa ---------- */
 .gpon-map-tools { left: var(--s-3); bottom: var(--s-3); display: flex; align-items: center; gap: 3px; padding: var(--s-1); }
+
+.gpon-side-toggle {
+  position: absolute;
+  left: 0; top: var(--s-4);
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  width: 22px; height: 46px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--surface-glass);
+  color: var(--text-3);
+  backdrop-filter: blur(8px);
+}
+.gpon-side-toggle:hover { color: var(--cyan-300); border-color: var(--cyan-400); }
+.gpon-side-toggle .icon { width: 14px; height: 14px; }
+
+.gpon-map-count {
+  position: absolute;
+  left: 50%; bottom: var(--s-3);
+  transform: translateX(-50%);
+  z-index: 8;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--surface-glass);
+  color: var(--text-3);
+  font: 600 var(--fs-10) var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+
 .gpon-map-message {
   position: absolute;
   left: 50%;
@@ -327,7 +552,8 @@
 
 /* ---------- Telas médias: o detalhe flutua sobre o mapa ---------- */
 @media (max-width: 1200px) {
-  .gpon-workspace { position: relative; grid-template-columns: 230px minmax(320px, 1fr); }
+  .gpon-workspace { position: relative; grid-template-columns: 262px minmax(320px, 1fr); }
+  .gpon-workspace.side-off { grid-template-columns: 0 minmax(320px, 1fr); }
   .gpon-detail {
     position: absolute;
     right: var(--s-4);
@@ -353,9 +579,21 @@
   .gpon-tabs { overflow-x: auto; scrollbar-width: none; }
   .gpon-tabs::-webkit-scrollbar { display: none; }
   .gpon-tab { flex: 0 0 auto; min-width: 220px; }
-  .gpon-workspace { display: block; height: auto; min-height: 0; }
-  .gpon-side { border: 0; border-bottom: 1px solid var(--line); }
-  .gpon-map { height: 62dvh; min-height: 420px; }
+  /* No telefone o mapa vem primeiro: com o painel no topo era preciso rolar
+     uma tela inteira de filtros antes de ver qualquer cliente. */
+  .gpon-workspace, .gpon-workspace.side-off {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+  .gpon-map { order: 1; height: 58dvh; min-height: 380px; }
+  .gpon-detail { order: 2; }
+  .gpon-side { order: 3; border: 0; border-top: 1px solid var(--line); }
+  .gpon-workspace.side-off .gpon-side { display: none; }
+  .gpon-side-body { max-height: 40dvh; }
+  .gpon-side-toggle { display: none; }
+  .gpon-map-count { bottom: 34px; }
   .gpon-detail {
     position: static;
     display: block !important;
@@ -366,7 +604,11 @@
     border-radius: 0;
     box-shadow: none;
   }
-  .gpon-alerts { max-height: 160px; }
   /* Alvo de toque de 44px no telefone, como no resto da plataforma. */
-  .gpon-layers label { min-height: 44px; }
+  .gpon-layer { min-height: 44px; }
+  .gpon-filters .chip { min-height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpon-workspace, .gpon-marker, .gpon-cluster, .gpon-client-row, .gpon-layer { transition: none; }
 }

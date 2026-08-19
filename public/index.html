@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Home</title>
+<meta name="description" content="Painel de abertura do NOC: clientes online e offline, tráfego da rede e alertas ainda não vistos.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<link rel="stylesheet" href="/css/noc/home.css?v=20260819-1">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o painel</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker"><i class="dot dot-ok dot-live"></i> Atualizado <span id="lastUpdate">—</span></span>
+        <h1 class="page-title" id="saudacao">Home</h1>
+        <p class="page-sub">Clientes autenticados, tráfego da rede e os alertas que você ainda não viu. Cada bloco leva à tela onde o assunto é tratado por inteiro.</p>
+      </div>
+      <div class="row wrap">
+        <button class="btn btn-sm" id="btnRefresh" type="button">Atualizar</button>
+        <a class="btn btn-sm btn-primary" href="/topologia.html">Abrir topologia</a>
+      </div>
+    </div>
+
+    <section class="home-grid" aria-label="Resumo da operação">
+
+      <!-- Clientes ------------------------------------------------ -->
+      <article class="card home-card" id="cardClientes" aria-labelledby="tituloClientes">
+        <div class="card-head">
+          <div>
+            <span class="kicker" id="kickerClientes">Base GPON</span>
+            <h2 id="tituloClientes">Clientes</h2>
+          </div>
+          <a class="btn btn-sm" href="/gpon-mapa.html">Ver no mapa</a>
+        </div>
+        <div class="card-body" id="blocoClientes"></div>
+      </article>
+
+      <!-- Tráfego ------------------------------------------------- -->
+      <article class="card home-card" id="cardTrafego" aria-labelledby="tituloTrafego">
+        <div class="card-head">
+          <div>
+            <span class="kicker" id="kickerTrafego">Rede</span>
+            <h2 id="tituloTrafego">Tráfego</h2>
+          </div>
+          <a class="btn btn-sm" href="/trafego.html">Abrir painel</a>
+        </div>
+        <div class="card-body" id="blocoTrafego"></div>
+      </article>
+
+      <!-- Alertas ------------------------------------------------- -->
+      <article class="card home-card home-card-wide" id="cardAlertas" aria-labelledby="tituloAlertas">
+        <div class="card-head">
+          <div>
+            <span class="kicker" id="kickerAlertas">Sua fila</span>
+            <h2 id="tituloAlertas">Alertas ainda não vistos</h2>
+            <p>Cada pessoa tem a própria fila: marcar como visto aqui não tira o alerta dos colegas.</p>
+          </div>
+          <div class="row wrap">
+            <button class="btn btn-sm" id="btnVerTudo" type="button" hidden>Marcar todos como vistos</button>
+          </div>
+        </div>
+        <div class="card-body" id="blocoAlertas"></div>
+      </article>
+
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-home.js?v=20260819-1"></script>
+</body>
+</html>
