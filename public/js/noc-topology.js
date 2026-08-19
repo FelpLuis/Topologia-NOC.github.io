@@ -205,44 +205,11 @@
     $$("#deviceList [data-site-jump]").forEach((b) => (b.onclick = () => toggleSite(b.dataset.siteJump)));
   }
 
-  function renderTable() {
-    const rows = (NOC.data()?.equipamentos || []).filter(matches);
-    $("#listBody").innerHTML = rows.map((e) => {
-      const o = NOC.occupancy(e);
-      const pop = siteById(siteOf(e));
-      return `<tr>
-        <td><b>${esc(e.nome)}</b><br><small class="dim">${esc(e.modelo || "—")}</small></td>
-        <td>${esc(pop?.nome || "—")}${NOC.isSuggested(e) ? ' <span class="badge badge-warn">sugerido</span>' : ""}</td>
-        <td>${esc(e.categoria || "—")}</td>
-        <td class="num">${e.portas.length}</td>
-        <td class="num">${NOC.usedPorts(e)}</td>
-        <td class="num">${e.portas.length - NOC.usedPorts(e)}</td>
-        <td><span class="row" style="gap:var(--s-2)"><span class="meter meter-sm ${NOC.occClass(o)} grow"><span style="width:${o}%"></span></span><small class="mono">${o}%</small></span></td>
-        <td><button class="btn btn-sm" type="button" data-open="${esc(e.id)}">Detalhes</button></td>
-      </tr>`;
-    }).join("");
-    $$("#listBody [data-open]").forEach((b) => (b.onclick = () => openDevice(b.dataset.open)));
-  }
-
   /* ---------------- anel óptico (aba POPs) ---------------- */
   const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const nomeCurto = (p) => norm(p?.nome).replace(/^pop\s*/, "").trim();
   const tipoDaRota = (r) => (/subterr/i.test(r) ? "Subterrânea" : "Aérea");
   const rotaAponta = (rota, alvo) => !!nomeCurto(alvo) && norm(rota).includes(nomeCurto(alvo));
-
-  function ringLinks() {
-    const pops = NOC.pops();
-    const map = new Map();
-    pops.forEach((p) => (p.rotas || []).forEach((r) => {
-      const destino = pops.find((q) => q.id !== p.id && rotaAponta(r, q));
-      if (!destino) return;
-      const key = [p.id, destino.id].sort().join("|");
-      const cur = map.get(key) || { a: key.split("|")[0], b: key.split("|")[1], tipos: new Set() };
-      cur.tipos.add(tipoDaRota(r));
-      map.set(key, cur);
-    }));
-    return [...map.values()];
-  }
 
   function renderPopsView() {
     const popsList = $("#popsList");
@@ -760,29 +727,6 @@
         };
       },
     });
-  }
-
-  async function vincular(deviceId, popId) {
-    const e = NOC.data().equipamentos.find((x) => x.id === deviceId);
-    if (!e) return;
-    try {
-      const antes = await NOC.setPop(deviceId, popId);
-      renderPopsView();
-      toast(popId ? `${e.nome} vinculado` : `${e.nome} desvinculado`, {
-        text: popId ? "Passa a contar na ocupação deste POP no Dashboard." : "Sai da ocupação do POP e vira pendência no Dashboard.",
-        type: popId ? "ok" : "warn",
-        action: {
-          label: "Desfazer",
-          run: async () => {
-            try { await NOC.setPop(deviceId, antes); renderPopsView(); toast("Vínculo revertido", { type: "info" }); }
-            catch (err) { toast("Não foi possível reverter", { text: err.message, type: "danger" }); }
-          },
-        },
-      });
-    } catch (err) {
-      renderPopsView();
-      toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
-    }
   }
 
   function openLink(popId) {
@@ -3429,7 +3373,6 @@
     renderList();
     renderSites();
     renderEdges();
-    renderTable();
     renderMissing();
     renderPopsView();
     // Camada de fibra da PARTE ISP: só existe nas telas que carregam noc-fibra.js.
