@@ -26,6 +26,9 @@
   },
   // Sincronização automática do Zabbix a cada 5 minutos: é o que mantém o
   // painel de tráfego e o histórico atualizados sozinhos no telão do NOC.
+  // Secrets do Chat WhatsApp (ver .env.example):
+  //   WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
+  //   WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
   "triggers": {
     "crons": ["*/5 * * * *"]
   }

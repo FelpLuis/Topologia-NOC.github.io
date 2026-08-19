@@ -2312,6 +2312,10 @@
 
   function targetForm(data, target = null) {
     const protocol = target?.protocol || "ssh";
+    const vendor = target?.vendor || "outro";
+    const vendors = { zte:"ZTE (OLT ZXAN/ROS)", huawei:"Huawei (VRP)", cisco:"Cisco (IOS/IOS-XE)",
+      mikrotik:"MikroTik (RouterOS)", datacom:"Datacom (DMOS)", nokia:"Nokia (SR OS/TiMOS)",
+      linux:"Linux (servidor)", outro:"Outro / manual" };
     return `<form class="stack" data-target-form data-target-id="${esc(target?.id || "")}">
       <div class="row" style="gap:var(--s-3);align-items:flex-start">
         <div class="field grow"><label>Nome do destino</label><input class="input" name="name" maxlength="100" placeholder="Ex.: Acesso pela matriz" value="${esc(target?.name || "")}" required></div>
@@ -2323,9 +2327,26 @@
           <option value="telnet" ${protocol === "telnet" ? "selected" : ""}>TELNET</option>
         </select></div>
         <div class="field" style="width:110px"><label>Porta</label><input class="input mono" name="port" type="number" min="1" max="65535" value="${target?.port || (protocol === "telnet" ? 23 : 22)}" required></div>
+        <div class="field grow"><label>Fabricante</label><select class="select" name="vendor">
+          ${Object.entries(vendors).map(([value,label]) => `<option value="${value}" ${vendor === value ? "selected" : ""}>${esc(label)}</option>`).join("")}
+        </select>
+          <span class="field-hint">O coletor usa o fabricante para criar as contas dos usuários no aparelho.</span></div>
+      </div>
+      <div class="row" style="gap:var(--s-3);align-items:flex-start">
         <div class="field grow"><label>URL do terminal web</label><input class="input" name="browser_url" type="url" placeholder="https://ssh-aparelho.seudominio.com" value="${esc(target?.browser_url || "")}">
           <span class="field-hint">Endereço HTTPS publicado pelo túnel para abrir o terminal no navegador.</span></div>
       </div>
+      <details ${target?.provisioning || !target ? "" : "open"}>
+        <summary class="btn btn-sm" style="display:inline-flex;cursor:pointer">Credencial de provisionamento</summary>
+        <div class="stack" style="margin-top:var(--s-3)">
+          <div class="alert alert-info" style="animation:none">${icon("info")}
+            <span>Usuário e senha de administração deste aparelho. Com eles o coletor cria, via SSH, a conta de cada usuário que você definir no cadastro dele. A senha fica criptografada e só sai do servidor para o coletor autorizado.</span></div>
+          <div class="row" style="gap:var(--s-3);align-items:flex-start">
+            <div class="field grow"><label>Usuário administrador</label><input class="input" name="provision_username" autocomplete="off" maxlength="128" value="${esc(target?.provisioning_username || "")}" placeholder="Ex.: admin"></div>
+            <div class="field grow"><label>Senha de administração</label><input class="input" name="provision_password" type="password" autocomplete="new-password" maxlength="512" placeholder="${target?.provisioning ? "Em branco mantém a senha atual" : "Senha do administrador"}" ${target?.provisioning ? "" : ""}></div>
+          </div>
+        </div>
+      </details>
       ${targetAccessFields(data,target || {})}
       <div class="row-between"><button class="btn btn-primary" type="submit">${target ? "Salvar destino" : "Adicionar destino"}</button>
         ${target ? '<button class="btn btn-danger btn-sm" type="button" data-delete-target>Excluir destino</button>' : ""}</div>
@@ -2348,6 +2369,8 @@
           <div class="row-between wrap" style="gap:var(--s-3)">
             <div><h3 style="font-size:var(--fs-14)">${esc(target.name)}</h3><div class="row wrap" style="margin-top:6px">${profiles}</div></div>
             <div class="row wrap"><span class="badge badge-info">${esc(target.protocol.toUpperCase())} • ${esc(target.ip)}:${target.port}</span>
+              <span class="badge">${esc(target.vendor_label || "Outro")}</span>
+              <span class="badge ${target.provisioning ? "badge-ok" : "badge-warn"}">${target.provisioning ? "Provisionamento ativo" : "Sem provisionamento"}</span>
               <span class="badge ${target.browser_url ? "badge-ok" : "badge-warn"}">${target.browser_url ? "Terminal web pronto" : "Sem terminal web"}</span></div>
           </div>
           <form class="stack" data-credential-form data-target-id="${esc(target.id)}">
@@ -2392,9 +2415,13 @@
         const payload={
           name:form.elements.name.value.trim(),ip:form.elements.ip.value.trim(),protocol:protocol.value,
           port:Number(port.value),browser_url:form.elements.browser_url.value.trim(),
+          vendor:form.elements.vendor.value,
+          provision_username:form.elements.provision_username.value.trim(),
           connect_role_ids:new FormData(form).getAll("connect_role").map(Number),
           manage_role_ids:new FormData(form).getAll("manage_role").map(Number)
         };
+        const provisionPassword=form.elements.provision_password.value;
+        if(provisionPassword)payload.provision_password=provisionPassword;
         try {
           if(form.dataset.targetId) await NOC.deviceConnection.save(e.id,form.dataset.targetId,payload);
           else await NOC.deviceConnection.create(e.id,payload);

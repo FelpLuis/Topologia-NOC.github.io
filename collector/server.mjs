@@ -5,6 +5,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { loadCollectorEnv, collectorConfig } from "./env.mjs";
 import { collectZte } from "./zte-cli.mjs";
 import { collectIxc, collectIxcLoginStatuses } from "./ixc-client.mjs";
+import { provisionPendingJobs } from "./provision.mjs";
 
 await loadCollectorEnv();
 const config = collectorConfig();
@@ -164,3 +165,25 @@ const fullTimer = setInterval(() => {
   void syncFull().catch((error) => console.error(JSON.stringify({ message: "Falha na sincronização completa GPON", error: error?.message || String(error) })));
 }, config.ixcIntervalMs);
 fullTimer.unref();
+
+/* ---- provisionamento de usuários nos aparelhos ---- */
+let provisioningRunning = false;
+async function runProvisioning() {
+  if (!config.provisioning.url || provisioningRunning) return;
+  provisioningRunning = true;
+  try {
+    const result = await provisionPendingJobs(config.provisioning, (log) =>
+      console.log(JSON.stringify({ message: `Provisionamento: ${log}`, at: new Date().toISOString() })));
+    if (result.jobs) console.log(JSON.stringify({ message: "Provisionamento concluído", ...result, at: new Date().toISOString() }));
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Falha no provisionamento", error: error?.message || String(error), at: new Date().toISOString() }));
+  } finally {
+    provisioningRunning = false;
+  }
+}
+if (config.provisioning.url) {
+  console.log(JSON.stringify({ message: "Provisionamento de usuários ativo", url: config.provisioning.url, interval_ms: config.provisioning.intervalMs }));
+  setTimeout(runProvisioning, 8000);
+  const provisioningTimer = setInterval(runProvisioning, config.provisioning.intervalMs);
+  provisioningTimer.unref();
+}

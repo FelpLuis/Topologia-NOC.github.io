@@ -30,6 +30,12 @@ export function collectorConfig() {
     protocol: required(`${prefix}_PROTOCOL`).toLowerCase(),
     username: required(`${prefix}_USERNAME`), password: required(`${prefix}_PASSWORD`),
   });
+  const provisioningUrl = (() => {
+    const base = String(process.env.PROVISIONING_PUSH_URL || "").replace(/\/+$/, "");
+    if (base) return base;
+    const derived = String(process.env.GPON_PUSH_URL || "").replace(/\/api\/gpon\/ingest$/, "").replace(/\/+$/, "");
+    return derived ? derived : "";
+  })();
   return {
     host: String(process.env.COLLECTOR_HOST || "127.0.0.1"),
     port: Number(process.env.COLLECTOR_PORT || 8790),
@@ -42,6 +48,11 @@ export function collectorConfig() {
     ixc: {
       baseUrl: required("IXC_BASE_URL").replace(/\/+$/, ""),
       token: required("IXC_API_TOKEN"),
+    },
+    provisioning: {
+      url: provisioningUrl,
+      pushToken: String(process.env.PROVISIONING_PUSH_TOKEN || process.env.GPON_PUSH_TOKEN || process.env.COLLECTOR_TOKEN || ""),
+      intervalMs: Math.max(15000, Number(process.env.PROVISIONING_INTERVAL_MS || 30000)),
     },
   };
 }

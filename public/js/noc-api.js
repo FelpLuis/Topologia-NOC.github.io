@@ -46,6 +46,12 @@ window.NOC = (() => {
       PORTA_INVALIDA: "Informe uma porta entre 1 e 65535.",
       USUARIO_DE_ACESSO_INVALIDO: "Informe o usuário usado para entrar no aparelho.",
       SENHA_DE_ACESSO_OBRIGATORIA: "Informe a senha desse usuário no aparelho.",
+      FABRICANTE_INVALIDO: "Fabricante não reconhecido.",
+      USUARIO_DE_PROVISIONAMENTO_INVALIDO: "Informe o usuário de administração do aparelho.",
+      SENHA_DE_PROVISIONAMENTO_OBRIGATORIA: "Informe a senha de administração do aparelho.",
+      SENHA_DE_PROVISIONAMENTO_MUITO_LONGA: "A senha de provisionamento é muito longa.",
+      DESTINOS_DE_ACESSO_OBRIGATORIOS: "Escolha ao menos um aparelho com provisionamento habilitado.",
+      DESTINO_DE_ACESSO_INVALIDO: "O aparelho escolhido não aceita provisionamento.",
       CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA: "A proteção de credenciais ainda não foi configurada no servidor.",
       NAO_FOI_POSSIVEL_DECIFRAR_A_CREDENCIAL: "A senha salva não pôde ser aberta. Cadastre-a novamente.",
       CREDENCIAL_SEM_SENHA: "Nenhuma senha foi cadastrada para este aparelho.",
@@ -530,6 +536,16 @@ window.NOC = (() => {
     revealPassword: (deviceId, targetId) => api(`/api/equipment-connections/${encodeURIComponent(deviceId)}/${encodeURIComponent(targetId)}/credentials/reveal`, { method: "POST" }),
   };
 
+  /* Acessos SSH de um usuário, definidos pelo administrador que o cadastrou.
+     O PUT grava as credenciais e reabre a fila de provisionamento para o
+     coletor criar a conta no aparelho via SSH. */
+  const userDeviceCredentials = {
+    get: (userId) => api(`/api/users/${Number(userId)}/device-credentials`),
+    save: (userId, targets) => api(`/api/users/${Number(userId)}/device-credentials`, {
+      method: "PUT", body: JSON.stringify({ targets }),
+    }),
+  };
+
   /* speed_bps e in_bps/out_bps vêm em bits/s. */
   function formatBps(bps) {
     const n = Number(bps);
@@ -568,6 +584,6 @@ window.NOC = (() => {
     pops, popById, popCoords, popRecord, suggestPop, effectivePop, isSuggested,
     devicesOfPop, unlinked, setPop, connectionsOf, portConnection, portaEmUso,
     usedPorts, occupancy, occClass, statsOf, statusInfo, enlacesCaidos, linkStatus, popStatus, skeleton, errorState,
-    zabbix, interfaceStatus, formatBps, deviceConnection,
+    zabbix, interfaceStatus, formatBps, deviceConnection, userDeviceCredentials,
   };
 })();

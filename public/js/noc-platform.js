@@ -419,6 +419,7 @@
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
           <div class="row" style="gap:6px;justify-content:flex-end">
+            <button class="btn btn-sm" type="button" data-device-access="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${icon("lock")} Acessos SSH</button>
             <button class="btn btn-sm" type="button" data-email="${u.id}" ${can("manageUsers") ? "" : "disabled"}>E-mail OAuth</button>
             <button class="btn btn-sm" type="button" data-reset="${u.id}" ${can("resetPassword") ? "" : "disabled"}>Redefinir senha</button>
             <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
@@ -480,6 +481,8 @@
       const u = state.users.find((x) => x.id === +b.dataset.reset);
       openReset(u);
     }));
+
+    $$("[data-device-access]").forEach((b) => (b.onclick = () => openUserDeviceAccess(state.users.find((x) => x.id === +b.dataset.deviceAccess))));
 
     $$("[data-email]").forEach((b) => (b.onclick = () => {
       const u = state.users.find((x) => x.id === +b.dataset.email);
@@ -580,6 +583,107 @@
           } catch (e2) {
             err.hidden = false;
             err.innerHTML = icon("alert") + " " + esc(e2.message);
+          }
+        };
+      },
+    });
+  }
+
+  const provisionBadge = (t) => {
+    const map = {
+      pending: ["badge-warn", "Na fila"],
+      provisioning: ["badge-info", "Enviando ao aparelho"],
+      success: ["badge-ok", "Criado no aparelho"],
+      error: ["badge-danger", "Falhou"],
+    };
+    const [cls, label] = map[t.status] || ["badge", t.status || "—"];
+    return `<span class="badge ${cls}" title="${esc(t.error || "")}">${label}${t.attempts ? ` • ${t.attempts}x` : ""}</span>`;
+  };
+
+  /* Acessos SSH do usuário: o administrador que o cadastrou define a
+     credencial de cada aparelho e o coletor cria a conta no equipamento. */
+  function openUserDeviceAccess(u) {
+    modal({
+      labelledBy: "daTitle",
+      wide: true,
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${esc(u.username)}</span><h2 id="daTitle" style="margin-top:6px">Acessos SSH em aparelhos</h2>
+          <p class="muted" style="font-size:var(--fs-13);margin-top:4px">Defina usuário e senha que serão criados no equipamento. O coletor conecta no aparelho via SSH e provisiona a conta automaticamente.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="skeleton skeleton-line" style="width:60%" data-loading></div>
+          <div data-da-targets class="stack" style="gap:var(--s-3)"></div>
+          <span class="field-error" data-da-error hidden></span>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">Toda gravação abre um job de provisionamento e fica na auditoria.</span>
+          <span class="row"><button class="btn" data-close type="button">Fechar</button>
+          <button class="btn btn-primary" data-da-save type="button">Salvar e provisionar</button></span>
+        </div>`,
+      onMount: async (host, close) => {
+        const saveBtn = $("[data-da-save]", host);
+        const loading = $("[data-loading]", host);
+        const targets = await NOC.userDeviceCredentials.get(u.id).catch((err) => {
+          loading.hidden = true;
+          const errEl = $("[data-da-error]", host);
+          errEl.hidden = false;
+          errEl.innerHTML = icon("alert") + " " + esc(err.message);
+          saveBtn.disabled = true;
+          return [];
+        });
+        loading.hidden = true;
+        if (!targets.length && !saveBtn.disabled) {
+          $("[data-da-targets]", host).innerHTML = `<div class="empty"><span class="empty-icon">${icon("lock")}</span><b>Nenhum aparelho com provisionamento</b><p>Cadastre um destino de acesso no equipamento e informe a credencial de administração para liberar aqui.</p></div>`;
+          saveBtn.disabled = true;
+          return;
+        }
+        $("[data-da-targets]", host).innerHTML = targets.map((t) => `
+          <section class="card stack" style="padding:var(--s-4)" data-da-target="${esc(t.target_id)}">
+            <div class="row-between wrap" style="gap:var(--s-3)">
+              <div><b>${esc(t.name)}</b>
+                <div class="row wrap" style="gap:6px;margin-top:4px">
+                  <span class="badge">${esc(t.vendor_label || t.vendor || "Outro")}</span>
+                  <span class="badge badge-info">${esc(t.protocol.toUpperCase())} • ${esc(t.ip)}:${t.port}</span>
+                  ${provisionBadge(t)}
+                </div></div>
+              <span class="dim mono" style="font-size:var(--fs-10)">${esc(t.device_id || "")}</span>
+            </div>
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label>Usuário no aparelho</label><input class="input" name="username" autocomplete="off" maxlength="128" value="${esc(t.credentials?.username || "")}" placeholder="Ex.: ${esc(u.username)}"></div>
+              <div class="field grow"><label>Senha no aparelho</label><input class="input" name="password" type="password" autocomplete="new-password" maxlength="512" placeholder="Nova senha da conta no equipamento"></div>
+            </div>
+            ${t.status === "error" ? `<div class="alert alert-danger" style="animation:none">${icon("alert")} <span>${esc(t.error || "Falha desconhecida")}</span></div>` : ""}
+            ${t.status === "success" ? `<span class="field-hint">Última atualização: ${esc(t.updated_at || "")} • ${t.attempts || 0} tentativa(s)</span>` : ""}
+          </section>`).join("");
+
+        saveBtn.onclick = async () => {
+          const payload = $$("[data-da-target]", host).map((card) => ({
+            target_id: card.dataset.daTarget,
+            username: $('[name="username"]', card).value.trim(),
+            password: $('[name="password"]', card).value,
+          })).filter((x) => x.username);
+          const errEl = $("[data-da-error]", host);
+          if (!payload.length) {
+            errEl.hidden = false;
+            errEl.innerHTML = icon("alert") + " Preencha ao menos um usuário para provisionar.";
+            return;
+          }
+          saveBtn.classList.add("is-loading");
+          saveBtn.disabled = true;
+          try {
+            const r = await NOC.userDeviceCredentials.save(u.id, payload);
+            close();
+            toast("Provisionamento agendado", {
+              text: `${r.queue.length} conta(s) serão criadas no aparelho pelo coletor.`,
+              type: "ok",
+            });
+          } catch (e2) {
+            errEl.hidden = false;
+            errEl.innerHTML = icon("alert") + " " + esc(e2.message);
+            saveBtn.classList.remove("is-loading");
+            saveBtn.disabled = false;
           }
         };
       },

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Chat WhatsApp</title>
+<meta name="description" content="Atendimento ao cliente por WhatsApp com roteamento por setor.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260819-1">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+<div class="shell">
+  <aside data-sidebar></aside>
+  <main class="content" id="main">
+    <div class="page-head wa-head">
+      <div>
+        <span class="kicker">Atendimento por setor</span>
+        <h1 class="page-title">Chat WhatsApp</h1>
+        <p class="page-sub">Conversas do WhatsApp com roteamento por setor, presença dos atendentes e supervisão.</p>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" id="newChatBtn" type="button" data-action="whatsapp.chat"></button>
+        <button class="btn btn-icon" id="settingsBtn" type="button" data-action="whatsapp.manage" title="Configurar o chat" aria-label="Configurar o chat"></button>
+        <button class="btn btn-icon" id="refreshBtn" type="button" title="Atualizar" aria-label="Atualizar chat"></button>
+      </div>
+    </div>
+
+    <section class="wa-layout" aria-label="Atendimento WhatsApp">
+      <aside class="card wa-conv-panel">
+        <div class="wa-filters">
+          <div class="wa-status-tabs" id="statusTabs">
+            <button class="wa-status-tab" data-status="open" aria-pressed="true">Em atendimento</button>
+            <button class="wa-status-tab" data-status="routing" aria-pressed="false">Fila de setor</button>
+            <button class="wa-status-tab" data-status="closed" aria-pressed="false">Encerradas</button>
+          </div>
+          <select class="select" id="sectorFilter" aria-label="Filtrar por setor"><option value="">Todos os setores</option></select>
+        </div>
+        <div class="wa-conv-items" id="convList" aria-live="polite"></div>
+      </aside>
+
+      <section class="card wa-pane">
+        <div class="wa-empty" id="chatEmpty">
+          <span class="wa-empty-icon" id="chatEmptyIcon"></span>
+          <b>Nenhuma conversa selecionada</b>
+          <p>Escolha uma conversa ao lado para acompanhar ou responder o cliente.</p>
+        </div>
+        <div class="wa-chat" id="chatThread" hidden>
+          <header class="wa-chat-head">
+            <div class="wa-chat-who">
+              <span class="avatar" id="chatAvatar"></span>
+              <div class="stack" style="gap:2px;min-width:0">
+                <b id="chatName"></b>
+                <small id="chatMeta" class="dim"></small>
+              </div>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" id="takeBtn" type="button" data-action="whatsapp.chat"></button>
+              <button class="btn" id="assignBtn" type="button" data-action="whatsapp.supervise"></button>
+              <button class="btn btn-danger" id="closeBtn" type="button" data-action="whatsapp.chat"></button>
+            </div>
+          </header>
+          <div class="wa-messages" id="messages" aria-live="polite"></div>
+          <form class="wa-composer" id="composer" hidden>
+            <textarea class="textarea" id="msgInput" rows="1" maxlength="4096" placeholder="Digite a mensagem para o cliente…"></textarea>
+            <button class="btn btn-primary btn-icon" id="sendBtn" type="submit" aria-label="Enviar mensagem" title="Enviar (Enter)"></button>
+          </form>
+        </div>
+      </section>
+
+      <aside class="card wa-presence-panel">
+        <div class="wa-presence-head">
+          <h3>Equipe</h3>
+          <button class="btn btn-sm" id="presenceToggle" type="button" data-action="whatsapp.view"></button>
+        </div>
+        <div class="wa-presence-list" id="presenceList" aria-live="polite"></div>
+      </aside>
+    </section>
+  </main>
+</div>
+<nav data-mobile-nav aria-label="Navegação"></nav>
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-whatsapp.js?v=20260819-1"></script>
+</body>
+</html>

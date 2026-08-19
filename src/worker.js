@@ -324,6 +324,9 @@ CREATE TABLE IF NOT EXISTS device_connection_targets (
   protocol TEXT NOT NULL CHECK(protocol IN ('ssh','telnet')),
   port INTEGER NOT NULL,
   browser_url TEXT,
+  vendor TEXT NOT NULL DEFAULT 'outro',
+  provision_username TEXT,
+  provision_ciphertext TEXT,
   active INTEGER NOT NULL DEFAULT 1,
   sort INTEGER NOT NULL DEFAULT 0,
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -344,6 +347,23 @@ CREATE TABLE IF NOT EXISTS device_target_credentials (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   login_username TEXT NOT NULL,
   password_ciphertext TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (target_id, user_id)
+);
+
+/* Fila de provisionamento: quando um administrador define a credencial de um
+   usuário em um aparelho, um job nasce aqui e o coletor Node (que consegue
+   abrir SSH) cria/atualiza a conta no equipamento e reporta o resultado. */
+CREATE TABLE IF NOT EXISTS device_target_provisioning (
+  target_id TEXT NOT NULL REFERENCES device_connection_targets(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  login_username TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','provisioning','success','error')),
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_attempt_at TEXT,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (target_id, user_id)
 );
@@ -448,6 +468,7 @@ CREATE INDEX IF NOT EXISTS idx_device_credentials_user ON device_credentials(use
 CREATE INDEX IF NOT EXISTS idx_device_targets_device ON device_connection_targets(device_id,sort,name);
 CREATE INDEX IF NOT EXISTS idx_device_acl_role ON device_connection_acl(role_id,target_id);
 CREATE INDEX IF NOT EXISTS idx_device_target_credentials_user ON device_target_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_device_target_provisioning_status ON device_target_provisioning(status,requested_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_abertos ON alerts(resolved_at,grau,last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_origem ON alerts(origem,resolved_at);
 CREATE INDEX IF NOT EXISTS idx_alert_reads_user ON alert_reads(user_id,alert_id);
@@ -455,6 +476,60 @@ CREATE INDEX IF NOT EXISTS idx_crm_cases_sector_stage ON crm_cases(sector_id,sta
 CREATE INDEX IF NOT EXISTS idx_crm_cases_assignee ON crm_cases(assigned_user_id,updated_at);
 CREATE INDEX IF NOT EXISTS idx_crm_cases_next_contact ON crm_cases(next_contact_at);
 CREATE INDEX IF NOT EXISTS idx_crm_activities_case ON crm_activities(case_id,created_at);
+
+/* Atendimento WhatsApp (WhatsApp Cloud API da Meta). Uma conversa por número,
+   com o bot direcionando para o setor escolhido pelo cliente. O atendente que
+   "pega" a conversa fica em atendimento (status derivado) e o master, com a
+   ação whatsapp.supervise, enxerga com quem cada colega está conversando. */
+CREATE TABLE IF NOT EXISTS wa_conversations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone TEXT NOT NULL,
+  customer_name TEXT NOT NULL DEFAULT '',
+  sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
+  assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status TEXT NOT NULL DEFAULT 'routing' CHECK(status IN ('routing','open','closed')),
+  routing_attempts INTEGER NOT NULL DEFAULT 0,
+  last_message TEXT NOT NULL DEFAULT '',
+  last_message_at TEXT,
+  unread INTEGER NOT NULL DEFAULT 0,
+  closed_at TEXT,
+  closed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wa_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id INTEGER NOT NULL REFERENCES wa_conversations(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL CHECK(direction IN ('in','out','bot')),
+  type TEXT NOT NULL DEFAULT 'text',
+  body TEXT NOT NULL DEFAULT '',
+  wa_message_id TEXT,
+  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','delivered','read','failed')),
+  sender_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  sender_name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wa_agent_presence (
+  user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  available INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS wa_contacts (
+  phone TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_conv_phone_status ON wa_conversations(phone,status);
+CREATE INDEX IF NOT EXISTS idx_wa_conv_sector ON wa_conversations(sector_id,status,updated_at);
+CREATE INDEX IF NOT EXISTS idx_wa_conv_assignee ON wa_conversations(assigned_user_id,status,updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_wamid ON wa_messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_wa_msg_conv ON wa_messages(conversation_id,created_at);
 `;
 
 
@@ -495,6 +570,7 @@ const SCREENS = [
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
   ["crm", "Central CRM", "Leads, clientes, solicitações e histórico separados por setor", "/crm.html", 1, "users", 25, 1],
+  ["whatsapp", "Chat WhatsApp", "Atendimento por WhatsApp com roteamento por setor", "/whatsapp.html", 1, "users", 27, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
   //["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
 ];
@@ -518,6 +594,7 @@ const ACTIONS = [
 
   ["topology.connection.use", "Usar conexão remota", "Cadastrar as próprias credenciais e abrir SSH ou TELNET", "network", "Acesso remoto", 10],
   ["topology.connection.configure", "Configurar conexão remota", "Definir IP, protocolo e porta de gerência do equipamento", "network", "Acesso remoto", 20],
+  ["topology.connection.provision", "Provisionar usuários nos aparelhos", "Definir a credencial de um usuário em um aparelho e enviá-la ao equipamento via SSH", "network", "Acesso remoto", 30],
 
   ["zabbix.view", "Consultar o Zabbix", "Ver hosts, interfaces e status da sincronização", "network", "Monitoramento (Zabbix)", 10],
   ["zabbix.sync", "Sincronizar o Zabbix", "Disparar a importação de hosts e interfaces", "network", "Monitoramento (Zabbix)", 20],
@@ -535,6 +612,11 @@ const ACTIONS = [
   ["crm.edit", "Editar CRM", "Alterar dados, responsáveis, etapas e próximos contatos", "crm", "CRM", 30],
   ["crm.interact", "Registrar interações", "Adicionar ligações, mensagens, reuniões, e-mails e notas ao histórico", "crm", "CRM", 40],
   ["crm.delete", "Excluir do CRM", "Excluir registros e todo o histórico relacionado", "crm", "CRM", 50],
+
+  ["whatsapp.view", "Consultar o chat", "Ver conversas, fila de roteamento e status dos colegas do setor", "whatsapp", "WhatsApp", 10],
+  ["whatsapp.chat", "Atender conversas", "Pegar conversas da fila, responder e encerrar atendimentos", "whatsapp", "WhatsApp", 20],
+  ["whatsapp.supervise", "Supervisionar conversas", "Ver com quem cada colega está conversando e atribuir conversas", "whatsapp", "WhatsApp", 30],
+  ["whatsapp.manage", "Configurar o chat", "Editar saudação, menu de setores e mensagens automáticas do bot", "whatsapp", "WhatsApp", 40],
 
   ["fibra.edit", "Editar caminhos de fibra", "Criar e alterar cabos, traçados e caixas ópticas no mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 10],
   ["fibra.delete", "Excluir caminhos de fibra", "Remover cabos, traçados e caixas ópticas do mapa da PARTE ISP", "isp-mapa", "Caminhos de fibra", 20],
@@ -588,6 +670,7 @@ const ROLE_PERMISSIONS = {
     ...TOPOLOGY_ACTIONS, "trafego.settings",
     "agenda.view","agenda.create","agenda.edit","agenda.delete",
     "crm.view","crm.create","crm.edit","crm.interact","crm.delete",
+    "whatsapp.view","whatsapp.chat","whatsapp.supervise","whatsapp.manage",
     "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
   ],
   analista: [
@@ -596,30 +679,30 @@ const ROLE_PERMISSIONS = {
     "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
     "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view",
-    "crm.view","crm.create","crm.edit","crm.interact"
+    "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view"
   ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","platform","legado"],
-  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","legado"],
-  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm"],
-  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","legado"],
-  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm"]
+  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado"],
+  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado"],
+  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp"],
+  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado"],
+  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp"]
 };
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
@@ -632,7 +715,7 @@ const ACTION_EQUIVALENCE = [
     "topology.pop.link","topology.layout","topology.config","zabbix.sync","zabbix.link",
     "pops.create","pops.edit","pops.order","pops.routes","pops.ring.layout","trafego.settings","fibra.edit"
   ]],
-  ["topology.equipment.edit", ["topology.connection.configure"]],
+  ["topology.equipment.edit", ["topology.connection.configure", "topology.connection.provision"]],
   ["topology.delete", ["topology.equipment.delete","topology.link.delete","pops.delete","fibra.delete"]],
   ["users.manage", ["users.password"]],
   ["audit.view", ["audit.export"]],
@@ -1027,6 +1110,11 @@ async function ensureDatabaseImpl(env) {
   await ensureColumns(db, "alert_reads", [
     ["comentario", "TEXT NOT NULL DEFAULT ''"]
   ]);
+  await ensureColumns(db, "device_connection_targets", [
+    ["vendor", "TEXT NOT NULL DEFAULT 'outro'"],
+    ["provision_username", "TEXT"],
+    ["provision_ciphertext", "TEXT"]
+  ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -1098,6 +1186,12 @@ async function ensureDatabaseImpl(env) {
   await db.prepare(`
     UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='comercial')
     WHERE code='crm'
+  `).run();
+
+  // O Chat WhatsApp é o atendimento ao cliente: fica no bloco HELPDESK.
+  await db.prepare(`
+    UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='atendimento')
+    WHERE code='whatsapp'
   `).run();
 
   // As concessões são montadas como statements e enviadas em batch: sozinhas,
@@ -1211,6 +1305,26 @@ async function ensureDatabaseImpl(env) {
       grantPermission(roleId, "crm.interact")
     ]));
     if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "crm.delete")]);
+  });
+
+  // O Chat WhatsApp acompanha os perfis operacionais existentes na primeira
+  // implantação. Atendimento responde; supervisão e configuração ficam com
+  // gerente e administrador. Depois, vale o que for marcado na Plataforma.
+  await seedOnce(db, "seed.whatsapp.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.flatMap(roleId => [
+      grantScreen(roleId, "whatsapp"),
+      grantPermission(roleId, "whatsapp.view"),
+      grantPermission(roleId, "whatsapp.chat")
+    ]));
+    for (const role of ["administrador", "gerente"]) {
+      if (!roleMap[role]) continue;
+      await runGrants([
+        grantPermission(roleMap[role], "whatsapp.supervise"),
+        grantPermission(roleMap[role], "whatsapp.manage")
+      ]);
+    }
   });
 
   // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
@@ -2206,6 +2320,530 @@ async function handleCrmCaseDelete(env, request, id) {
   await db.prepare(`DELETE FROM crm_cases WHERE id=?`).bind(id).run();
   await audit(env,request,gate.user,"CRM_CASE_DELETE","crm_case",id,before,null);
   return json({ok:true});
+}
+
+/* ============ WhatsApp Cloud API (Meta) ============
+   Atendimento ao cliente por WhatsApp. O número é único e o bot pergunta ao
+   cliente em qual setor ele precisa de atendimento; a conversa é então
+   roteada para a fila do setor escolhido. O atendente "pega" a conversa e
+   fica em atendimento até encerrá-la; quem tem whatsapp.supervise enxerga
+   com quem cada colega está conversando, os demais veem apenas o status. */
+
+const WHATSAPP_GRAPH_VERSION = "v21.0";
+const WHATSAPP_SETTINGS_KEY = "whatsapp.settings";
+const WHATSAPP_ROUTING_MAX_ATTEMPTS = 3;
+
+async function waSectors(db, user) {
+  if (user.role === "administrador") return (await db.prepare(`
+    SELECT id,code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
+  `).all()).results || [];
+  return (await db.prepare(`
+    SELECT s.id,s.code,s.name,s.color,s.icon,s.sort FROM sectors s
+    JOIN user_sectors us ON us.sector_id=s.id
+    WHERE us.user_id=? AND s.active=1 ORDER BY s.sort,s.name
+  `).bind(user.id).all()).results || [];
+}
+
+async function defaultWhatsappSettings(db) {
+  const sectors = (await db.prepare(`SELECT code FROM sectors WHERE active=1 ORDER BY sort,name`).all()).results || [];
+  return {
+    greeting: "Olá! Aqui é a UPDOWN Telecom. Para agilizar seu atendimento, escolha uma das opções:",
+    routingError: "Não consegui entender sua opção. Envie apenas o número correspondente ao setor desejado.",
+    routingDone: "Seu atendimento foi direcionado para {setor}. Em instantes um atendente responde por aqui.",
+    closedMessage: "Esta conversa foi encerrada. Se precisar de algo novo, é só chamar.",
+    routedSectors: sectors.filter(s => s.code !== "noc").map(s => s.code)
+  };
+}
+
+async function loadWhatsappSettings(db) {
+  const row = await db.prepare(`SELECT value FROM platform_meta WHERE key=?`).bind(WHATSAPP_SETTINGS_KEY).first();
+  if (row?.value) {
+    try { return { ...(await defaultWhatsappSettings(db)), ...JSON.parse(row.value) }; } catch {}
+  }
+  return defaultWhatsappSettings(db);
+}
+
+async function normalizeWhatsappSettings(db, body, previous = {}) {
+  const defaults = await defaultWhatsappSettings(db);
+  const text = (key, max) => {
+    const value = body[key] === undefined ? previous[key] : body[key];
+    return String(value ?? "").trim().slice(0, max);
+  };
+  const greeting = text("greeting", 600) || defaults.greeting;
+  const routingError = text("routingError", 300) || defaults.routingError;
+  const routingDone = text("routingDone", 300) || defaults.routingDone;
+  const closedMessage = text("closedMessage", 300) || defaults.closedMessage;
+  let routedSectors = body.routedSectors === undefined ? (previous.routedSectors || defaults.routedSectors) : body.routedSectors;
+  if (!Array.isArray(routedSectors)) routedSectors = defaults.routedSectors;
+  const valid = new Set((await db.prepare(`SELECT code FROM sectors WHERE active=1`).all()).results.map(r => r.code));
+  routedSectors = routedSectors.filter(c => valid.has(c) && c !== "noc").slice(0, 30);
+  if (!routedSectors.length) routedSectors = defaults.routedSectors;
+  return { greeting, routingError, routingDone, closedMessage, routedSectors };
+}
+
+async function waRoutedSectorOptions(db, settings) {
+  const codes = new Set(settings.routedSectors || []);
+  const rows = (await db.prepare(`SELECT id,code,name FROM sectors WHERE active=1 ORDER BY sort,name`).all()).results || [];
+  return rows.filter(s => codes.has(s.code)).map((s, i) => ({ ...s, number: i + 1 }));
+}
+
+function waMatchSector(settings, options, raw) {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) {
+    const n = Number(text);
+    return options.find(o => o.number === n) || null;
+  }
+  const norm = v => String(v).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const needle = norm(text);
+  if (!needle) return null;
+  return options.find(o => norm(o.name).includes(needle) || norm(o.code) === needle || needle.includes(norm(o.code))) || null;
+}
+
+function waMessageText(msg) {
+  if (msg.type === "text") return String(msg.text?.body || "").trim();
+  if (msg.type === "interactive") {
+    const it = msg.interactive || {};
+    if (it.type === "button_reply") return String(it.button_reply?.title || "").trim();
+    if (it.type === "list_reply") return String(it.list_reply?.title || "").trim();
+    return "";
+  }
+  const labels = { image: "imagem", audio: "áudio", video: "vídeo", document: "documento", sticker: "figurinha", location: "localização", contact: "contato", reaction: "reação", button: "botão", template: "modelo" };
+  return `[${labels[msg.type] || msg.type}]`;
+}
+
+async function hmacSha256Hex(secret, data) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Envio pela Graph API da Meta. Sem WHATSAPP_ACCESS_TOKEN / PHONE_NUMBER_ID
+// configurados o envio falha de forma explícita, sem derrubar o webhook.
+async function waSendText(env, to, body) {
+  const token = env.WHATSAPP_ACCESS_TOKEN, phoneId = env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return { ok: false, error: "WHATSAPP_NAO_CONFIGURADO" };
+  const res = await fetch(`https://graph.facebook.com/${WHATSAPP_GRAPH_VERSION}/${phoneId}/messages`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body } })
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    return { ok: false, error: "WHATSAPP_ENVIO_FALHOU", status: res.status, detail: detail.slice(0, 400) };
+  }
+  const data = await res.json().catch(() => ({}));
+  return { ok: true, wa_message_id: data?.messages?.[0]?.id || null };
+}
+
+async function waStoreBotMessage(db, conversationId, body, waMessageId, ok) {
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_name) VALUES(?,?,?,?,?,?,?)`)
+    .bind(conversationId, "bot", "text", body, waMessageId || null, ok ? "sent" : "failed", "Sistema").run();
+}
+
+async function waSendRoutingMenu(env, db, settings, conversationId, phone, attempts) {
+  const options = await waRoutedSectorOptions(db, settings);
+  if (!options.length) return;
+  const menu = `${settings.greeting}\n\n${options.map(o => `${o.number} - ${o.name}`).join("\n")}`;
+  const send = await waSendText(env, phone, menu);
+  await waStoreBotMessage(db, conversationId, menu, send.wa_message_id, send.ok);
+  await db.prepare(`UPDATE wa_conversations SET routing_attempts=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(attempts, conversationId).run();
+}
+
+async function waVerifySignature(env, request, raw) {
+  const secret = env.WHATSAPP_APP_SECRET;
+  if (!secret) return true;
+  const signature = request.headers.get("X-Hub-Signature-256") || "";
+  const expected = "sha256=" + (await hmacSha256Hex(secret, raw));
+  return timingSafeEqual(signature, expected);
+}
+
+async function waHandleInbound(env, db, settings, msg, value) {
+  const phone = String(msg.from || "");
+  if (!phone) return;
+  const waId = String(msg.id || "");
+  if (waId && await db.prepare(`SELECT 1 FROM wa_messages WHERE wa_message_id=?`).bind(waId).first()) return;
+  const type = String(msg.type || "text");
+  const body = waMessageText(msg);
+  const contactName = String((value.contacts || [])[0]?.profile?.name || "").trim().slice(0, 200);
+  if (contactName) await db.prepare(`INSERT OR IGNORE INTO wa_contacts(phone,name) VALUES(?,?)`).bind(phone, contactName).run();
+
+  const conv = await db.prepare(`SELECT * FROM wa_conversations WHERE phone=? ORDER BY id DESC LIMIT 1`).bind(phone).first();
+  if (!conv) {
+    const res = await db.prepare(`
+      INSERT INTO wa_conversations(phone,customer_name,status,last_message,last_message_at,updated_at)
+      VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `).bind(phone, contactName || phone, "routing", body).run();
+    const conversationId = Number(res.meta.last_row_id);
+    await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id) VALUES(?,?,?,?,?)`)
+      .bind(conversationId, "in", type, body, waId || null).run();
+    await waSendRoutingMenu(env, db, settings, conversationId, phone, 1);
+    return;
+  }
+
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id) VALUES(?,?,?,?,?)`)
+    .bind(conv.id, "in", type, body, waId || null).run();
+
+  if (conv.status === "closed") {
+    await db.prepare(`
+      UPDATE wa_conversations SET status='routing',routing_attempts=0,closed_at=NULL,closed_by=NULL,
+        last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(body, conv.id).run();
+    await waSendRoutingMenu(env, db, settings, conv.id, phone, 1);
+    return;
+  }
+
+  if (conv.status === "routing") {
+    const options = await waRoutedSectorOptions(db, settings);
+    const target = waMatchSector(settings, options, body);
+    if (target) {
+      await db.prepare(`
+        UPDATE wa_conversations SET sector_id=?,status='open',routing_attempts=0,unread=0,
+          last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
+      `).bind(target.id, body, conv.id).run();
+      const confirm = (settings.routingDone || "").replace("{setor}", target.name);
+      const send = await waSendText(env, phone, confirm);
+      await waStoreBotMessage(db, conv.id, confirm, send.wa_message_id, send.ok);
+    } else if (Number(conv.routing_attempts) < WHATSAPP_ROUTING_MAX_ATTEMPTS) {
+      const send = await waSendText(env, phone, settings.routingError);
+      await waStoreBotMessage(db, conv.id, settings.routingError, send.wa_message_id, send.ok);
+      await waSendRoutingMenu(env, db, settings, conv.id, phone, Number(conv.routing_attempts) + 1);
+      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
+    } else {
+      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
+    }
+    return;
+  }
+
+  await db.prepare(`
+    UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+1,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(body, conv.id).run();
+}
+
+async function waHandleStatus(db, st) {
+  const waId = String(st.id || "");
+  const status = ["sent", "delivered", "read", "failed"].includes(st.status) ? st.status : null;
+  if (!waId || !status) return;
+  await db.prepare(`UPDATE wa_messages SET status=? WHERE wa_message_id=?`).bind(status, waId).run();
+}
+
+async function handleWhatsappWebhookVerify(env, url) {
+  const mode = url.searchParams.get("hub.mode");
+  const token = url.searchParams.get("hub.verify_token");
+  const challenge = url.searchParams.get("hub.challenge") || "";
+  if (mode === "subscribe" && token && token === env.WHATSAPP_VERIFY_TOKEN) {
+    return new Response(challenge, { status: 200, headers: { "content-type": "text/plain" } });
+  }
+  return json({ error: "VERIFICACAO_INVALIDA" }, 403);
+}
+
+async function handleWhatsappWebhook(env, request) {
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > 1024 * 1024) return json({ error: "BODY_TOO_LARGE" }, 413);
+  if (!(await waVerifySignature(env, request, raw))) return json({ error: "ASSINATURA_INVALIDA" }, 403);
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const db = getDB(env);
+  const settings = await loadWhatsappSettings(db);
+  for (const entry of payload?.entry || []) {
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      const phoneNumberId = value.metadata?.phone_number_id;
+      if (phoneNumberId && env.WHATSAPP_PHONE_NUMBER_ID && phoneNumberId !== env.WHATSAPP_PHONE_NUMBER_ID) continue;
+      for (const msg of value.messages || []) await waHandleInbound(env, db, settings, msg, value);
+      for (const st of value.statuses || []) await waHandleStatus(db, st);
+    }
+  }
+  return json({ ok: true });
+}
+
+// Conversa visível ao usuário: a própria (atribuída), as do setor dele e a
+// fila de roteamento, que ainda não tem setor. Administrador enxerga tudo.
+async function waConversationFor(db, user, id) {
+  const row = await db.prepare(`
+    SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
+    FROM wa_conversations c
+    LEFT JOIN sectors s ON s.id=c.sector_id
+    LEFT JOIN users u ON u.id=c.assigned_user_id
+    WHERE c.id=?
+  `).bind(id).first();
+  if (!row || user.role === "administrador") return row;
+  const ids = (await waSectors(db, user)).map(s => Number(s.id));
+  const visible = row.status === "routing" || ids.includes(Number(row.sector_id)) || Number(row.assigned_user_id) === Number(user.id);
+  return visible ? row : null;
+}
+
+async function waPresence(db, sectorIds, viewer, supervise) {
+  if (!sectorIds.length) return [];
+  const placeholders = sectorIds.map(() => "?").join(",");
+  const members = (await db.prepare(`
+    SELECT DISTINCT u.id user_id,u.display_name,us.sector_id FROM users u
+    JOIN user_sectors us ON us.user_id=u.id
+    JOIN role_permissions rp ON rp.role_id=u.role_id
+    JOIN permissions p ON p.id=rp.permission_id AND p.code='whatsapp.view'
+    WHERE u.active=1 AND us.sector_id IN (${placeholders})
+    ORDER BY u.display_name
+  `).bind(...sectorIds).all()).results || [];
+  if (!members.length) return [];
+  const userIds = [...new Set(members.map(m => Number(m.user_id)))];
+  const busyRows = (await db.prepare(`
+    SELECT c.assigned_user_id user_id,c.id conversation_id,c.phone,c.customer_name,c.sector_id
+    FROM wa_conversations c WHERE c.status='open' AND c.assigned_user_id IN (${userIds.map(() => "?").join(",")})
+  `).bind(...userIds).all()).results || [];
+  const busyMap = new Map();
+  for (const b of busyRows) if (!busyMap.has(Number(b.user_id))) busyMap.set(Number(b.user_id), b);
+  const presenceRows = (await db.prepare(`SELECT user_id,available FROM wa_agent_presence`).all()).results || [];
+  const availMap = new Map(presenceRows.map(r => [Number(r.user_id), Number(r.available)]));
+  const byUser = new Map();
+  for (const m of members) {
+    const id = Number(m.user_id);
+    if (!byUser.has(id)) byUser.set(id, { user_id: id, display_name: m.display_name, sectors: [] });
+    byUser.get(id).sectors.push(Number(m.sector_id));
+  }
+  return [...byUser.values()].map(u => {
+    const busy = busyMap.get(u.user_id);
+    const paused = availMap.get(u.user_id) === 0;
+    const item = {
+      user_id: u.user_id,
+      display_name: u.display_name,
+      sectors: u.sectors,
+      available: !paused,
+      busy: !!busy,
+      status: busy ? "chat" : (paused ? "paused" : "available")
+    };
+    if (busy && supervise) {
+      item.current = {
+        conversation_id: busy.conversation_id,
+        phone: busy.phone,
+        customer_name: busy.customer_name,
+        sector_id: busy.sector_id
+      };
+    }
+    return item;
+  });
+}
+
+async function handleWhatsapp(env, request) {
+  const gate = await requirePermission(env, request, "whatsapp.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const sectors = await waSectors(db, gate.user);
+  const sectorIds = sectors.map(s => Number(s.id));
+  const permissions = await permissionsOf(env, gate.user);
+  const can = {
+    chat: permissions.has("whatsapp.chat"),
+    supervise: permissions.has("whatsapp.supervise"),
+    manage: permissions.has("whatsapp.manage")
+  };
+  const settings = await loadWhatsappSettings(db);
+  let rows;
+  if (gate.user.role === "administrador") {
+    rows = (await db.prepare(`
+      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
+      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
+      WHERE c.status!='closed' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
+    `).all()).results || [];
+  } else if (!sectorIds.length) {
+    rows = (await db.prepare(`
+      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
+      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
+      WHERE c.status!='closed' AND c.status='routing' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
+    `).all()).results || [];
+  } else {
+    const placeholders = sectorIds.map(() => "?").join(",");
+    rows = (await db.prepare(`
+      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
+      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
+      WHERE c.status!='closed' AND (c.status='routing' OR c.sector_id IN (${placeholders}) OR c.assigned_user_id=?)
+      ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
+    `).bind(...sectorIds, gate.user.id).all()).results || [];
+  }
+  const presence = await waPresence(db, sectorIds, gate.user, can.supervise);
+  const conversations = rows.map(c => ({
+    ...c,
+    is_mine: Number(c.assigned_user_id) === Number(gate.user.id),
+    can_take: can.chat && c.status !== "closed" &&
+      (c.status === "routing" || (c.sector_id != null && sectorIds.includes(Number(c.sector_id))))
+  }));
+  const routedSectorOptions = (await waRoutedSectorOptions(db, settings)).map(o => ({ id: o.id, code: o.code, name: o.name, number: o.number }));
+  return json({ sectors, conversations, presence, can, settings, routedSectorOptions });
+}
+
+async function handleWhatsappConversation(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  const messages = (await db.prepare(`
+    SELECT id,direction,type,body,status,sender_user_id,sender_name,created_at
+    FROM wa_messages WHERE conversation_id=? ORDER BY created_at ASC,id ASC LIMIT 500
+  `).bind(id).all()).results || [];
+  const permissions = await permissionsOf(env, gate.user);
+  const can = { chat: permissions.has("whatsapp.chat"), supervise: permissions.has("whatsapp.supervise") };
+  if (Number(conv.assigned_user_id) === Number(gate.user.id)) {
+    if (conv.unread > 0) {
+      await db.prepare(`UPDATE wa_conversations SET unread=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+      conv.unread = 0;
+    }
+    await db.prepare(`UPDATE wa_messages SET status='read' WHERE conversation_id=? AND direction='in' AND status!='read'`).bind(id).run();
+  }
+  return json({ conversation: conv, messages, can });
+}
+
+async function handleWhatsappCreate(env, request) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const phone = String(body.phone || "").replace(/\D/g, "").slice(0, 15);
+  if (!/^\d{8,15}$/.test(phone)) return json({ error: "TELEFONE_INVALIDO" }, 400);
+  const text = String(body.body || "").trim().slice(0, 4096);
+  if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  const sectors = await waSectors(db, gate.user);
+  const sectorId = Number(body.sector_id);
+  if (!sectors.some(s => Number(s.id) === sectorId)) return json({ error: "SETOR_NAO_PERMITIDO" }, 403);
+  const customerName = String(body.customer_name || "").trim().slice(0, 200) || phone;
+  const result = await db.prepare(`
+    INSERT INTO wa_conversations(phone,customer_name,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
+    VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+  `).bind(phone, customerName, sectorId, gate.user.id, "open", text).run();
+  const id = Number(result.meta.last_row_id);
+  const send = await waSendText(env, phone, text);
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_CREATE", "wa_conversation", id, null, { phone, sector_id: sectorId });
+  return json({ id, ok: true }, send.ok ? 201 : 502);
+}
+
+async function handleWhatsappSend(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  if (conv.status === "routing") return json({ error: "CONVERSA_SEM_SETOR" }, 409);
+  const permissions = await permissionsOf(env, gate.user);
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise"))
+    return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
+  let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const text = String(body.body || "").trim().slice(0, 4096);
+  if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  const send = await waSendText(env, conv.phone, text);
+  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
+  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_MESSAGE_SEND", "wa_conversation", id, null, { body: text, ok: send.ok, error: send.error || null });
+  if (!send.ok) {
+    return json({ error: send.error || "WHATSAPP_ENVIO_FALHOU", status: send.status || null, detail: send.detail || null, message_id: result.meta.last_row_id }, 502);
+  }
+  return json({ message_id: result.meta.last_row_id, wa_message_id: send.wa_message_id });
+}
+
+async function handleWhatsappTake(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  let body = {}; try { body = await readJson(request, 8192); } catch {}
+  const sectors = await waSectors(db, gate.user);
+  const sectorIds = sectors.map(s => Number(s.id));
+  const supervise = await hasPermission(env, gate.user, "whatsapp.supervise");
+  let sectorId;
+  if (conv.status === "open" && conv.sector_id != null) {
+    sectorId = Number(conv.sector_id);
+    if (!sectorIds.includes(sectorId) && !supervise) return json({ error: "SETOR_NAO_PERMITIDO" }, 403);
+  } else {
+    sectorId = Number(body.sector_id);
+    if (!sectorIds.includes(sectorId)) return json({ error: "SETOR_NAO_PERMITIDO" }, 403);
+  }
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id)) {
+    const busy = await db.prepare(`SELECT 1 FROM wa_conversations WHERE status='open' AND assigned_user_id=? AND id<>?`).bind(gate.user.id, id).first();
+    if (busy) return json({ error: "ATENDENTE_OCUPADO" }, 409);
+  }
+  await db.prepare(`
+    UPDATE wa_conversations SET sector_id=?,assigned_user_id=?,status='open',unread=0,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(sectorId, gate.user.id, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_TAKE", "wa_conversation", id, null, { sector_id: sectorId });
+  return json({ ok: true, assigned_user_id: gate.user.id, sector_id: sectorId });
+}
+
+async function handleWhatsappAssign(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.supervise");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  let body; try { body = await readJson(request, 8192); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const sectorId = Number(body.sector_id);
+  const sector = await db.prepare(`SELECT id FROM sectors WHERE id=? AND active=1`).bind(sectorId).first();
+  if (!sector) return json({ error: "SETOR_INVALIDO" }, 400);
+  let userId = null;
+  if (body.user_id != null && body.user_id !== "") {
+    userId = Number(body.user_id);
+    if (!Number.isInteger(userId)) return json({ error: "RESPONSAVEL_INVALIDO" }, 400);
+    const member = await db.prepare(`SELECT 1 FROM users u JOIN user_sectors us ON us.user_id=u.id WHERE u.id=? AND us.sector_id=? AND u.active=1`).bind(userId, sectorId).first();
+    if (!member) return json({ error: "RESPONSAVEL_INVALIDO" }, 400);
+  }
+  const status = body.status === "closed" ? "closed" : "open";
+  await db.prepare(`
+    UPDATE wa_conversations SET sector_id=?,assigned_user_id=?,status=?,closed_at=?,closed_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(sectorId, userId, status, status === "closed" ? new Date().toISOString() : null, status === "closed" ? gate.user.id : null, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_ASSIGN", "wa_conversation", id, null, { sector_id: sectorId, user_id: userId, status });
+  return json({ ok: true, sector_id: sectorId, assigned_user_id: userId, status });
+}
+
+async function handleWhatsappClose(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  const permissions = await permissionsOf(env, gate.user);
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise") && conv.status !== "routing")
+    return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
+  await db.prepare(`UPDATE wa_conversations SET status='closed',closed_at=?,closed_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(new Date().toISOString(), gate.user.id, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_CLOSE", "wa_conversation", id, null, null);
+  return json({ ok: true });
+}
+
+async function handleWhatsappPresence(env, request) {
+  const gate = await requirePermission(env, request, "whatsapp.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body; try { body = await readJson(request, 8192); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const available = body.available ? 1 : 0;
+  await db.prepare(`
+    INSERT INTO wa_agent_presence(user_id,available,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET available=excluded.available,updated_at=CURRENT_TIMESTAMP
+  `).bind(gate.user.id, available).run();
+  return json({ ok: true, available: Boolean(available) });
+}
+
+async function handleWhatsappSettings(env, request) {
+  if (request.method === "GET") {
+    const gate = await requirePermission(env, request, "whatsapp.view");
+    if (gate.response) return gate.response;
+    const db = getDB(env);
+    const settings = await loadWhatsappSettings(db);
+    const permissions = await permissionsOf(env, gate.user);
+    return json({ settings, podeEditar: permissions.has("whatsapp.manage") });
+  }
+  const gate = await requirePermission(env, request, "whatsapp.manage");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body; try { body = await readJson(request, 65536); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const antes = await loadWhatsappSettings(db);
+  const depois = await normalizeWhatsappSettings(db, body?.settings ?? body, antes);
+  await db.prepare(`INSERT OR REPLACE INTO platform_meta(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)`)
+    .bind(WHATSAPP_SETTINGS_KEY, JSON.stringify(depois)).run();
+  await audit(env, request, gate.user, "WHATSAPP_SETTINGS_UPDATE", "whatsapp", "settings", antes, depois);
+  return json({ ok: true, settings: depois, podeEditar: true });
 }
 
 async function handleMe(env, request) {
@@ -3779,6 +4417,163 @@ async function handleUserUpdate(env,request,id) {
   return json(safeUserRow(after));
 }
 
+/* Acessos SSH de um usuário, configurados pelo administrador que o cadastrou.
+   GET devolve os destinos com provisionamento habilitado + a credencial atual
+   + o estado da fila de provisionamento. PUT grava usuário/senha do aparelho e
+   reabre um job para o coletor criar a conta no equipamento via SSH. */
+async function handleUserDeviceCredentials(env, request, userId) {
+  const gate=await requirePermission(env,request,"users.manage"); if(gate.response)return gate.response;
+  if(!(await hasPermission(env,gate.user,"topology.connection.provision")))
+    return json({error:"FORBIDDEN",permission:"topology.connection.provision"},403);
+  const db=getDB(env);
+  const user=await db.prepare(`SELECT id,username,display_name,active FROM users WHERE id=?`).bind(userId).first();
+  if(!user)return json({error:"USUARIO_NAO_ENCONTRADO"},404);
+  if(request.method==="GET"){
+    const targets=(await db.prepare(`
+      SELECT t.id,t.device_id,t.name,t.management_ip,t.protocol,t.port,t.vendor,t.provision_username,
+        c.login_username,c.password_ciphertext,
+        p.status,p.error,p.attempts,p.requested_at,p.last_attempt_at,p.updated_at provision_updated_at
+      FROM device_connection_targets t
+      LEFT JOIN device_target_credentials c ON c.target_id=t.id AND c.user_id=?
+      LEFT JOIN device_target_provisioning p ON p.target_id=t.id AND p.user_id=?
+      WHERE t.active=1 AND t.provision_username IS NOT NULL AND t.provision_ciphertext IS NOT NULL
+      ORDER BY t.name
+    `).bind(userId,userId).all()).results||[];
+    return json(targets.map(row=>({
+      target_id:row.id,device_id:row.device_id,name:row.name,ip:row.management_ip,
+      protocol:row.protocol,port:Number(row.port),vendor:row.vendor,vendor_label:vendorLabel(row.vendor),
+      credentials:publicCredential(row.login_username?{
+        login_username:row.login_username,password_ciphertext:row.password_ciphertext
+      }:null),
+      status:row.status||(row.login_username?"pending":null),
+      error:row.error||null,attempts:Number(row.attempts||0),
+      requested_at:row.requested_at,last_attempt_at:row.last_attempt_at,updated_at:row.provision_updated_at
+    })));
+  }
+  /* PUT: body { targets: [{ target_id, username, password }] } — password
+     sempre obrigatória aqui para que a conta no aparelho tenha senha nova. */
+  let body; try{body=await readJson(request,65536)}catch{return json({error:"JSON_INVALIDO"},400)}
+  const list=Array.isArray(body.targets)?body.targets:[];
+  if(!list.length)return json({error:"DESTINOS_DE_ACESSO_OBRIGATORIOS"},400);
+  const requested=new Map(list.map(x=>[String(x?.target_id||""),x]));
+  if([...requested.keys()].some(id=>!id))return json({error:"DESTINO_DE_ACESSO_INVALIDO"},400);
+  const rows=(await db.prepare(`
+    SELECT id,device_id,name,management_ip,protocol,port,vendor FROM device_connection_targets
+    WHERE active=1 AND provision_username IS NOT NULL AND provision_ciphertext IS NOT NULL
+  `).all()).results||[];
+  const targetsById=new Map(rows.map(r=>[r.id,r]));
+  const now=new Date().toISOString();
+  const writes=[];
+  const saved=[];
+  for(const entry of list){
+    const target=targetsById.get(String(entry.target_id));
+    if(!target)return json({error:"DESTINO_DE_ACESSO_INVALIDO"},400);
+    const username=String(entry.username||"").trim();
+    const password=String(entry.password||"");
+    if(!username||username.length>128)return json({error:"USUARIO_DE_ACESSO_INVALIDO"},400);
+    if(!password||password.length>512)return json({error:"SENHA_DE_ACESSO_OBRIGATORIA"},400);
+    let ciphertext;
+    try{ciphertext=await encryptDevicePassword(env,password,userId,target.id);}
+    catch(error){
+      if(error?.message==="DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+        return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
+      throw error;
+    }
+    writes.push(db.prepare(`
+      INSERT INTO device_target_credentials(target_id,user_id,login_username,password_ciphertext,updated_at)
+      VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+      ON CONFLICT(target_id,user_id) DO UPDATE SET
+        login_username=excluded.login_username,password_ciphertext=excluded.password_ciphertext,updated_at=CURRENT_TIMESTAMP
+    `).bind(target.id,userId,username,ciphertext));
+    writes.push(db.prepare(`
+      INSERT INTO device_target_provisioning(target_id,user_id,login_username,status,attempts,requested_by,requested_at,last_attempt_at,updated_at)
+      VALUES (?,?,?,'pending',0,?,?,NULL,CURRENT_TIMESTAMP)
+      ON CONFLICT(target_id,user_id) DO UPDATE SET
+        login_username=excluded.login_username,status='pending',error=NULL,attempts=0,
+        requested_by=excluded.requested_by,requested_at=excluded.requested_at,last_attempt_at=NULL,updated_at=CURRENT_TIMESTAMP
+    `).bind(target.id,userId,username,gate.user.id,now));
+    saved.push({target_id:target.id,name:target.name,vendor:target.vendor,username});
+  }
+  await db.batch(writes);
+  await audit(env,request,gate.user,"DEVICE_PROVISIONING_QUEUED","user",userId,null,
+    saved.map(s=>({target_id:s.target_id,name:s.name,vendor:s.vendor,username:s.username})));
+  return json({ok:true,queue:saved.map(s=>({target_id:s.target_id,status:"pending"}))});
+}
+
+async function provisioningCollectorAuth(env,request){
+  const expected=String(env.PROVISIONING_TOKEN||env.GPON_SYNC_TOKEN||"");
+  const authorization=String(request.headers.get("Authorization")||"");
+  if(!expected||!(await timingSafeEqual(authorization,`Bearer ${expected}`)))
+    return json({error:"UNAUTHORIZED"},401);
+  return null;
+}
+
+/* O coletor (Node) busca os jobs pendentes. O Worker decifra a credencial de
+   provisionamento e a senha do usuário antes de entregar: o texto cifrado com
+   AES-GCM ligado ao contexto nunca sai do Worker. */
+async function handleProvisioningPending(env,request){
+  const denied=await provisioningCollectorAuth(env,request); if(denied)return denied;
+  const db=getDB(env);
+  /* Jobs presos em 'provisioning' (coletor caiu no meio) voltam para a fila
+     depois de 10 minutos, para não ficarem órfãos para sempre. */
+  await db.prepare(`
+    UPDATE device_target_provisioning
+    SET status='pending',error='Tentativa anterior interrompida',updated_at=CURRENT_TIMESTAMP
+    WHERE status='provisioning' AND datetime(last_attempt_at) < datetime('now','-10 minutes')
+  `).run();
+  const jobs=(await db.prepare(`
+    SELECT p.target_id,p.user_id,p.login_username,
+      t.device_id,t.name target_name,t.management_ip,t.protocol,t.port,t.vendor,t.provision_username,t.provision_ciphertext,
+      c.password_ciphertext,
+      u.username platform_username,u.active
+    FROM device_target_provisioning p
+    JOIN device_connection_targets t ON t.id=p.target_id
+    LEFT JOIN device_target_credentials c ON c.target_id=p.target_id AND c.user_id=p.user_id
+    JOIN users u ON u.id=p.user_id
+    WHERE p.status='pending' AND t.active=1 AND u.active=1
+    ORDER BY p.requested_at LIMIT 50
+  `).all()).results||[];
+  const ready=[];
+  for(const job of jobs){
+    let provisionPassword,userPassword;
+    try{
+      provisionPassword=await decryptProvisionPassword(env,job.provision_ciphertext,job.target_id);
+      userPassword=await decryptDevicePassword(env,job.password_ciphertext,job.user_id,job.target_id);
+    }catch{continue;} /* credencial ilegível: o job fica para diagnóstico humano */
+    ready.push({
+      target_id:job.target_id,user_id:job.user_id,login_username:job.login_username,
+      device_id:job.device_id,target_name:job.target_name,ip:job.management_ip,
+      protocol:job.protocol,port:Number(job.port),vendor:job.vendor,
+      provision_username:job.provision_username,provision_password:provisionPassword,
+      password:userPassword,platform_username:job.platform_username
+    });
+  }
+  if(ready.length){
+    await db.batch(ready.map(job=>db.prepare(`
+      UPDATE device_target_provisioning
+      SET status='provisioning',attempts=attempts+1,last_attempt_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      WHERE target_id=? AND user_id=?
+    `).bind(job.target_id,job.user_id)));
+  }
+  return json({jobs:ready});
+}
+
+async function handleProvisioningReport(env,request,targetId,userId){
+  const denied=await provisioningCollectorAuth(env,request); if(denied)return denied;
+  const db=getDB(env);
+  let body;try{body=await readJson(request,16384)}catch{return json({error:"JSON_INVALIDO"},400)}
+  const ok=body.ok!==false;
+  const error=ok?null:String(body.error||"").slice(0,500);
+  await db.prepare(`
+    UPDATE device_target_provisioning
+    SET status=?,error=?,updated_at=CURRENT_TIMESTAMP
+    WHERE target_id=? AND user_id=?
+  `).bind(ok?"success":"error",error,targetId,userId).run();
+  await audit(env,request,null,"DEVICE_PROVISIONING_REPORT","device_target_provisioning",`${targetId}:${userId}`,
+    null,{ok,error,login_username:body.username||null});
+  return json({ok:true});
+}
+
 async function handleAudit(env,request) {
   const gate=await requirePermission(env,request,"audit.view"); if(gate.response)return gate.response;
   const db=getDB(env);
@@ -3960,6 +4755,7 @@ async function handleTopology(env,request) {
         `).bind(JSON.stringify(after),nextVersion,user.id,scope),
     ...diff.equipamentos.removed.flatMap(id => [
       db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_target_provisioning WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
       db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
       db.prepare(`DELETE FROM device_connection_targets WHERE device_id=?`).bind(id),
       db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
@@ -4051,6 +4847,49 @@ function publicCredential(row) {
   } : null;
 }
 
+/* Fabricantes que o coletor sabe criar usuário. 'outro' guarda a credencial,
+   mas o provisionamento fica pendente de adaptador até alguém mapear o CLI. */
+const VENDORS = {
+  zte: "ZTE (OLT ZXAN/ROS)",
+  huawei: "Huawei (VRP)",
+  cisco: "Cisco (IOS/IOS-XE)",
+  mikrotik: "MikroTik (RouterOS)",
+  datacom: "Datacom (DMOS)",
+  nokia: "Nokia (SR OS/TiMOS)",
+  linux: "Linux (servidor)",
+  outro: "Outro / manual"
+};
+
+function vendorLabel(code) {
+  return VENDORS[code] || VENDORS.outro;
+}
+
+/* A credencial de provisionamento é do destino (aparelho), não de um usuário:
+   o AAD liga o texto cifrado ao target_id, como as credenciais pessoais se
+   ligam ao par usuário+aparelho. */
+function provisionAdditionalData(targetId) {
+  return new TextEncoder().encode(`topologia-noc\nprovision\n${targetId}`);
+}
+
+async function encryptProvisionPassword(env, password, targetId) {
+  const iv = randomBytes(12);
+  const ciphertext = await crypto.subtle.encrypt({
+    name:"AES-GCM", iv, additionalData:provisionAdditionalData(targetId)
+  }, await credentialEncryptionKey(env), new TextEncoder().encode(password));
+  return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(new Uint8Array(ciphertext))}`;
+}
+
+async function decryptProvisionPassword(env, encoded, targetId) {
+  const [version, ivText, cipherText] = String(encoded || "").split(".");
+  if (version !== "v1" || !ivText || !cipherText) throw new Error("CREDENTIAL_FORMAT_INVALID");
+  const plaintext = await crypto.subtle.decrypt({
+    name:"AES-GCM",
+    iv:base64UrlToBytes(ivText),
+    additionalData:provisionAdditionalData(targetId)
+  }, await credentialEncryptionKey(env), base64UrlToBytes(cipherText));
+  return new TextDecoder().decode(plaintext);
+}
+
 function normalizeBrowserUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -4081,11 +4920,24 @@ async function normalizedTargetBody(db, body) {
   const port = Number(body.port);
   const rawBrowserUrl = String(body.browser_url || "").trim();
   const browserUrl = normalizeBrowserUrl(rawBrowserUrl);
+  const vendor = String(body.vendor || "outro").toLowerCase();
   if (!name || name.length > 100) return {error:"NOME_DO_DESTINO_INVALIDO"};
   if (!ip) return {error:"IP_DE_GERENCIA_INVALIDO"};
   if (!['ssh','telnet'].includes(protocol)) return {error:"PROTOCOLO_INVALIDO"};
   if (!Number.isInteger(port) || port < 1 || port > 65535) return {error:"PORTA_INVALIDA"};
   if (rawBrowserUrl && !browserUrl) return {error:"URL_DO_TERMINAL_DEVE_USAR_HTTPS"};
+  if (!VENDORS[vendor]) return {error:"FABRICANTE_INVALIDO"};
+
+  /* Credencial de provisionamento: usuário e senha de administração do
+     aparelho, usada pelo coletor para criar as contas dos demais usuários.
+     No UPDATE a senha é opcional — vazia mantém a atual. */
+  const provisionUsername = String(body.provision_username || "").trim();
+  const provisionPasswordProvided = Object.hasOwn(body,"provision_password")
+    && String(body.provision_password).length > 0;
+  const provisionPassword = provisionPasswordProvided ? String(body.provision_password) : null;
+  if (provisionUsername.length > 128) return {error:"USUARIO_DE_PROVISIONAMENTO_INVALIDO"};
+  if (provisionPassword !== null && provisionPassword.length > 512)
+    return {error:"SENHA_DE_PROVISIONAMENTO_MUITO_LONGA"};
 
   const validRoles = new Set(((await db.prepare(`SELECT id FROM roles`).all()).results || []).map(r => Number(r.id)));
   const requestedConnect = Array.isArray(body.connect_role_ids) ? body.connect_role_ids.map(Number) : [];
@@ -4094,7 +4946,8 @@ async function normalizedTargetBody(db, body) {
     return {error:"PERFIL_DE_ACESSO_INVALIDO"};
   const manageRoleIds = [...new Set(requestedManage)];
   const connectRoleIds = [...new Set([...requestedConnect,...manageRoleIds])];
-  return {name,ip,protocol,port,browser_url:browserUrl,connectRoleIds,manageRoleIds};
+  return {name,ip,protocol,port,browser_url:browserUrl,vendor,provision_username:provisionUsername,
+    provision_password:provisionPassword,connectRoleIds,manageRoleIds};
 }
 
 function targetAclStatements(db, targetId, normalized) {
@@ -4119,16 +4972,30 @@ async function handleDeviceConnections(env, request, deviceId) {
     const normalized = await normalizedTargetBody(db,body);
     if (normalized.error) return json({error:normalized.error},400);
     const id = crypto.randomUUID();
+    let provisionCiphertext = null;
+    if (normalized.provision_username) {
+      if (normalized.provision_password === null)
+        return json({error:"SENHA_DE_PROVISIONAMENTO_OBRIGATORIA"},400);
+      try {
+        provisionCiphertext = await encryptProvisionPassword(env,normalized.provision_password,id);
+      } catch (error) {
+        if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+          return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
+        throw error;
+      }
+    }
     await db.batch([
       db.prepare(`
         INSERT INTO device_connection_targets
-          (id,device_id,name,management_ip,protocol,port,browser_url,updated_by,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-      `).bind(id,deviceId,normalized.name,normalized.ip,normalized.protocol,normalized.port,normalized.browser_url,gate.user.id),
+          (id,device_id,name,management_ip,protocol,port,browser_url,vendor,provision_username,provision_ciphertext,updated_by,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      `).bind(id,deviceId,normalized.name,normalized.ip,normalized.protocol,normalized.port,
+        normalized.browser_url,normalized.vendor,normalized.provision_username||null,provisionCiphertext,gate.user.id),
       ...targetAclStatements(db,id,normalized)
     ]);
+    const auditRecord = {...normalized,provision_password:Boolean(normalized.provision_password),device_id:deviceId};
     await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_CREATE","device_connection_target",id,null,
-      {...normalized,device_id:deviceId});
+      auditRecord);
     return json({ok:true,id},201);
   }
 
@@ -4161,7 +5028,10 @@ async function handleDeviceConnections(env, request, deviceId) {
     if (!canConnect) return null;
     return {
       id:row.id,name:row.name,ip:row.management_ip,protocol:row.protocol,port:Number(row.port),
-      browser_url:row.browser_url,updated_at:row.updated_at,can_manage:canManage,
+      browser_url:row.browser_url,vendor:row.vendor,vendor_label:vendorLabel(row.vendor),
+      provisioning:Boolean(row.provision_username && row.provision_ciphertext),
+      provisioning_username:canManage?row.provision_username:undefined,
+      updated_at:row.updated_at,can_manage:canManage,
       credentials:publicCredential(row.login_username ? {
         login_username:row.login_username,password_ciphertext:row.password_ciphertext,updated_at:row.credential_updated_at
       } : null),
@@ -4185,6 +5055,7 @@ async function handleDeviceConnectionTarget(env, request, deviceId, targetId) {
   if (request.method === "DELETE") {
     await db.batch([
       db.prepare(`DELETE FROM device_target_credentials WHERE target_id=?`).bind(targetId),
+      db.prepare(`DELETE FROM device_target_provisioning WHERE target_id=?`).bind(targetId),
       db.prepare(`DELETE FROM device_connection_acl WHERE target_id=?`).bind(targetId),
       db.prepare(`DELETE FROM device_connection_targets WHERE id=?`).bind(targetId)
     ]);
@@ -4195,14 +5066,35 @@ async function handleDeviceConnectionTarget(env, request, deviceId, targetId) {
   let body; try { body = await readJson(request,16384); } catch { return json({error:"JSON_INVALIDO"},400); }
   const normalized = await normalizedTargetBody(db,body);
   if (normalized.error) return json({error:normalized.error},400);
+  /* Senha de provisionamento: se não veio nova, mantém a cifrada atual. */
+  let provisionCiphertext = target.provision_ciphertext;
+  if (normalized.provision_username && normalized.provision_password !== null) {
+    try {
+      provisionCiphertext = await encryptProvisionPassword(env,normalized.provision_password,targetId);
+    } catch (error) {
+      if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+        return json({error:"CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA"},503);
+      throw error;
+    }
+  }
+  if (normalized.provision_username && !provisionCiphertext)
+    return json({error:"SENHA_DE_PROVISIONAMENTO_OBRIGATORIA"},400);
+  /* Remover a credencial de provisionamento = deixar o usuário vazio. */
+  if (!normalized.provision_username) provisionCiphertext = null;
   await db.batch([
     db.prepare(`
-      UPDATE device_connection_targets SET name=?,management_ip=?,protocol=?,port=?,browser_url=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
+      UPDATE device_connection_targets
+      SET name=?,management_ip=?,protocol=?,port=?,browser_url=?,vendor=?,
+        provision_username=?,provision_ciphertext=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
       WHERE id=? AND device_id=?
-    `).bind(normalized.name,normalized.ip,normalized.protocol,normalized.port,normalized.browser_url,gate.user.id,targetId,deviceId),
+    `).bind(normalized.name,normalized.ip,normalized.protocol,normalized.port,normalized.browser_url,
+      normalized.vendor,normalized.provision_username||null,provisionCiphertext,gate.user.id,targetId,deviceId),
     ...targetAclStatements(db,targetId,normalized)
   ]);
-  await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_UPDATE","device_connection_target",targetId,target,normalized);
+  const auditBefore = {...target,provision_ciphertext:Boolean(target.provision_ciphertext)};
+  const auditAfter = {...normalized,provision_password:normalized.provision_password===null
+    ? "mantida" : Boolean(normalized.provision_password)};
+  await audit(env,request,gate.user,"DEVICE_CONNECTION_TARGET_UPDATE","device_connection_target",targetId,auditBefore,auditAfter);
   return json({ok:true});
 }
 
@@ -4609,6 +5501,14 @@ export default {
 
       if (url.pathname.startsWith("/api/")) {
         await ensureDatabase(env);
+
+        // Webhook da Meta chega cross-site e sem sessão: precisa entrar antes
+        // do controle de CSRF, que bloqueia requisições cross-site com cookie.
+        if (url.pathname === "/api/whatsapp/webhook" && request.method === "GET")
+          return await handleWhatsappWebhookVerify(env, url);
+        if (url.pathname === "/api/whatsapp/webhook" && request.method === "POST")
+          return await handleWhatsappWebhook(env, request);
+
         const csrf = csrfFailure(request);
         if (csrf) return csrf;
 
@@ -4659,6 +5559,28 @@ export default {
           if(request.method==="PATCH")return await handleCrmCaseUpdate(env,request,id);
           if(request.method==="DELETE")return await handleCrmCaseDelete(env,request,id);
         }
+
+        if (url.pathname === "/api/whatsapp" && request.method === "GET")
+          return await handleWhatsapp(env,request);
+        if (url.pathname === "/api/whatsapp/conversations" && request.method === "POST")
+          return await handleWhatsappCreate(env,request);
+        if (url.pathname === "/api/whatsapp/presence" && request.method === "POST")
+          return await handleWhatsappPresence(env,request);
+        if (url.pathname === "/api/whatsapp/settings" && (request.method === "GET" || request.method === "PUT"))
+          return await handleWhatsappSettings(env,request);
+        const waMessageMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)\/messages$/);
+        if(waMessageMatch && request.method==="POST")
+          return await handleWhatsappSend(env,request,Number(waMessageMatch[1]));
+        const waConvActionMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)\/(take|assign|close)$/);
+        if(waConvActionMatch){
+          const id=Number(waConvActionMatch[1]);
+          if(waConvActionMatch[2]==="take")return await handleWhatsappTake(env,request,id);
+          if(waConvActionMatch[2]==="assign")return await handleWhatsappAssign(env,request,id);
+          if(waConvActionMatch[2]==="close")return await handleWhatsappClose(env,request,id);
+        }
+        const waConvMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)$/);
+        if(waConvMatch && request.method==="GET")
+          return await handleWhatsappConversation(env,request,Number(waConvMatch[1]));
 
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
@@ -4751,6 +5673,18 @@ export default {
         const userMatch=url.pathname.match(/^\/api\/users\/(\d+)$/);
         if(userMatch && request.method==="PATCH")
           return await handleUserUpdate(env,request,Number(userMatch[1]));
+
+        const userDeviceCredentialsMatch=url.pathname.match(/^\/api\/users\/(\d+)\/device-credentials$/);
+        if(userDeviceCredentialsMatch && ["GET","PUT"].includes(request.method))
+          return await handleUserDeviceCredentials(env,request,Number(userDeviceCredentialsMatch[1]));
+
+        if(url.pathname === "/api/provisioning/pending" && request.method === "GET")
+          return await handleProvisioningPending(env,request);
+
+        const provisioningReportMatch=url.pathname.match(/^\/api\/provisioning\/([^/]+)\/(\d+)\/report$/);
+        if(provisioningReportMatch && request.method === "POST")
+          return await handleProvisioningReport(env,request,
+            decodeURIComponent(provisioningReportMatch[1]),Number(provisioningReportMatch[2]));
 
         if (url.pathname === "/api/audit" && request.method === "GET")
           return await handleAudit(env,request);

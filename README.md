@@ -1114,3 +1114,79 @@ A tela abria em cinco idas ao servidor **em fila**: `/api/auth/me`, `/api/access
 
 Medido no ambiente local, a cadeia de dados da abertura caiu de **531 ms para
 44 ms**; as três requisições que restam partem juntas, aos ~120 ms.
+
+---
+
+## Chat WhatsApp (atendimento por setor)
+
+A tela `/whatsapp.html` (tela `whatsapp`) é o atendimento ao cliente pelo
+WhatsApp, usando a **WhatsApp Cloud API da Meta** (o mesmo padrão do módulo OPA
+Suite da IXC). O número é único: quando um cliente chama, o bot responde com um
+menu de setores e a conversa é roteada para o setor escolhido.
+
+### Como funciona
+
+- **Bot de roteamento** — a primeira mensagem do cliente recebe a saudação e o
+  menu numerado dos setores habilitados. A resposta do cliente (número ou nome
+  do setor) direciona a conversa para a fila do setor. Sem reconhecimento, o
+  bot reenvia o menu (até 3 tentativas).
+- **Fila e atendimento** — conversas roteadas entram na fila do setor. Qualquer
+  usuário com `whatsapp.chat` **Pega** a conversa e assume o atendimento;
+  enquanto estiver em uma conversa aberta, o usuário aparece como **em
+  conversa** para o resto do setor. Ao **Encerrar**, volta a ficar **disponível**.
+- **Presença** — a coluna Equipe mostra os atendentes do setor com o status:
+  disponível, em conversa ou pausado. Quem tem a ação `whatsapp.supervise`
+  também enxerga **com quem** cada colega está conversando e pode clicar para
+  abrir a conversa; os demais veem apenas o status. O próprio atendente pode se
+  pausar pelo botão da coluna.
+- **Supervisão** — a ação `whatsapp.supervise` permite **Atribuir** uma conversa
+  para outro setor e/ou responsável. Sem ela, um atendente só atende conversas
+  dos próprios setores.
+- **Novo contato** — usuários com `whatsapp.chat` podem iniciar uma conversa
+  proativa: número, nome (opcional), setor e a primeira mensagem.
+
+### Ações
+
+| Ação | Permite |
+| --- | --- |
+| `whatsapp.view` | Ver conversas, fila de roteamento e status dos colegas |
+| `whatsapp.chat` | Pegar conversas, responder e encerrar atendimentos |
+| `whatsapp.supervise` | Ver com quem cada colega conversa e atribuir conversas |
+| `whatsapp.manage` | Editar saudação, menu de setores e mensagens do bot |
+
+Na primeira implantação, `whatsapp.view` e `whatsapp.chat` entram para os perfis
+operacionais; `whatsapp.supervise` e `whatsapp.manage` ficam com
+`administrador` e `gerente`. Depois, vale o que for marcado em Plataforma →
+Perfis.
+
+### Configuração (Cloudflare Secrets)
+
+```bash
+npx wrangler secret put WHATSAPP_ACCESS_TOKEN
+npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
+npx wrangler secret put WHATSAPP_VERIFY_TOKEN
+npx wrangler secret put WHATSAPP_APP_SECRET
+```
+
+- `WHATSAPP_ACCESS_TOKEN` e `WHATSAPP_PHONE_NUMBER_ID` — token e número da WABA
+  para **enviar** mensagens pela Graph API (`/v21.0/{phone-number-id}/messages`);
+- `WHATSAPP_VERIFY_TOKEN` — token de verificação do webhook (deve ser igual ao
+  cadastrado na Meta);
+- `WHATSAPP_APP_SECRET` — segredo do app da Meta, usado para validar a assinatura
+  `X-Hub-Signature-256` dos eventos recebidos. Sem ele o webhook aceita eventos
+  sem validação (uso apenas em desenvolvimento).
+
+Cadastre na Meta o webhook:
+
+```text
+https://SEU-DOMINIO/api/whatsapp/webhook
+```
+
+com evento `messages`. A verificação do webhook (`GET`) responde ao desafio
+`hub.challenge` quando `hub.verify_token` confere; os eventos (`POST`) validam a
+assinatura, gravam a mensagem, atualizam a conversa e disparam o bot.
+
+As mensagens ficam em `wa_conversations` e `wa_messages`, a presença em
+`wa_agent_presence`. Se os Secrets do WhatsApp não estiverem configurados, o
+webhook continua recebendo e registrando mensagens, mas o envio responde
+`WHATSAPP_NAO_CONFIGURADO` — nada derruba o serviço.
