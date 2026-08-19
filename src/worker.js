@@ -293,6 +293,32 @@ CREATE INDEX IF NOT EXISTS idx_gpon_history_created ON gpon_status_history(creat
 CREATE INDEX IF NOT EXISTS idx_gpon_history_run ON gpon_status_history(run_id);
 CREATE INDEX IF NOT EXISTS idx_gpon_runs_received ON gpon_sync_runs(received_at DESC);
 
+/* Log dedicado a eventos RADIUS — autenticação PPPoE que o coletor lê do IXC.
+   O estado combinado (ONU + Radius) continua em gpon_status_history; esta
+   tabela isola as transições de autenticação para que o NOC monitore a saúde
+   do servidor RADIUS e o HelpDesk consulte por que um cliente está sem
+   serviço sem precisar cruzar a linha do tempo GPON inteira. */
+CREATE TABLE IF NOT EXISTS radius_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id TEXT NOT NULL,
+  ixc_login_id TEXT,
+  username TEXT NOT NULL DEFAULT '',
+  status_before TEXT,
+  status_after TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  olt_id TEXT NOT NULL DEFAULT '',
+  onu_index TEXT NOT NULL DEFAULT '',
+  serial TEXT NOT NULL DEFAULT '',
+  client_name TEXT NOT NULL DEFAULT '',
+  synced_at TEXT,
+  origin TEXT NOT NULL DEFAULT 'collector',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_radius_logs_client ON radius_logs(client_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_radius_logs_created ON radius_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_radius_logs_username ON radius_logs(username);
+CREATE INDEX IF NOT EXISTS idx_radius_logs_run ON radius_logs(synced_at);
+
 CREATE TABLE IF NOT EXISTS zabbix_hosts (
   hostid TEXT PRIMARY KEY,
   host TEXT NOT NULL,
@@ -595,6 +621,8 @@ CREATE INDEX IF NOT EXISTS idx_wa_msg_conv ON wa_messages(conversation_id,create
    quem tem a ação de edição, abre as senhas. */
 CREATE TABLE IF NOT EXISTS cliente_cadastro (
   client_id TEXT PRIMARY KEY,
+  ixc_id TEXT NOT NULL DEFAULT '',
+  origem TEXT NOT NULL DEFAULT 'manual',
   nome TEXT NOT NULL DEFAULT '',
   documento TEXT NOT NULL DEFAULT '',
   telefone TEXT NOT NULL DEFAULT '',
@@ -625,6 +653,7 @@ CREATE TABLE IF NOT EXISTS cliente_cadastro (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS idx_cliente_cadastro_ixc ON cliente_cadastro(ixc_id);
 `;
 
 
@@ -739,7 +768,9 @@ const ACTIONS = [
   ["clientes.view", "Consultar cadastro de clientes", "Ver dados, endereço, faturamento, aparelhos e acessos dos clientes", "clientes", "Cadastro de cliente", 10],
   ["clientes.create", "Cadastrar cliente", "Criar o cadastro de um cliente", "clientes", "Cadastro de cliente", 20],
   ["clientes.edit", "Editar cadastro de cliente", "Alterar dados, endereço, faturamento e acessos do cliente", "clientes", "Cadastro de cliente", 30],
-  ["clientes.delete", "Excluir cadastro de cliente", "Remover o cadastro de um cliente", "clientes", "Cadastro de cliente", 40]
+  ["clientes.delete", "Excluir cadastro de cliente", "Remover o cadastro de um cliente", "clientes", "Cadastro de cliente", 40],
+
+  ["radius.view", "Consultar log RADIUS", "Ver eventos de autenticação PPPoE (login offline/online) dos clientes GPON", "gpon", "Rede", 40]
 ];
 
 const ALL_ACTION_CODES = ACTIONS.map(x => x[0]);
@@ -789,22 +820,22 @@ const ROLE_PERMISSIONS = {
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
     "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view",
     "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
-    "clientes.view","clientes.create","clientes.edit"
+    "clientes.view","clientes.create","clientes.edit","radius.view"
   ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit","radius.view"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat",
-    "clientes.view","clientes.create","clientes.edit"
+    "clientes.view","clientes.create","clientes.edit","radius.view"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
-    "clientes.view","clientes.edit"
+    "clientes.view","clientes.edit","radius.view"
   ]
 };
 
@@ -1233,6 +1264,13 @@ async function ensureDatabaseImpl(env) {
     ["vendor", "TEXT NOT NULL DEFAULT 'outro'"],
     ["provision_username", "TEXT"],
     ["provision_ciphertext", "TEXT"]
+  ]);
+  /* O cadastro passou a nascer sozinho da coleta GPON: 'ixc_id' guarda o
+     código do cliente no IXC — o mesmo que o operador procura no ERP — e
+     'origem' separa quem entrou pela importação de quem foi digitado. */
+  await ensureColumns(db, "cliente_cadastro", [
+    ["ixc_id", "TEXT NOT NULL DEFAULT ''"],
+    ["origem", "TEXT NOT NULL DEFAULT 'manual'"]
   ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
@@ -5338,7 +5376,10 @@ async function handleTargetCredentials(env, request, deviceId, targetId, reveal 
 
 /* Clientes/ONUs autenticados vêm de um adaptador HTTP configurado no ambiente.
    Normalizar a resposta aqui mantém a tela independente do fabricante da OLT. */
-const primeiroGpon = (...valores) => valores.find(v => v !== undefined && v !== null && v !== "");
+const primeiroGpon = (...valores) => {
+  const achado = valores.find(v => v !== undefined && v !== null && v !== "");
+  return achado === undefined ? valores[valores.length - 1] : achado;
+};
 const numeroGpon = (v) => v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null;
 const pontosGpon = (valor) => (Array.isArray(valor) ? valor : []).map(p => ({
   lat: numeroGpon(Array.isArray(p) ? p[0] : primeiroGpon(p?.lat, p?.latitude)),
@@ -5482,7 +5523,7 @@ function payloadGpon(data, message = "") {
 /* ---- cadastro de clientes mantido na plataforma ---- */
 
 const CLIENTE_CAMPOS = [
-  "nome", "documento", "telefone", "email", "endereco", "bairro", "cidade", "uf", "cep",
+  "ixc_id", "nome", "documento", "telefone", "email", "endereco", "bairro", "cidade", "uf", "cep",
   "plano", "ont_serial", "ont_modelo", "ip_gerencia", "login_pppoe", "login_roteador", "ssid", "observacao"
 ];
 const CLIENTE_NUMERICOS = ["lat", "lon", "valor_mensal", "vencimento_dia"];
@@ -5497,6 +5538,7 @@ const parseJsonLista = (texto, padrao = []) => {
 function publicCadastro(cad) {
   return {
     client_id: String(cad.client_id),
+    ixc_id: String(cad.ixc_id || ""), origem: String(cad.origem || "manual"),
     nome: cad.nome, documento: cad.documento, telefone: cad.telefone, email: cad.email,
     endereco: cad.endereco, bairro: cad.bairro, cidade: cad.cidade, uf: cad.uf, cep: cad.cep,
     lat: cad.lat ?? null, lon: cad.lon ?? null,
@@ -5525,17 +5567,103 @@ function sobrescreverClienteCadastro(cad) {
   return overrides;
 }
 
+/* O cadastro é chaveado pelo código do cliente no IXC — o mesmo número do ERP,
+   e não o id sintético da ONU —, então um cliente com duas ONUs tem um cadastro
+   só. O casamento tenta o id do feed primeiro (cadastros antigos, digitados
+   antes da importação) e cai no código IXC depois. */
+function indexarCadastros(rows) {
+  const porClientId = new Map(), porIxc = new Map();
+  for (const row of rows) {
+    porClientId.set(String(row.client_id), row);
+    const ixc = String(row.ixc_id || "").trim();
+    if (ixc && !porIxc.has(ixc)) porIxc.set(ixc, row);
+  }
+  return (cliente) => porClientId.get(String(cliente?.id ?? ""))
+    || porIxc.get(String(cliente?.ixc_id ?? "").trim())
+    || null;
+}
+
 async function aplicarCadastroClientes(env, feed) {
   if (!feed || !Array.isArray(feed.clients)) return feed;
   const rows = (await getDB(env).prepare(`SELECT * FROM cliente_cadastro`).all()).results || [];
   if (!rows.length) return feed;
-  const mapa = new Map(rows.map((row) => [String(row.client_id), row]));
+  const achar = indexarCadastros(rows);
   feed.clients = feed.clients.map((cliente) => {
-    const cad = mapa.get(String(cliente.id));
+    const cad = achar(cliente);
     if (!cad) return cliente;
     return { ...cliente, cadastro: publicCadastro(cad), ...sobrescreverClienteCadastro(cad) };
   });
   return feed;
+}
+
+/* ---- importação automática do que a coleta GPON traz ----
+
+   Todo cliente que chega no snapshot com código do IXC vira cadastro na
+   plataforma, para que a tela de Cadastro de Cliente e a Lista do GPON falem
+   da mesma base. A importação só *cria*: o que o operador corrigiu depois
+   (nome, endereço, coordenadas, faturamento) nunca é sobrescrito por uma
+   coleta seguinte — é justamente o cadastro que sobrepõe o feed no mapa.
+
+   ONU sem código IXC fica de fora: é equipamento que o ERP ainda não
+   reconhece como cliente, e cadastrá-la só encheria a tabela de id sintético.
+
+   Teto por ciclo porque a primeira coleta de um parque inteiro tentaria
+   escrever dezenas de milhares de linhas dentro de uma única requisição; o que
+   sobrar entra no ciclo seguinte, que roda a cada leitura completa. */
+const CLIENTE_IMPORT_MAX_PER_RUN = 2000;
+const CLIENTE_IMPORT_BATCH = 25;
+
+/* O endereço vem do IXC montado como "rua, número — bairro — cidade". Só
+   separamos quando as três partes estão lá; com menos, a divisão seria adivinhação
+   e o texto inteiro fica no campo de endereço. */
+export function enderecoCadastroGpon(address) {
+  const partes = String(address || "").split(" — ").map((p) => p.trim()).filter(Boolean);
+  if (partes.length === 3) return { endereco: partes[0], bairro: partes[1], cidade: partes[2] };
+  return { endereco: String(address || "").trim(), bairro: "", cidade: "" };
+}
+
+export function candidatosCadastroGpon(clients) {
+  const porCodigo = new Map();
+  (Array.isArray(clients) ? clients : []).forEach((bruto, i) => {
+    const cliente = normalizarClienteGpon(bruto, i);
+    const codigo = String(cliente.ixc_id || "").trim();
+    if (!codigo || codigo === "0" || porCodigo.has(codigo)) return;
+    const local = enderecoCadastroGpon(cliente.address);
+    porCodigo.set(codigo, {
+      client_id: codigo.slice(0, 120),
+      ixc_id: codigo.slice(0, 120),
+      nome: textoGpon(cliente.name, 200),
+      endereco: textoGpon(local.endereco, 200),
+      bairro: textoGpon(local.bairro, 200),
+      cidade: textoGpon(local.cidade, 200),
+      lat: Number.isFinite(cliente.lat) && Math.abs(cliente.lat) <= 90 ? cliente.lat : null,
+      lon: Number.isFinite(cliente.lon) && Math.abs(cliente.lon) <= 180 ? cliente.lon : null,
+      ont_serial: textoGpon(cliente.serial, 200),
+      ont_modelo: textoGpon(cliente.model, 200),
+      ip_gerencia: textoGpon(cliente.ip, 200),
+      login_pppoe: textoGpon(cliente.username, 200)
+    });
+  });
+  return [...porCodigo.values()];
+}
+
+async function importarCadastroGpon(db, clients) {
+  const candidatos = candidatosCadastroGpon(clients);
+  if (!candidatos.length) return { criados: 0, pendentes: 0 };
+  const jaCadastrados = new Set(((await db.prepare(`SELECT client_id FROM cliente_cadastro`).all()).results || [])
+    .map((row) => String(row.client_id)));
+  const novos = candidatos.filter((c) => !jaCadastrados.has(c.client_id));
+  const lote = novos.slice(0, CLIENTE_IMPORT_MAX_PER_RUN);
+  for (let i = 0; i < lote.length; i += CLIENTE_IMPORT_BATCH) {
+    await db.batch(lote.slice(i, i + CLIENTE_IMPORT_BATCH).map((c) => db.prepare(`
+      INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,endereco,bairro,cidade,lat,lon,
+        ont_serial,ont_modelo,ip_gerencia,login_pppoe)
+      VALUES (?,?,'ixc',?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(client_id) DO NOTHING
+    `).bind(c.client_id, c.ixc_id, c.nome, c.endereco, c.bairro, c.cidade, c.lat, c.lon,
+      c.ont_serial, c.ont_modelo, c.ip_gerencia, c.login_pppoe)));
+  }
+  return { criados: lote.length, pendentes: novos.length - lote.length };
 }
 
 function normalizarCadastroBody(body) {
@@ -5574,9 +5702,15 @@ async function handleClientesList(env, request, url) {
     rows = (await db.prepare(`SELECT * FROM cliente_cadastro ORDER BY nome,client_id`).all()).results || [];
   }
   const snapshot = await loadGponSnapshot(env).catch(() => null);
-  const porId = new Map((snapshot?.clients || []).map((c) => [String(c?.id), c]));
+  const porId = new Map(), porIxc = new Map();
+  for (const c of snapshot?.clients || []) {
+    porId.set(String(c?.id), c);
+    const ixc = String(c?.ixc_id ?? "").trim();
+    if (ixc && !porIxc.has(ixc)) porIxc.set(ixc, c);
+  }
   const registros = rows.map((row) => {
-    const feedCliente = porId.get(String(row.client_id));
+    const feedCliente = porId.get(String(row.client_id))
+      || porIxc.get(String(row.ixc_id || row.client_id).trim());
     return {
       ...publicCadastro(row),
       feed: feedCliente ? {
@@ -5598,16 +5732,22 @@ async function handleClientesFeed(env, request, url) {
   if (gate.response) return gate.response;
   const snapshot = await loadGponSnapshot(env).catch(() => null);
   const brutos = Array.isArray(snapshot?.clients) ? snapshot.clients : [];
-  const registrados = new Set(((await getDB(env).prepare(`SELECT client_id FROM cliente_cadastro`).all()).results || [])
-    .map(r => String(r.client_id)));
+  const registrados = new Set();
+  for (const r of (await getDB(env).prepare(`SELECT client_id,ixc_id FROM cliente_cadastro`).all()).results || []) {
+    registrados.add(String(r.client_id));
+    if (String(r.ixc_id || "").trim()) registrados.add(String(r.ixc_id).trim());
+  }
   const q = textoGpon(url.searchParams.get("q") || "", 80).toLowerCase();
   const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
   const clientes = brutos
     .map(normalizarClienteGpon)
-    .filter((c) => !registrados.has(String(c.id)))
-    .map((c) => ({ id: c.id, name: c.name, username: c.username, serial: c.serial,
+    .filter((c) => !registrados.has(String(c.id)) && !registrados.has(String(c.ixc_id || "").trim()))
+    /* 'codigo' é o que vai virar a chave do cadastro: o número do IXC quando o
+       ERP reconhece o cliente, e o id da ONU só quando não reconhece. */
+    .map((c) => ({ id: c.id, codigo: String(c.ixc_id || "").trim() || c.id,
+      name: c.name, username: c.username, serial: c.serial,
       onu_index: c.onu_index, olt_id: c.olt_id, pon: c.pon, address: c.address, ixc_id: c.ixc_id }))
-    .filter((c) => !q || [c.id, c.name, c.username, c.serial, c.address, c.ixc_id]
+    .filter((c) => !q || [c.id, c.codigo, c.name, c.username, c.serial, c.address, c.ixc_id]
       .some((v) => String(v || "").toLowerCase().includes(q)))
     .slice(0, limite);
   return json({ clientes });
@@ -5635,12 +5775,12 @@ async function handleClientesCreate(env, request) {
     throw error;
   }
   await db.prepare(`
-    INSERT INTO cliente_cadastro(client_id,nome,documento,telefone,email,endereco,bairro,cidade,uf,cep,
+    INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,documento,telefone,email,endereco,bairro,cidade,uf,cep,
       lat,lon,plano,valor_mensal,vencimento_dia,status_faturamento,aparelhos_json,
       ont_serial,ont_modelo,ip_gerencia,login_pppoe,senha_pppoe_cipher,
       login_roteador,senha_roteador_cipher,ssid,senha_wifi_cipher,observacao,updated_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(clientId, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco,
+    VALUES (?,?,'manual',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(clientId, dados.ixc_id, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco,
     dados.bairro, dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano,
     dados.valor_mensal, dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
@@ -5689,14 +5829,18 @@ async function handleClientesUpdate(env, request, clientId) {
       return json({ error: "CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA" }, 400);
     throw error;
   }
+  /* O código do IXC só é preenchido, nunca apagado: a tela de edição do mapa
+     manda o cadastro inteiro de volta e um campo vazio ali não é motivo para
+     perder o vínculo com o ERP. */
+  const ixcId = String(dados.ixc_id || antes.ixc_id || "").trim();
   await db.prepare(`
-    UPDATE cliente_cadastro SET nome=?,documento=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
+    UPDATE cliente_cadastro SET ixc_id=?,nome=?,documento=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
       lat=?,lon=?,plano=?,valor_mensal=?,vencimento_dia=?,status_faturamento=?,aparelhos_json=?,
       ont_serial=?,ont_modelo=?,ip_gerencia=?,login_pppoe=?,senha_pppoe_cipher=?,
       login_roteador=?,senha_roteador_cipher=?,ssid=?,senha_wifi_cipher=?,observacao=?,
       updated_by=?,updated_at=CURRENT_TIMESTAMP
     WHERE client_id=?
-  `).bind(dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco, dados.bairro,
+  `).bind(ixcId, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco, dados.bairro,
     dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano, dados.valor_mensal,
     dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
@@ -5929,6 +6073,15 @@ async function handleGponIngest(env, request) {
   `).bind(JSON.stringify(compacto), syncedAt).run();
 
   const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
+  /* A coleta completa é o momento em que a base de clientes do IXC chega
+     inteira; é dela que o cadastro da plataforma nasce. Uma falha aqui não
+     invalida a fotografia já gravada — o snapshot é o que a operação precisa
+     agora, e a importação tenta de novo no ciclo seguinte. */
+  let cadastros = { criados: 0, pendentes: 0 };
+  try { cadastros = await importarCadastroGpon(db, clients); }
+  catch (error) {
+    console.error(JSON.stringify({ message: "Falha ao importar cadastro de clientes GPON", error: error?.message || String(error) }));
+  }
   await registrarCicloGpon(db, {
     id: runId, kind: "snapshot", origin: origem, source, synced_at: syncedAt,
     clients_count: clients.length, boxes_count: boxes.length, alerts_count: alerts.length,
@@ -5939,7 +6092,8 @@ async function handleGponIngest(env, request) {
   });
 
   return json({ ok: true, run_id: runId, clients: clients.length, boxes: boxes.length,
-    alerts: alerts.length, transitions: transicoes.length, transitions_stored: gravadas });
+    alerts: alerts.length, transitions: transicoes.length, transitions_stored: gravadas,
+    cadastros_criados: cadastros.criados, cadastros_pendentes: cadastros.pendentes });
 }
 
 async function handleGponStatusIngest(env, request) {
@@ -6066,6 +6220,94 @@ async function handleGponHistory(env, request, url) {
   `).bind(...valores, limite).all();
 
   return json({ client_id: clientId || null, limit: limite, events: results || [] });
+}
+
+/* ---- log de autenticação RADIUS ----
+
+   O estado combinado (ONU + Radius) continua em gpon_status_history; esta
+   tabela isola as transições de autenticação PPPoE para que o NOC monitore a
+   saúde do servidor RADIUS e o HelpDesk consulte por que um cliente está sem
+   serviço. O coletor envia eventos via POST /api/radius/ingest; a tela
+   consulta via GET /api/radius/logs com os mesmos filtros do histórico GPON. */
+async function handleRadiusIngest(env, request) {
+  const expected = String(env.GPON_SYNC_TOKEN || "");
+  const authorization = String(request.headers.get("Authorization") || "");
+  if (!expected || !(await timingSafeEqual(authorization, `Bearer ${expected}`))) return json({ error: "UNAUTHORIZED" }, 401);
+
+  let data;
+  try { data = await readJson(request, 4 * 1024 * 1024); }
+  catch (error) { return json({ error: error?.message === "BODY_TOO_LARGE" ? "BODY_TOO_LARGE" : "INVALID_JSON" }, 400); }
+  if (!Array.isArray(data?.events) || data.events.length > 10000) return json({ error: "INVALID_RADIUS_LOG" }, 400);
+
+  const syncedAt = String(data.synced_at || new Date().toISOString()).slice(0, 40);
+  const origin = textoGpon(data.origin || "collector", 30);
+  const db = getDB(env);
+  const runId = bytesToBase64Url(randomBytes(12));
+  const rows = data.events.map((event) => ({
+    client_id: textoGpon(event?.client_id, 120),
+    ixc_login_id: textoGpon(event?.ixc_login_id || "", 60),
+    username: textoGpon(event?.username, 200),
+    status_before: textoGpon(event?.status_before, 40),
+    status_after: textoGpon(event?.status_after || "offline", 40),
+    detail: textoGpon(event?.detail || "", 400),
+    olt_id: textoGpon(event?.olt_id || "", 60),
+    onu_index: textoGpon(event?.onu_index || "", 60),
+    serial: textoGpon(event?.serial || "", 60),
+    client_name: textoGpon(event?.client_name || "", 200),
+    synced_at: syncedAt,
+    origin
+  })).filter((row) => row.client_id && row.status_after);
+
+  const batchSize = 100;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const lote = rows.slice(i, i + batchSize);
+    await db.batch(lote.map((row) => db.prepare(`
+      INSERT INTO radius_logs
+        (client_id,ixc_login_id,username,status_before,status_after,detail,
+         olt_id,onu_index,serial,client_name,synced_at,origin)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(row.client_id, row.ixc_login_id || null, row.username,
+      row.status_before || null, row.status_after, row.detail,
+      row.olt_id, row.onu_index, row.serial, row.client_name, row.synced_at, row.origin)));
+  }
+
+  await audit(env, request, null, "RADIUS_LOG_INGEST", "radius", runId, null,
+    { origin, event_count: rows.length, synced_at: syncedAt }, { source: "collector" });
+
+  return json({ ok: true, run_id: runId, events: rows.length });
+}
+
+/* Linha do tempo de autenticação RADIUS: transições de online/offline do
+   PPPoE, filtráveis por cliente, usuário ou período. Acessível por quem tem
+   radius.view — NOC e HelpDesk. */
+async function handleRadiusLogs(env, request, url) {
+  const gate = await requirePermission(env, request, "radius.view");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const clientId = textoGpon(url.searchParams.get("client_id") || "", 120);
+  const username = textoGpon(url.searchParams.get("username") || "", 200);
+  const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 100, 1), 500);
+  const desdeBruto = textoGpon(url.searchParams.get("since") || "", 40);
+  const desdeData = desdeBruto ? new Date(desdeBruto) : null;
+  const desde = desdeData && !Number.isNaN(desdeData.getTime()) ? carimboSqlGpon(desdeData) : "";
+  const status = textoGpon(url.searchParams.get("status") || "", 20);
+
+  const condicoes = [], valores = [];
+  if (clientId) { condicoes.push("client_id=?"); valores.push(clientId); }
+  if (username) { condicoes.push("username=?"); valores.push(username); }
+  if (desde) { condicoes.push("created_at>=?"); valores.push(desde); }
+  if (status) { condicoes.push("status_after=?"); valores.push(status.toLowerCase()); }
+  const onde = condicoes.length ? `WHERE ${condicoes.join(" AND ")}` : "";
+
+  const { results } = await db.prepare(`
+    SELECT id,client_id,ixc_login_id,username,status_before,status_after,detail,
+           olt_id,onu_index,serial,client_name,synced_at,origin,created_at
+    FROM radius_logs ${onde}
+    ORDER BY id DESC LIMIT ?
+  `).bind(...valores, limite).all();
+
+  return json({ client_id: clientId || null, username: username || null, limit: limite, events: results || [] });
 }
 
 /* Auditoria da coleta: cada ciclo recebido, com origem, contagem e defasagem.
@@ -6371,6 +6613,12 @@ export default {
 
         if (url.pathname === "/api/gpon/refresh" && request.method === "POST")
           return await handleGponRefresh(env, request);
+
+        if (url.pathname === "/api/radius/ingest" && request.method === "POST")
+          return await handleRadiusIngest(env, request);
+
+        if (url.pathname === "/api/radius/logs" && request.method === "GET")
+          return await handleRadiusLogs(env, request, url);
 
         if (url.pathname === "/api/clientes" && request.method === "GET")
           return await handleClientesList(env, request, url);

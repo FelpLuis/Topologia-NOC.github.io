@@ -84,6 +84,41 @@
   const rowById = (id) => state.idx.client.get(String(id)) || null;
   const clientById = (id) => rowById(id)?.c || null;
 
+  /* ---------------- cadastro do cliente ----------------
+
+     Mapa, painel de detalhe e Lista abrem o mesmo formulário de Cadastro de
+     Cliente. Quando o cliente ainda não tem cadastro, o que a coleta sabe já
+     entra preenchido — e o código é o do IXC, o mesmo que o operador procura no
+     ERP, e não o id sintético da ONU. */
+  const podeCadastrar = () => !!window.NOC_CLIENTES;
+
+  /* As ações só podem ser aplicadas depois que /api/access responde: antes
+     disso o conjunto de permissões está vazio e todo botão apareceria
+     bloqueado. Quando a resposta chega, uma passada no documento inteiro
+     alcança o que já foi desenhado. */
+  let acessoPronto = false;
+  NOC.loadAccess()
+    .then(() => { acessoPronto = true; NOC.applyActions(document); })
+    .catch(() => { /* sem acesso o formulário ainda bloqueia o salvar */ });
+  const aplicarAcoes = (host) => { if (acessoPronto) NOC.applyActions(host); };
+
+  function editarCadastro(c) {
+    if (!c || !podeCadastrar()) return;
+    if (c.cadastro) {
+      window.NOC_CLIENTES.abrirCadastro(c.cadastro, "edit", () => load(false));
+      return;
+    }
+    window.NOC_CLIENTES.abrirCadastro({
+      client_id: String(c.ixc_id || "").trim() || c.id,
+      ixc_id: String(c.ixc_id || "").trim(),
+      nome: c.name === "Cliente sem nome" ? "" : c.name || "",
+      endereco: c.address || "",
+      lat: c.lat ?? "", lon: c.lon ?? "",
+      ont_serial: c.serial || "", ont_modelo: c.model || "",
+      ip_gerencia: c.ip || "", login_pppoe: c.username || "",
+    }, "create", () => load(false));
+  }
+
   /* NOC.suggestPop normaliza nomes de POP a cada chamada; com um equipamento
      por cliente isso reaparecia dezenas de milhares de vezes por desenho. */
   function popOfDevice(e) {
@@ -756,13 +791,18 @@
         <td>${esc(boxById(c.box_id)?.name || c.box_id || "—")}</td>
         <td class="mono">${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</td>
         <td>${esc(c.address || "—")}</td>
-        <td><button class="btn btn-sm" type="button" data-client-map="${esc(r.id)}"${r.located ? "" : ' disabled title="Cliente sem coordenadas"'}>Ver no mapa</button></td>
+        <td class="row" style="gap:6px;justify-content:flex-end">
+          ${podeCadastrar() ? `<button class="btn btn-sm" type="button" data-client-edit="${esc(r.id)}" data-action="${c.cadastro ? "clientes.edit" : "clientes.create"}">${c.cadastro ? "Editar" : "Cadastrar"}</button>` : ""}
+          <button class="btn btn-sm" type="button" data-client-map="${esc(r.id)}"${r.located ? "" : ' disabled title="Cliente sem coordenadas"'}>Ver no mapa</button>
+        </td>
       </tr>`;
     }).join("") : `<tr><td colspan="7"><div class="empty"><b>Nenhum cliente encontrado</b><p>Ajuste a busca para consultar a base GPON.</p></div></td></tr>`;
     $$("[data-client-map]", body).forEach((el) => el.onclick = () => {
       setView("map");
       requestAnimationFrame(() => select("client", el.dataset.clientMap, true));
     });
+    $$("[data-client-edit]", body).forEach((el) => el.onclick = () => editarCadastro(clientById(el.dataset.clientEdit)));
+    aplicarAcoes(body);
     const pagination = $("#gponPagination");
     pagination.hidden = pages <= 1;
     $("#gponPageLabel").textContent = `Página ${state.page + 1} de ${pages}`;
@@ -1184,7 +1224,7 @@
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       const cadastro = c.cadastro;
       host.innerHTML = `<div class="gpon-detail-head"><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span><h2>${esc(c.name)}</h2><p class="muted">${esc(c.address || "Localização textual não informada")}</p>
-        ${window.NOC_CLIENTES ? `<button class="btn btn-sm" data-editar-cadastro type="button">${icon("edit")} ${cadastro ? "Editar cadastro" : "Cadastrar cliente"}</button>` : ""}</div>
+        ${podeCadastrar() ? `<button class="btn btn-sm" data-editar-cadastro type="button" data-action="${cadastro ? "clientes.edit" : "clientes.create"}">${icon("edit")} ${cadastro ? "Editar cadastro" : "Cadastrar cliente"}</button>` : ""}</div>
         <div class="gpon-detail-grid">
           <div><span>Usuário</span><b>${esc(c.username || "—")}</b></div><div><span>Serial ONU</span><b class="mono">${esc(c.serial || "—")}</b></div>
           <div><span>OLT</span><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b></div><div><span>PON</span><b class="mono">${esc(c.pon || "—")}</b></div>
@@ -1199,8 +1239,7 @@
         <div class="gpon-history" id="gponHistory"><p class="muted">Carregando histórico…</p></div>`;
       carregarHistorico(c.id);
       const btnEditar = host.querySelector("[data-editar-cadastro]");
-      if (btnEditar && window.NOC_CLIENTES) btnEditar.onclick = () =>
-        window.NOC_CLIENTES.abrirCadastro(cadastro || { client_id: c.id, nome: c.name }, cadastro ? "edit" : "create", () => load(false));
+      if (btnEditar) { btnEditar.onclick = () => editarCadastro(c); aplicarAcoes(host); }
     } else if (sel.type === "box") {
       const b = boxById(sel.id); if (!b) return;
       const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id)).sort(porPorta);

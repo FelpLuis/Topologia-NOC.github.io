@@ -105,6 +105,27 @@ const radiusStatus = (value) => {
   return null;
 };
 
+/* ---- ingestão de logs RADIUS no Worker ----
+
+   Cada ciclo rápido do Radius compara o status anterior com o novo: quando
+   há transição (online → offline, offline → online), um evento é coletado e
+   enviado ao Worker em /api/radius/ingest, que grava na tabela radius_logs.
+   Isso isola a autenticação PPPoE da linha do tempo GPON, dando ao NOC um
+   indicador direto de saúde do servidor RADIUS e ao HelpDesk o motivo exato
+   de um cliente sem serviço. */
+async function enviarRadiusLogs(events) {
+  if (!events.length) return { sent: 0 };
+  const radiusIngestUrl = config.pushUrl.replace(/\/ingest$/, "/radius/ingest");
+  const response = await fetch(radiusIngestUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.pushToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ events, synced_at: state.syncedAt || new Date().toISOString(), origin: "collector" }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.ok) throw new Error(`Worker RADIUS ingest: HTTP ${response.status}`);
+  return response.json();
+}
+
 /* A ONU acesa e o cliente autenticado são duas perguntas diferentes, e o
    operador precisa das duas na mesma linha. A fibra manda: se a ONU não está
    working, não há autenticação que salve. Com a ONU de pé mas sem Radius, o

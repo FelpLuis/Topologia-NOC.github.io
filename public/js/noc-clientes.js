@@ -15,7 +15,7 @@
   const corpo = $("#clienteListBody");
   const ehTela = !!corpo;
 
-  const state = { registros: [], q: "", status: "todos", page: 0 };
+  const state = { registros: [], q: "", status: "todos", page: 0, aparelhos: [], ixcId: "" };
   const PAGE_SIZE = 60;
 
   const STATUS = ["ativo", "inativo", "cancelado", "bloqueado", "suspenso"];
@@ -28,13 +28,18 @@
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   };
 
-  /* ---------------- permissões ---------------- */
-  let accessPromise = null;
+  /* ---------------- permissões ----------------
+     As ações só podem ser aplicadas depois que /api/access responde: antes
+     disso o conjunto de permissões está vazio e todo botão apareceria
+     bloqueado. Quando a resposta chega, uma passada no documento alcança o que
+     já foi desenhado. */
+  let acessoPronto = false;
+  const acesso = NOC.loadAccess()
+    .then(() => { acessoPronto = true; NOC.applyActions(document); })
+    .catch(() => { /* sem acesso: pode() devolve false e o salvar fica travado */ });
+  const aplicarAcoes = (host) => { if (acessoPronto) NOC.applyActions(host); };
   async function pode(codigo) {
-    try {
-      if (!accessPromise) accessPromise = NOC.loadAccess().catch((e) => { accessPromise = null; throw e; });
-      await accessPromise;
-    } catch { /* sem acesso: cai no false abaixo */ }
+    await acesso;
     return NOC.can(codigo);
   }
 
@@ -100,6 +105,7 @@
         <td>
           <b>${esc(r.nome || "Cliente sem nome")}</b><br>
           <span class="mono dim" style="font-size:var(--fs-11)">${esc(r.client_id)}</span>
+          ${r.origem === "ixc" ? `<span class="badge" title="Cadastro criado pela importação da coleta GPON/IXC">IXC</span>` : ""}
           ${r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : ""}
           ${r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : ""}
           ${r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : ""}
@@ -122,7 +128,7 @@
           <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.client_id)}" type="button" title="Excluir cadastro" aria-label="Excluir cadastro" data-action="clientes.delete">${icon("trash")}</button>
         </td>
       </tr>`).join("");
-    NOC.applyActions(corpo);
+    aplicarAcoes(corpo);
     $$("[data-editar]", corpo).forEach((b) => b.onclick = () => abrirCadastro({ client_id: b.dataset.editar }, "edit"));
     $$("[data-excluir]", corpo).forEach((b) => b.onclick = () => excluir(b.dataset.excluir));
   }
@@ -147,6 +153,9 @@
   /* ---------------- formulário (página + telas GPON) ---------------- */
   const camposForm = () => ({
     client_id: $("#clienteFormId", formHost)?.value.trim() ?? "",
+    /* O vínculo com o ERP não tem campo na tela: ele vem do cadastro aberto (ou
+       do cliente escolhido no feed) e volta intacto no salvamento. */
+    ixc_id: state.ixcId,
     nome: $("#fNome", formHost)?.value ?? "",
     documento: $("#fDocumento", formHost)?.value ?? "",
     telefone: $("#fTelefone", formHost)?.value ?? "",
@@ -212,10 +221,30 @@
     const termo = input.value.trim();
     try {
       const dados = await NOC.api(`/api/clientes/feed?q=${encodeURIComponent(termo)}&limit=50`);
-      data.innerHTML = (Array.isArray(dados.clientes) ? dados.clientes : [])
-        .map((c) => `<option value="${esc(c.id)}">${esc(`${c.name} — ${[c.address, c.pon, c.serial].filter(Boolean).join(" • ")}`)}</option>`)
+      const clientes = Array.isArray(dados.clientes) ? dados.clientes : [];
+      /* O código proposto é o do IXC — o mesmo do ERP —, com o id da ONU só
+         para quem o IXC ainda não reconhece. */
+      state.feedPorCodigo = new Map(clientes.map((c) => [String(c.codigo || c.id), c]));
+      data.innerHTML = clientes
+        .map((c) => `<option value="${esc(c.codigo || c.id)}">${esc(`${c.name} — ${[c.address, c.pon, c.serial].filter(Boolean).join(" • ")}`)}</option>`)
         .join("");
     } catch { /* lista de sugestão é acessória */ }
+  }
+
+  /* Escolher um cliente da lista do feed traz nome, endereço e ONU já
+     preenchidos — sem sobrescrever o que o operador tenha digitado antes. */
+  function aplicarSugestaoFeed(codigo, host) {
+    const c = state.feedPorCodigo?.get(codigo);
+    if (!c) return;
+    state.ixcId = String(c.ixc_id || "").trim();
+    const preencher = (id, valor) => {
+      const el = $(id, host);
+      if (el && !el.value && valor) el.value = valor;
+    };
+    preencher("#fNome", c.name === "Cliente sem nome" ? "" : c.name);
+    preencher("#fEndereco", c.address);
+    preencher("#fOntSerial", c.serial);
+    preencher("#fLoginPppoe", c.username);
   }
 
   async function abrirCadastro(dados = {}, modo = dados?.cliente_id ? "edit" : "create", onSalvo = null) {
@@ -226,9 +255,10 @@
       : { ...dados };
 
     state.aparelhos = Array.isArray(corpoForm.aparelhos) ? corpoForm.aparelhos.map((a) => ({ ...a })) : [];
+    state.ixcId = String(corpoForm.ixc_id ?? "").trim();
     const valor = (v) => esc(v ?? "");
 
-    formHost = UI.modal({
+    UI.modal({
       labelledBy: "clienteModalTitle",
       wide: true,
       html: `
@@ -244,12 +274,12 @@
           ${secao("Dados do cliente", "Informações cadastrais do assinante.", `
             <div class="row wrap" style="gap:var(--s-3)">
               ${corpoForm.client_id ? `
-                <div class="field grow"><label for="clienteFormId">Código do cliente (OLT/ONU)</label>
+                <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
                   <input class="input" id="clienteFormId" type="text" value="${esc(corpoForm.client_id)}" disabled>
                 </div>` : `
-                <div class="field grow"><label for="clienteFormId">Código do cliente na rede</label>
-                  <input class="input" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Ex.: olt-c350|1/2/1:1 — digite para buscar na OLT"
-                         aria-label="Código do cliente" autocomplete="off">
+                <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
+                  <input class="input" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Código do cliente no IXC — digite nome, serial ou endereço para buscar"
+                         aria-label="Código do cliente no IXC" autocomplete="off">
                   <datalist id="clienteFeedList"></datalist>
                 </div>`}
               <div class="field" style="max-width:180px"><label for="fDocumento">Documento (CPF/CNPJ)</label>
@@ -363,12 +393,18 @@
           <button class="btn btn-primary" data-salvar type="button" ${temPermissao ? "" : "disabled"}>Salvar cadastro</button>
         </span></div>`,
       onMount: (host, close) => {
+        /* onMount roda dentro de UI.modal(), antes de a chamada retornar: o
+           host do formulário só pode vir daqui. */
+        formHost = host;
         renderAparelhos();
         const feedInput = $("#clienteFormId", host);
         if (feedInput && !feedInput.disabled) {
           let timer = 0;
           feedInput.onfocus = () => carregarOpcoesCliente();
-          feedInput.oninput = () => { clearTimeout(timer); timer = setTimeout(carregarOpcoesCliente, 250); };
+          feedInput.oninput = () => {
+            aplicarSugestaoFeed(feedInput.value.trim(), host);
+            clearTimeout(timer); timer = setTimeout(carregarOpcoesCliente, 250);
+          };
         }
         const add = $("#fAparelhoAdd", host);
         if (add) add.onclick = () => { state.aparelhos.push({ nome: "", tipo: "", serial: "" }); renderAparelhos(); };
@@ -412,6 +448,10 @@
 
   /* ---------------- montagem ---------------- */
   function mount() {
+    /* Fora de /clientes.html este arquivo só empresta o modal de cadastro. Montar
+       a casca aqui trocaria o provedor de busca global da tela anfitriã — o mapa
+       GPON perdia a própria busca por uma lista de cadastros vazia. */
+    if (!ehTela) return;
     UI.mountShell({ search: () => state.registros.slice(0, 200).map((r) => ({
       label: r.nome || r.client_id, meta: `${r.client_id} • ${r.telefone || "sem telefone"}`,
       icon: "users", action: () => abrirCadastro({ client_id: r.client_id }),
@@ -429,7 +469,6 @@
     $("#clientePrevPage").onclick = () => { state.page = Math.max(0, state.page - 1); renderLista(); };
     $("#clienteNextPage").onclick = () => { state.page += 1; renderLista(); };
     carregar();
-    NOC.applyActions(document);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount); else mount();
