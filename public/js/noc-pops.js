@@ -289,7 +289,7 @@
                     </div>
                     <div class="row wrap" style="gap:6px;justify-content:flex-end">
                       <a class="btn btn-sm" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir</a>
-                      <button class="btn btn-sm" type="button" data-device-details="${esc(e.id)}">Detalhes</button>
+                     // <button class="btn btn-sm" type="button" data-device-details="${esc(e.id)}">Detalhes</button>
                       <button class="btn btn-sm" type="button" data-unlink="${esc(e.id)}" ${canEdit ? "" : "disabled"}>Desvincular</button>
                     </div>
                   </div>
