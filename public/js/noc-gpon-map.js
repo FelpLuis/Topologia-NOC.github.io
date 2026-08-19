@@ -32,6 +32,7 @@
   const VIEW_KEY = `updown.gpon.view.${location.pathname}`;
   const FOCUS_KEY = `updown.gpon.focus.${location.pathname}`;
   const SIDE_KEY = `updown.gpon.side.${location.pathname}`;
+  const DETAIL_KEY = `updown.gpon.detail.${location.pathname}`;
 
   const state = {
     topology: { equipamentos: [], conexoes: [], pops: [] },
@@ -43,6 +44,7 @@
     selected: null, layers: { clients: true, boxes: true, pops: true, drops: true },
     map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null, fitted: false,
     frame: 0, view: "map", page: 0, searchTimer: 0,
+    detailOff: false,
     revision: null, checkedAt: null, historyToken: 0,
   };
 
@@ -368,6 +370,7 @@
     $$("[data-side-tab]").forEach((el) => el.onclick = () => { state.sideTab = el.dataset.sideTab; renderSideTabs(); });
     if ($("#gponFocus")) $("#gponFocus").onchange = (e) => setFocus(e.target.value);
     if ($("#sideToggle")) $("#sideToggle").onclick = () => toggleSide();
+    if ($("#detailToggle")) $("#detailToggle").onclick = () => toggleDetail();
 
     /* Delegação: com agrupamentos o mapa troca de conteúdo a cada quadro, e
        religar um ouvinte por marcador custava mais que o próprio desenho. */
@@ -406,8 +409,13 @@
       const focus = localStorage.getItem(FOCUS_KEY);
       if (focus) state.focus = focus;
       if (localStorage.getItem(SIDE_KEY) === "off") toggleSide(true);
+      if (localStorage.getItem(DETAIL_KEY) === "off") state.detailOff = true;
     } catch { /* modo privado */ }
 
+    /* Sem seleção na tela, o painel de detalhe recolhe e o mapa ocupa a tela toda. */
+    if (!state.selected && !state.detailOff) state.detailOff = true;
+    $(".gpon-workspace").classList.toggle("no-detail", state.detailOff);
+    paintDetailToggle();
     applyView(false);
     load(false);
     setInterval(refreshIfChanged, 10000);
@@ -425,6 +433,24 @@
       b.setAttribute("aria-expanded", String(!off));
     }
     scheduleMap();
+  }
+
+  function toggleDetail(forceOff) {
+    const shell = $(".gpon-workspace");
+    const off = forceOff === true ? true : forceOff === false ? false : !shell.classList.contains("no-detail");
+    shell.classList.toggle("no-detail", off);
+    state.detailOff = off;
+    paintDetailToggle();
+    try { localStorage.setItem(DETAIL_KEY, off ? "off" : "on"); } catch { /* modo privado */ }
+    if (off) scheduleMap();
+  }
+
+  function paintDetailToggle() {
+    const b = $("#detailToggle");
+    if (!b) return;
+    b.innerHTML = icon(state.detailOff ? "chevronRight" : "chevronLeft");
+    b.setAttribute("aria-expanded", String(!state.detailOff));
+    b.setAttribute("aria-label", state.detailOff ? "Mostrar painel de detalhe" : "Recolher painel de detalhe");
   }
 
   function setFocus(value) {
@@ -1008,6 +1034,8 @@
 
   function select(type, id, focus = false) {
     state.selected = { type, id };
+    /* Ao selecionar, o painel de detalhe volta à tela se estava recolhido. */
+    if (state.detailOff) toggleDetail(false);
     renderClientList();
     renderDetail();
     if (focus) {

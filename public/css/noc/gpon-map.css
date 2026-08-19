@@ -161,6 +161,13 @@
 }
 /* Painel recolhido: a coluna da lista zera e o mapa toma a largura inteira. */
 .gpon-workspace.side-off .gpon-map-grid { grid-template-columns: 0 minmax(420px, 1fr) 320px; }
+/* Detalhe recolhido: a coluna direita some e o mapa ocupa a tela toda.
+   Só no desktop — no tablet o detalhe flutua sobre o mapa e basta escondê-lo. */
+@media (min-width: 1201px) {
+  .gpon-workspace.no-detail .gpon-map-grid { grid-template-columns: 264px minmax(420px, 1fr) 0; }
+  .gpon-workspace.side-off.no-detail .gpon-map-grid { grid-template-columns: 0 minmax(420px, 1fr) 0; }
+}
+.gpon-workspace.no-detail .gpon-detail { display: none; }
 
 .gpon-list-panel {
   display: flex;
@@ -521,6 +528,28 @@
 }
 .gpon-side-toggle:hover { color: var(--cyan-300); border-color: var(--cyan-400); }
 .gpon-side-toggle .icon { width: 14px; height: 14px; }
+
+/* Alternância do painel de detalhe — espelha o sideToggle, mas na borda direita.
+   Só aparece em desktop; no tablet o detalhe já desaparece quando vazio e no
+   celular a lista empilha e o detalhe flutua. */
+.gpon-detail-toggle {
+  position: absolute;
+  right: 0; top: var(--s-4);
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  width: 22px; height: 46px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  background: var(--surface-glass);
+  color: var(--text-3);
+  backdrop-filter: blur(8px);
+}
+.gpon-detail-toggle:hover { color: var(--cyan-300); border-color: var(--cyan-400); }
+.gpon-detail-toggle .icon { width: 14px; height: 14px; }
+@media (max-width: 1200px) { .gpon-detail-toggle { display: none; } }
 
 .gpon-map-count {
   position: absolute;

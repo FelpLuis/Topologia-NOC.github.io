@@ -397,7 +397,13 @@
     NOC.skeleton($("#blocoAlertas"), 4);
 
     await carregar();
-    if (state.dados?.usuario?.nome) $("#saudacao").textContent = saudacao(state.dados.usuario.nome);
+
+    // O guardião de acesso pode ter trocado a página inteira enquanto os dados
+    // vinham. Sem esta parada, o resto do boot escreveria em nós que já saíram
+    // do documento e a tela morreria com um erro sem relação com a causa.
+    const titulo = $("#saudacao");
+    if (!titulo) return;
+    if (state.dados?.usuario?.nome) titulo.textContent = saudacao(state.dados.usuario.nome);
 
     $("#btnRefresh").onclick = async () => {
       const b = $("#btnRefresh");

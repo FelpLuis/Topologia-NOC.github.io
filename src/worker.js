@@ -745,6 +745,13 @@ const ACTIONS = [
 const ALL_ACTION_CODES = ACTIONS.map(x => x[0]);
 const ALL_SCREEN_CODES = SCREENS.map(x => x[0]);
 
+/* O administrador é o perfil mestre do sistema: acesso total, por definição.
+   Ele não depende do que está gravado em role_permissions/role_screens — se
+   uma marcação se perder no banco, quem reabre o sistema ficaria trancado do
+   lado de fora, sem ninguém para devolver o acesso. */
+const PERFIL_PROTEGIDO = "administrador";
+const ehMestre = (user) => String(user?.role || "") === PERFIL_PROTEGIDO;
+
 /* Impressão digital do schema + catálogos. Enquanto ela não muda, o banco já
    está no formato que este código espera e a migração inteira pode ser pulada
    com uma única consulta — em vez das 65 idas ao D1 que o `ensureDatabaseImpl`
@@ -1067,6 +1074,7 @@ async function requireUser(env, request) {
 // as verificações granulares da topologia comparam dezenas de códigos.
 async function permissionsOf(env, user) {
   if (!user) return new Set();
+  if (ehMestre(user)) return new Set(ALL_ACTION_CODES);
   const rows = (await getDB(env).prepare(`
     SELECT p.code FROM role_permissions rp
     JOIN permissions p ON p.id=rp.permission_id
@@ -1077,6 +1085,7 @@ async function permissionsOf(env, user) {
 
 async function hasPermission(env, user, code) {
   if (!user) return false;
+  if (ehMestre(user)) return true;
   const db = getDB(env);
   const row = await db.prepare(`
     SELECT 1
@@ -4249,22 +4258,41 @@ function safeUserRow(u) {
   };
 }
 
+/* Consulta das telas que o usuário pode abrir.
+
+   Os "?" do SQLite são posicionais: os de SCREENS_GLOBAIS aparecem no SELECT e
+   vêm antes do perfil, no JOIN. Montar SQL e binds no mesmo lugar é o que
+   impede a troca silenciosa entre eles — invertidos, a consulta comparava
+   rs.role_id com 'clientes' e devolvia zero telas para todo mundo.
+
+   O mestre não passa por role_screens: ele enxerga todo o catálogo ativo. */
+export function consultaTelasDoAcesso({ mestre = false, roleId = null, globais = [...SCREENS_GLOBAIS] } = {}) {
+  return {
+    sql: `
+    SELECT s.code,s.name,s.description,s.route,s.icon,s.sort,s.nav,
+      COALESCE(sec.code,'noc') sector,
+      CASE WHEN s.code IN (${globais.map(() => "?").join(",")}) THEN 1 ELSE 0 END global
+    FROM screens s
+    ${mestre ? "" : "JOIN role_screens rs ON rs.screen_id=s.id AND rs.role_id=?"}
+    LEFT JOIN sectors sec ON sec.id=s.sector_id AND sec.active=1
+    WHERE s.active=1 ORDER BY s.sort,s.id`,
+    binds: [...globais, ...(mestre ? [] : [roleId])]
+  };
+}
+
 async function handleAccess(env, request) {
   const user = await getCurrentUser(env, request);
   if (!user) return json({error:"AUTH_REQUIRED"},401);
   const db=getDB(env);
-  const permissions=(await db.prepare(`
-    SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
-    WHERE rp.role_id=? ORDER BY p.code
-  `).bind(user.role_id).all()).results.map(x=>x.code);
-  const screens=(await db.prepare(`
-    SELECT s.code,s.name,s.description,s.route,s.icon,s.sort,s.nav,
-      COALESCE(sec.code,'noc') sector,
-      CASE WHEN s.code IN (${[...SCREENS_GLOBAIS].map(() => "?").join(",")}) THEN 1 ELSE 0 END global
-    FROM role_screens rs JOIN screens s ON s.id=rs.screen_id
-    LEFT JOIN sectors sec ON sec.id=s.sector_id AND sec.active=1
-    WHERE rs.role_id=? AND s.active=1 ORDER BY s.sort,s.id
-  `).bind(user.role_id, ...[...SCREENS_GLOBAIS]).all()).results;
+  const mestre=ehMestre(user);
+  const permissions=mestre
+    ? [...ALL_ACTION_CODES].sort()
+    : (await db.prepare(`
+        SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
+        WHERE rp.role_id=? ORDER BY p.code
+      `).bind(user.role_id).all()).results.map(x=>x.code);
+  const telas=consultaTelasDoAcesso({mestre, roleId:user.role_id});
+  const screens=(await db.prepare(telas.sql).bind(...telas.binds).all()).results;
   const sectors=(await db.prepare(`
     SELECT code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
   `).all()).results || [];
@@ -4276,7 +4304,6 @@ async function handleAccess(env, request) {
   return json({role:user.role,permissions,screens,sectors,allScreens});
 }
 
-const PERFIL_PROTEGIDO = "administrador";
 const NOME_PERFIL = /^[a-z][a-z0-9_-]{2,40}$/;
 const normalizaNomePerfil = (valor) => String(valor||"").trim().toLowerCase().replace(/\s+/g,"_");
 
