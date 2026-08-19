@@ -10,9 +10,10 @@
    ============================================================ */
 (() => {
   "use strict";
-  const { $, $$, esc, icon, toast } = UI;
+  const { $, $$, esc, icon, toast, modal } = UI;
 
   const RECARGA_MS = 60000;
+  const COMENTARIO_MAX = 600; // o mesmo teto que o Worker aplica ao gravar.
   const state = { dados: null, carregando: false, timer: null };
 
   const inteiro = (v) => Number(v || 0).toLocaleString("pt-BR");
@@ -208,6 +209,77 @@
     return `/trafego.html#${guia}`;
   };
 
+  /* O que os colegas apuraram antes de dar baixa neste mesmo alerta. Ele
+     continua pendente para quem ainda não viu, mas não precisa ser investigado
+     do zero de novo. */
+  function comentariosDe(a) {
+    const lista = Array.isArray(a.comentarios) ? a.comentarios : [];
+    if (!lista.length) return "";
+    return `<div class="home-alert-notes">
+      ${lista.map((c) => `<p><b>${esc(c.autor || "Alguém")}</b> <span>${esc(desde(c.read_at))}</span>${esc(c.comentario)}</p>`).join("")}
+    </div>`;
+  }
+
+  /* Marcar como visto é o momento em que a pessoa sabe algo que os outros não
+     sabem. A caixa é opcional de propósito: quem só quer limpar a fila fecha
+     com um clique, e quem apurou alguma coisa deixa registrado sem trocar de
+     tela. */
+  function pedirComentario({ ids, alerta, botao }) {
+    const varios = !ids.length;
+    modal({
+      labelledBy: "comentarioVistoTitulo",
+      html: `
+        <div class="modal-head">
+          <div>
+            <span class="kicker">${icon("check")} Marcar como visto</span>
+            <h2 id="comentarioVistoTitulo" style="margin-top:8px">${
+              varios ? "Toda a fila de alertas" : esc(alerta?.titulo || "Alerta")}</h2>
+            <p class="muted" style="margin-top:6px;font-size:var(--fs-13)">${
+              varios
+                ? "O comentário vale para todos os alertas marcados agora."
+                : "Registre o que foi apurado. Os colegas que ainda não viram este alerta leem o seu comentário no cartão dele."}</p>
+          </div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="field">
+            <label for="comentarioVisto">Comentário de fechamento <span class="dim">(opcional)</span></label>
+            <textarea class="textarea" id="comentarioVisto" rows="4" maxlength="${COMENTARIO_MAX}"
+              placeholder="Ex.: enlace restabelecido às 14h20, rompimento na rota Santos — chamado 1234 aberto na operadora."></textarea>
+            <span class="dim" style="font-size:var(--fs-11)" id="comentarioResto"></span>
+          </div>
+        </div>
+        <div class="modal-foot"><span></span><span class="row">
+          <button class="btn" data-close type="button">Cancelar</button>
+          <button class="btn btn-primary" data-marcar type="button">Marcar como visto</button>
+        </span></div>`,
+      onMount: (host, close) => {
+        const campo = $("#comentarioVisto", host);
+        const resto = $("#comentarioResto", host);
+        const confirmar = () => {
+          const comentario = campo.value.trim();
+          close();
+          marcarVistos(ids, botao, comentario);
+        };
+
+        const contar = () => {
+          const usados = campo.value.length;
+          resto.textContent = usados ? `${COMENTARIO_MAX - usados} caracteres restantes` : "";
+        };
+        campo.oninput = contar;
+        contar();
+
+        // Ctrl+Enter fecha o alerta sem tirar a mão do teclado — quem está no
+        // plantão marca vários seguidos.
+        campo.onkeydown = (e) => {
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); confirmar(); }
+        };
+        $("[data-marcar]", host).onclick = confirmar;
+        campo.focus();
+      },
+    });
+  }
+
   function renderAlertas(al) {
     const host = $("#blocoAlertas");
     const botao = $("#btnVerTudo");
@@ -245,6 +317,7 @@
               <b>${esc(a.titulo)}</b>
               ${a.texto ? `<p>${esc(a.texto)}</p>` : ""}
               <time datetime="${esc(a.first_seen_at || "")}">Detectado ${esc(desde(a.first_seen_at))}</time>
+              ${comentariosDe(a)}
             </div>
             <div class="row">
               <a class="btn btn-sm" href="${esc(destinoDe(a))}">Ver</a>
@@ -256,20 +329,26 @@
       ${al.total > lista.length ? `<p class="dim" style="font-size:var(--fs-11)">
         Mostrando os ${inteiro(lista.length)} mais graves de ${inteiro(al.total)} não vistos.</p>` : ""}`;
 
-    $$("[data-visto]", host).forEach((b) => (b.onclick = () => marcarVistos([Number(b.dataset.visto)], b)));
+    const porId = new Map(lista.map((a) => [String(a.id), a]));
+    $$("[data-visto]", host).forEach((b) => (b.onclick = () => pedirComentario({
+      ids: [Number(b.dataset.visto)], alerta: porId.get(b.dataset.visto), botao: b,
+    })));
   }
 
-  async function marcarVistos(ids, botao) {
+  async function marcarVistos(ids, botao, comentario = "") {
     if (botao) botao.classList.add("is-loading");
     try {
       const resposta = await NOC.api("/api/home/alerts/read", {
         method: "POST",
-        body: JSON.stringify(ids?.length ? { ids } : {}),
+        body: JSON.stringify({ ...(ids?.length ? { ids } : {}), ...(comentario ? { comentario } : {}) }),
       });
       state.dados.alertas = { permitido: true, ...resposta };
       renderAlertas(state.dados.alertas);
       toast(ids?.length ? "Alerta marcado como visto" : "Fila zerada", {
-        text: "A fila dos outros usuários não muda.", type: "ok", timeout: 2400,
+        text: comentario
+          ? "O comentário fica no cartão para quem ainda não viu."
+          : "A fila dos outros usuários não muda.",
+        type: "ok", timeout: 2400,
       });
     } catch (err) {
       toast("Não foi possível marcar", { text: err.message, type: "danger" });
@@ -325,7 +404,7 @@
       b.classList.add("is-loading");
       try { await carregar(); } finally { b.classList.remove("is-loading"); }
     };
-    $("#btnVerTudo").onclick = () => marcarVistos([], $("#btnVerTudo"));
+    $("#btnVerTudo").onclick = () => pedirComentario({ ids: [], botao: $("#btnVerTudo") });
 
     // Painel de abertura fica aberto o dia inteiro: ele se atualiza sozinho.
     state.timer = setInterval(() => carregar({ silencioso: true }), RECARGA_MS);

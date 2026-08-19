@@ -82,3 +82,39 @@ test("no telefone o mapa aparece antes do painel de filtros", () => {
   assert.match(css, /\.gpon-map \{ order: 1;/);
   assert.match(css, /\.gpon-side \{ order: 3;/);
 });
+
+test("o Worker repassa a porta da CTO, o código do ERP e a capacidade da caixa", () => {
+  // O coletor já resolvia porta_ftth/ftth_porta do IXC, mas a normalização do
+  // Worker descartava o campo e a tela da caixa nunca via a porta.
+  const worker = fs.readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
+  assert.match(worker, /box_port: String\(primeiroGpon\(c\?\.box_port, c\?\.porta_ftth, c\?\.ftth_porta/);
+  assert.match(worker, /ixc_id: String\(primeiroGpon\(c\?\.ixc_id/);
+  assert.match(worker, /capacity: numeroGpon\(primeiroGpon\(c\?\.capacity, c\?\.capacidade/);
+});
+
+test("nome do cliente na caixa vira primeiro + último nome", () => {
+  const trecho = runtime.match(/const CONECTIVO = [\s\S]*?\n {2}\}/)[0];
+  const shortName = new Function(`${trecho}; return shortName;`)();
+  assert.equal(shortName("Maria Das Gracas De Oliveira Santos"), "Maria Santos");
+  assert.equal(shortName("Ana Paula Rodrigues Da Silva Ferreira"), "Ana Ferreira");
+  assert.equal(shortName("Jose Carlos"), "Jose Carlos");
+  assert.equal(shortName("Joao"), "Joao");
+  assert.equal(shortName("  "), "Sem nome");
+});
+
+test("a linha da caixa traz bolinha de estado, código, nome e porta", () => {
+  assert.match(runtime, /class="gpon-box-client/);
+  assert.match(runtime, /gpon-box-code/);
+  assert.match(runtime, /gpon-box-name/);
+  assert.match(runtime, /gpon-box-port/);
+  assert.match(runtime, /r\.off \? "Offline" : r\.low \? "Sinal alto" : "Online"/);
+  // ordenada como o painel físico: porta 2 antes da porta 10
+  assert.match(runtime, /const porPorta = /);
+  // o nome é a única coluna elástica e corta com reticências
+  assert.match(css, /\.gpon-box-client \{[^}]*grid-template-columns: 8px minmax\(34px, auto\) minmax\(0, 1fr\) auto/s);
+  assert.match(css, /\.gpon-box-name \{[^}]*text-overflow: ellipsis/s);
+  // verde/vermelho/âmbar saem dos tokens de estado, não de cor cravada
+  assert.match(css, /\.gpon-dot \{[^}]*background: var\(--ok-500\)/s);
+  assert.match(css, /\.gpon-dot\.is-off \{ background: var\(--danger-500\)/);
+  assert.match(css, /\.gpon-dot\.is-low \{ background: var\(--warn-500\)/);
+});

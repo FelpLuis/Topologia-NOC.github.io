@@ -224,7 +224,6 @@ window.UI = (() => {
     { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
     { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "noc", sector: "noc", desc: "Clientes ISP e caminhos de fibra no mapa" },
     { code: "isp-cadastro", label: "Cadastro de POPs ISP", href: "/isp-cadastro.html", icon: "users", sector: "noc", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },
-    { code: "pops", label: "Cadastro de POPs Backbone", href: "/pops.html", icon: "pops", sector: "noc", desc: "Inventário por POP e rotas ópticas" },
     { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", sector: "noc", desc: "Painel operacional para TV" },
     { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", sector: "noc", desc: "Perfis, ações, telas, usuários e auditoria" },
     { code: "trafego", label: "Tráfego", desc: "Monitoramento de tráfego, utilização e erros por interface", href: "/trafego.html", icon: "trafego"},
@@ -795,7 +794,7 @@ window.UI = (() => {
       if (e.key.toLowerCase() === "t") { toggleTheme(); return; }
       if (e.key.toLowerCase() === "g") { gPressed = true; setTimeout(() => (gPressed = false), 1200); return; }
       if (gPressed) {
-        const map = { h: "/", t: "/topologia.html", d: "/dashboard.html", p: "/pops.html", a: "/platform.html" };
+        const map = { h: "/", t: "/topologia.html", d: "/dashboard.html", a: "/platform.html" };
         const dest = map[e.key.toLowerCase()];
         if (dest) { gPressed = false; location.href = dest; }
       }

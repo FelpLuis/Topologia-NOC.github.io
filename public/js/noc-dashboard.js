@@ -132,7 +132,7 @@
             </div>`}
         </div>
 
-        <a class="btn btn-sm btn-block" href="/pops.html?pop=${encodeURIComponent(pop.id)}">Ver ficha do POP</a>
+        <a class="btn btn-sm btn-block" href="/topologia.html?pop=${encodeURIComponent(pop.id)}">Abrir POP na topologia</a>
       </article>`;
     }).join("") : `<div class="card"><div class="empty">
         <span class="empty-icon">${icon("pops")}</span><b>Nenhum POP cadastrado</b>

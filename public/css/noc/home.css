@@ -102,6 +102,23 @@
 
 .home-alert-badges { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 
+/* Comentários de fechamento deixados por quem já deu baixa. Ficam recuados
+   atrás de um filete: pertencem ao alerta, mas são voz de colega, e não a
+   descrição da condição. */
+.home-alert-notes { display: grid; gap: 6px; margin-top: var(--s-3); }
+.home-alert-notes p {
+  margin: 0;
+  border-left: 2px solid var(--line);
+  padding-left: var(--s-3);
+  color: var(--text-2);
+  font-size: var(--fs-11);
+  line-height: var(--lh-base);
+  white-space: pre-wrap;
+}
+.home-alert-notes b { display: inline; color: var(--text-1); font-size: inherit; }
+.home-alert-notes span { color: var(--text-3); font-family: var(--font-mono); font-size: var(--fs-10); }
+.home-alert-notes b + span::after { content: " · "; }
+
 @media (max-width: 640px) {
   .home-stats { grid-template-columns: minmax(0, 1fr); }
   .home-alert { grid-template-columns: 4px minmax(0, 1fr); }

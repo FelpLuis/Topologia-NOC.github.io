@@ -613,7 +613,7 @@
     $("#gponTableCount").textContent = `${nb(list.length)} de ${nb(state.rows.length)} clientes`;
     body.innerHTML = rows.length ? rows.map((r) => {
       const c = r.c;
-      const status = r.off ? "Offline" : r.low ? "Sinal crítico" : "Online";
+      const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       return `<tr>
         <td><b>${esc(r.name)}</b><br><small class="dim mono">${esc(c.serial || c.onu_index || "Sem serial")}</small></td>
         <td><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span></td>
@@ -955,6 +955,46 @@
     return hops;
   }
 
+  /* ---------------- linha de cliente dentro da caixa ---------------- */
+
+  /* O nome completo do cadastro não cabe na coluna do painel de detalhe e
+     vazava para fora do cartão. O operador precisa reconhecer o cliente, não
+     ler a certidão: primeiro e último nome bastam, e o nome inteiro continua
+     acessível no title do botão. */
+  const CONECTIVO = /^(d[aeiou]s?|e|del|von|van)$/i;
+  function shortName(full) {
+    const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "Sem nome";
+    if (parts.length <= 2) return parts.join(" ");
+    const ultimo = [...parts].reverse().find((p) => !CONECTIVO.test(p)) || parts[parts.length - 1];
+    return ultimo === parts[0] ? parts[0] : `${parts[0]} ${ultimo}`;
+  }
+
+  /* Código do cliente no ERP quando o coletor casou a ONU com o IXC; sem isso,
+     o id da própria ONU — que é o que existe para identificar a linha. */
+  const clientCode = (c) => String(c.ixc_id || c.id || "").trim();
+
+  /* Ordem do painel físico da caixa: porta 2 vem antes da porta 10, e quem não
+     tem porta cadastrada fica no fim. */
+  const numeroPorta = (r) => {
+    const m = String(r.c.box_port || "").match(/\d+/);
+    return m ? Number(m[0]) : Number.POSITIVE_INFINITY;
+  };
+  const porPorta = (a, b) => numeroPorta(a) - numeroPorta(b) || a.name.localeCompare(b.name, "pt-BR");
+
+  function linhaDaCaixa(r) {
+    const tone = r.off ? "is-off" : r.low ? "is-low" : "";
+    const estado = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
+    const porta = String(r.c.box_port || "").trim();
+    return `<button class="gpon-box-client ${tone}" type="button" data-client="${esc(r.id)}" title="${esc(`${r.name} — ${estado}${porta ? ` — porta ${porta}` : ""}`)}">
+      <i class="gpon-dot" aria-hidden="true"></i>
+      <span class="gpon-box-code mono">${esc(clientCode(r.c) || "—")}</span>
+      <span class="gpon-box-name">${esc(shortName(r.name))}</span>
+      <span class="gpon-box-port mono">${porta ? esc(porta) : "—"}</span>
+      <span class="sr-only">${esc(estado)}</span>
+    </button>`;
+  }
+
   function renderDetail() {
     const host = $("#gponDetail"), sel = state.selected;
     if (!sel) return;
@@ -962,22 +1002,30 @@
       const r = rowById(sel.id); if (!r) return;
       const c = r.c;
       const path = derivedPath(c);
-      const status = r.off ? "Offline" : r.low ? "Sinal crítico" : "Online";
+      const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       host.innerHTML = `<div class="gpon-detail-head"><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span><h2>${esc(c.name)}</h2><p class="muted">${esc(c.address || "Localização textual não informada")}</p></div>
         <div class="gpon-detail-grid">
           <div><span>Usuário</span><b>${esc(c.username || "—")}</b></div><div><span>Serial ONU</span><b class="mono">${esc(c.serial || "—")}</b></div>
           <div><span>OLT</span><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b></div><div><span>PON</span><b class="mono">${esc(c.pon || "—")}</b></div>
           <div><span>RX óptico</span><b>${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</b></div><div><span>VLAN / IP</span><b>${esc([c.vlan, c.ip].filter(Boolean).join(" • ") || "—")}</b></div>
-          <div><span>Caixa / CTO</span><b>${esc(boxById(c.box_id)?.name || c.box_id || "—")}</b></div><div><span>Drop</span><b>${c.drop_path?.length ? `${c.drop_path.length} pontos` : boxById(c.box_id) ? "Ligação direta cadastrada" : "Sem traçado"}</b></div>
+          <div><span>Caixa / CTO</span><b>${esc([boxById(c.box_id)?.name || c.box_id || "—", c.box_port ? `porta ${c.box_port}` : ""].filter(Boolean).join(" • "))}</b></div><div><span>Drop</span><b>${c.drop_path?.length ? `${c.drop_path.length} pontos` : boxById(c.box_id) ? "Ligação direta cadastrada" : "Sem traçado"}</b></div>
         </div>
         <b style="font-size:var(--fs-12)">Conexão ponta a ponta</b>
         <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>`;
     } else if (sel.type === "box") {
       const b = boxById(sel.id); if (!b) return;
-      const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id));
+      const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id)).sort(porPorta);
+      const fora = linked.filter((r) => r.off).length, altos = linked.filter((r) => r.low).length;
+      const ocupacao = Number.isFinite(Number(b.capacity)) && Number(b.capacity) > 0
+        ? `${nb(linked.length)} / ${nb(b.capacity)}` : nb(linked.length);
       host.innerHTML = `<div class="gpon-detail-head"><span class="badge">${esc(b.type)}</span><h2>${esc(b.name)}</h2><p class="muted">${esc(b.address || "Endereço não informado")}</p></div>
-        <div class="gpon-detail-grid"><div><span>Estado</span><b>${esc(b.status)}</b></div><div><span>Clientes</span><b>${nb(linked.length)}</b></div><div><span>POP</span><b>${esc(popById(b.pop_id)?.nome || b.pop_id || "—")}</b></div><div><span>Coordenadas</span><b class="mono">${hasCoord(b) ? esc(GEO.label(b.lat, b.lon)) : "—"}</b></div></div>
-        <b style="font-size:var(--fs-12)">Clientes atendidos</b><div class="stack" style="margin-top:8px">${linked.slice(0, 40).map((r) => `<button class="btn btn-sm btn-block" data-client="${esc(r.id)}" type="button">${esc(r.name)}</button>`).join("") || '<p class="muted">Nenhum cliente vinculado.</p>'}${linked.length > 40 ? `<p class="muted">e mais ${nb(linked.length - 40)}.</p>` : ""}</div>`;
+        <div class="gpon-detail-grid"><div><span>Estado</span><b>${esc(b.status)}</b></div><div><span>Portas usadas</span><b>${esc(ocupacao)}</b></div><div><span>POP</span><b>${esc(popById(b.pop_id)?.nome || b.pop_id || "—")}</b></div><div><span>Coordenadas</span><b class="mono">${hasCoord(b) ? esc(GEO.label(b.lat, b.lon)) : "—"}</b></div></div>
+        <div class="gpon-box-head">
+          <b>Clientes atendidos</b>
+          <span>${fora ? `<i class="gpon-dot is-off"></i>${nb(fora)} offline` : ""}${altos ? `<i class="gpon-dot is-low"></i>${nb(altos)} sinal alto` : ""}${!fora && !altos && linked.length ? `<i class="gpon-dot"></i>todos online` : ""}</span>
+        </div>
+        <div class="gpon-box-clients">${linked.slice(0, 64).map(linhaDaCaixa).join("") || '<p class="muted">Nenhum cliente vinculado.</p>'}</div>
+        ${linked.length > 64 ? `<div class="gpon-list-note">Mostrando 64 de ${nb(linked.length)}.</div>` : ""}`;
       $$("[data-client]", host).forEach((el) => el.onclick = () => select("client", el.dataset.client, true));
     } else {
       const p = popById(sel.id); if (!p) return;

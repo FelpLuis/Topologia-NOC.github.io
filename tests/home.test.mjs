@@ -129,3 +129,34 @@ test("alertas: interface marcada para ignorar fica fora da fila", () => {
 
   assert.equal(alertas.some((a) => a.fingerprint.endsWith(":1:9")), false);
 });
+
+/* Comentário de fechamento: opcional na tela, mas nunca pode ser gravado no
+   alerta — ele é da leitura de quem deu baixa, senão apareceria como se fosse
+   a descrição da condição para todo mundo. */
+test("comentário de fechamento pertence à leitura e chega ao cartão dos colegas", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
+  const home = await readFile(new URL("../public/js/noc-home.js", import.meta.url), "utf8");
+  const migracao = await readFile(new URL("../migrations/0017_alert_read_comment.sql", import.meta.url), "utf8");
+
+  // A coluna nasce em alert_reads, e bancos antigos a recebem por ALTER TABLE.
+  const tabela = worker.match(/CREATE TABLE IF NOT EXISTS alert_reads[\s\S]*?\);/)[0];
+  assert.match(tabela, /comentario TEXT NOT NULL DEFAULT ''/);
+  assert.match(worker, /ensureColumns\(db, "alert_reads", \[\s*\["comentario"/);
+  assert.match(migracao, /ALTER TABLE alert_reads ADD COLUMN comentario/);
+
+  // O alerta em si continua sem comentário: a condição é coletiva.
+  const alertas = worker.match(/CREATE TABLE IF NOT EXISTS alerts \([\s\S]*?\);/)[0];
+  assert.equal(/comentario/.test(alertas), false);
+
+  // Gravação com teto e leitura devolvida junto de cada alerta pendente.
+  assert.match(worker, /INSERT OR IGNORE INTO alert_reads\(alert_id,user_id,read_at,comentario\)/);
+  assert.match(worker, /body\.comentario[\s\S]{0,80}ALERTAS_COMENTARIO_MAX/);
+  assert.match(worker, /WHERE r\.comentario<>''/);
+
+  // A tela pede o comentário antes de marcar, e nunca marca sem passar por ela.
+  assert.match(home, /function pedirComentario/);
+  assert.match(home, /data-marcar/);
+  assert.equal(/marcarVistos\(\[\]/.test(home), false, "o botão de marcar tudo também abre o comentário");
+  assert.match(home, /comentariosDe\(a\)/);
+});

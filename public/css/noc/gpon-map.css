@@ -87,7 +87,7 @@
 /* ---------- Área de trabalho: painel, mapa e detalhe ---------- */
 .gpon-workspace {
   display: grid;
-  grid-template-columns: 288px minmax(420px, 1fr) 310px;
+  grid-template-columns: 288px minmax(420px, 1fr) 340px;
   min-height: 620px;
   /* dvh, e não vh: no celular a barra do navegador entra na conta e o mapa
      ficava mais alto que a janela. O desconto é do cabeçalho da página. */
@@ -99,7 +99,7 @@
   transition: grid-template-columns var(--dur-3) var(--ease-out);
 }
 /* Painel recolhido: a coluna zera e o mapa toma a largura inteira. */
-.gpon-workspace.side-off { grid-template-columns: 0 minmax(420px, 1fr) 310px; }
+.gpon-workspace.side-off { grid-template-columns: 0 minmax(420px, 1fr) 340px; }
 .gpon-workspace.side-off .gpon-side { opacity: 0; pointer-events: none; }
 
 .gpon-side {
@@ -516,7 +516,8 @@
 /* ---------- Painel de detalhe ---------- */
 .gpon-detail-empty { min-height: 100%; justify-content: center; }
 .gpon-detail-head { padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); }
-.gpon-detail-head h2 { margin-top: 5px; font-size: var(--fs-16); }
+.gpon-detail-head h2 { margin-top: 5px; font-size: var(--fs-16); overflow-wrap: anywhere; }
+.gpon-detail-head .muted { overflow-wrap: anywhere; }
 .gpon-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); margin: var(--s-3) 0; }
 .gpon-detail-grid div {
   min-width: 0;
@@ -528,6 +529,70 @@
 .gpon-detail-grid span, .gpon-detail-grid b { display: block; overflow: hidden; text-overflow: ellipsis; }
 .gpon-detail-grid span { color: var(--text-3); font-size: var(--fs-10); text-transform: uppercase; letter-spacing: .06em; }
 .gpon-detail-grid b { margin-top: 2px; font-size: var(--fs-11); }
+
+/* ---------- Clientes de uma caixa / CTO ----------
+   O nome do cadastro é imprevisível ("MARIA DAS GRAÇAS DE OLIVEIRA SANTOS") e
+   antes era jogado inteiro num botão de largura total, vazando para fora do
+   cartão. A linha virou uma grade fixa — bolinha de estado, código, nome e
+   porta — em que só o nome cede espaço, cortando com reticências. */
+.gpon-box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+  padding-bottom: var(--s-2);
+  font-size: var(--fs-12);
+}
+.gpon-box-head > span { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-10); }
+.gpon-box-head > span .gpon-dot + .gpon-dot { margin-left: var(--s-2); }
+
+.gpon-dot {
+  width: 8px; height: 8px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--ok-500);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.gpon-dot.is-off { background: var(--danger-500); box-shadow: 0 0 0 3px var(--danger-bg); }
+.gpon-dot.is-low { background: var(--warn-500); box-shadow: 0 0 0 3px var(--warn-bg); }
+
+.gpon-box-clients { display: grid; gap: 4px; }
+.gpon-box-client {
+  display: grid;
+  grid-template-columns: 8px minmax(34px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 6px var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-1);
+  text-align: left;
+}
+.gpon-box-client:hover { border-color: var(--cyan-400); background: var(--surface-3); }
+.gpon-box-client.is-off .gpon-dot { background: var(--danger-500); box-shadow: 0 0 0 3px var(--danger-bg); }
+.gpon-box-client.is-low .gpon-dot { background: var(--warn-500); box-shadow: 0 0 0 3px var(--warn-bg); }
+.gpon-box-code { color: var(--text-3); font-size: var(--fs-10); font-variant-numeric: tabular-nums; }
+.gpon-box-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-11);
+  font-weight: 600;
+}
+.gpon-box-port {
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: var(--fs-10);
+  font-variant-numeric: tabular-nums;
+}
+.gpon-box-client.is-off .gpon-box-port { background: var(--danger-bg); color: var(--danger-text); }
+.gpon-box-client.is-low .gpon-box-port { background: var(--warn-bg); color: var(--warn-text); }
 
 .gpon-path { display: grid; gap: 0; margin-top: var(--s-3); }
 .gpon-hop { position: relative; display: grid; grid-template-columns: 24px 1fr; gap: var(--s-2); min-height: 52px; }
@@ -559,7 +624,7 @@
     right: var(--s-4);
     top: var(--s-4);
     bottom: var(--s-4);
-    width: 320px;
+    width: 340px;
     z-index: 12;
     border-radius: var(--r-md);
     box-shadow: var(--shadow-3);

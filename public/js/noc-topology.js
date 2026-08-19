@@ -2926,7 +2926,6 @@
         <div class="modal-body stack">
           <div class="row wrap" style="gap:6px">${[...r.tipos].map((t) => `<span class="badge badge-info">Rota ${esc(t)}</span>`).join("")}</div>
           <p class="muted" style="font-size:var(--fs-13)">Rotas registradas no cadastro do POP.</p>
-          <a class="btn" href="/pops.html?pop=${encodeURIComponent(r.a)}">Abrir ficha do POP</a>
         </div>`,
     });
   }
@@ -3198,7 +3197,6 @@
                     <td><span class="row" style="gap:6px">
                       <button class="btn btn-sm" type="button" data-editpop="${esc(p.id)}"
                         ${podeEditarPop() ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar</button>
-                      <a class="btn btn-sm" href="/pops.html?pop=${encodeURIComponent(p.id)}">Abrir</a>
                     </span></td>
                   </tr>`;
                 }).join("")}</tbody>

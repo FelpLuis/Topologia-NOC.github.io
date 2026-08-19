@@ -371,6 +371,10 @@ CREATE TABLE IF NOT EXISTS alert_reads (
   -- segurança: comparado com o ISO de reopened_at, o espaço perde para o "T"
   -- e uma leitura mais nova passaria por mais antiga.
   read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Comentário de fechamento, opcional: o que a pessoa apurou ao dar baixa.
+  -- Ele pertence à leitura, e não ao alerta — fala de "por que eu marquei
+  -- visto", enquanto o alerta continua pendente para os colegas.
+  comentario TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (alert_id, user_id)
 );
 
@@ -486,7 +490,7 @@ const SCREENS = [
   ["isp", "ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
-  ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
+  ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 0, "pops", 20, 0],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
@@ -1020,6 +1024,9 @@ async function ensureDatabaseImpl(env) {
     ["external_uid", "TEXT"],
     ["imported_at", "TEXT"]
   ]);
+  await ensureColumns(db, "alert_reads", [
+    ["comentario", "TEXT NOT NULL DEFAULT ''"]
+  ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -1222,6 +1229,13 @@ async function ensureDatabaseImpl(env) {
       grants.push(...donos.map(roleId => grantPermission(roleId, destino)));
     }
     await runGrants(grants);
+  });
+
+  // A tela de Cadastro de POPs Backbone foi retirada da navegação e do acesso
+  // de todos os perfis, mas o código continua no repositório. O upsert do
+  // catálogo não grava `active`, então a desativação é feita aqui uma vez.
+  await seedOnce(db, "seed.pops_screen_hidden.v1", async () => {
+    await db.prepare(`UPDATE screens SET active=0, nav=0 WHERE code='pops'`).run();
   });
 
   // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez
@@ -2944,6 +2958,9 @@ const ALERTAS_RETENCAO_DIAS = 7;
 const ALERTAS_INTERVALO_MS = 60000;   // no máximo uma derivação por minuto
 const ALERTAS_LIMITE_CICLO = 200;     // teto do lote gravado por ciclo
 const ALERTAS_GERACAO_KEY = "alerts.generated_at";
+/* Comentário de fechamento: cabe um parágrafo do plantão, não um relatório. */
+const ALERTAS_COMENTARIO_MAX = 600;
+const ALERTAS_COMENTARIOS_POR_ALERTA = 5;
 const ORIGEM_REDE = "rede";
 const PESO_GRAU = { critico: 0, atencao: 1, info: 2 };
 
@@ -3250,13 +3267,42 @@ async function alertasNaoVistos(db, userId, limite = 50) {
     abertosPorGrau[grau] += Number(linha.total) || 0;
   }
 
+  const lista = naoVistos.results || [];
+  const comentarios = await comentariosDosAlertas(db, lista.map((a) => a.id));
+  for (const alerta of lista) alerta.comentarios = comentarios.get(alerta.id) || [];
+
   return {
     total: porGrau.critico + porGrau.atencao + porGrau.info,
     abertos: abertosPorGrau.critico + abertosPorGrau.atencao + abertosPorGrau.info,
     por_grau: porGrau,
     abertos_por_grau: abertosPorGrau,
-    lista: naoVistos.results || []
+    lista
   };
+}
+
+/* Quem já deu baixa nestes alertas e deixou um comentário. É o que evita que
+   dois plantonistas apurem a mesma coisa: o alerta continua pendente para quem
+   não viu, mas chega com o que o colega já descobriu. */
+async function comentariosDosAlertas(db, ids) {
+  const mapa = new Map();
+  if (!ids.length) return mapa;
+
+  const marcadores = ids.map(() => "?").join(",");
+  const { results } = await db.prepare(`
+    SELECT r.alert_id, r.comentario, r.read_at, u.display_name AS autor
+    FROM alert_reads r
+    JOIN users u ON u.id=r.user_id
+    WHERE r.comentario<>'' AND r.alert_id IN (${marcadores})
+    ORDER BY r.read_at DESC
+  `).bind(...ids).all();
+
+  for (const linha of results || []) {
+    const anteriores = mapa.get(linha.alert_id) || [];
+    if (anteriores.length >= ALERTAS_COMENTARIOS_POR_ALERTA) continue;
+    anteriores.push({ autor: linha.autor, comentario: linha.comentario, read_at: linha.read_at });
+    mapa.set(linha.alert_id, anteriores);
+  }
+  return mapa;
 }
 
 /**
@@ -3393,6 +3439,10 @@ async function handleHomeOverview(env, request, url) {
  *
  * Sem corpo marca tudo o que está aberto; com { "ids": [1,2] }, só os
  * informados. Marcar é sempre por usuário: nada some da fila dos colegas.
+ *
+ * `comentario` é opcional e registra o que a pessoa apurou ao dar baixa. Vai
+ * junto de cada leitura gravada nesta chamada — inclusive quando a fila inteira
+ * é marcada de uma vez, caso em que o mesmo texto vale para todos os alertas.
  */
 async function handleAlertsRead(env, request) {
   const user = await requireUser(env, request);
@@ -3405,19 +3455,21 @@ async function handleAlertsRead(env, request) {
     ? body.ids.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0).slice(0, 500)
     : [];
 
+  const comentario = String(body.comentario ?? "").trim().slice(0, ALERTAS_COMENTARIO_MAX);
+
   const db = getDB(env);
   const agora = new Date().toISOString();
   if (ids.length) {
     const marcadores = ids.map(() => "?").join(",");
     await db.prepare(`
-      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at)
-      SELECT id, ?, ? FROM alerts WHERE resolved_at IS NULL AND id IN (${marcadores})
-    `).bind(user.id, agora, ...ids).run();
+      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at,comentario)
+      SELECT id, ?, ?, ? FROM alerts WHERE resolved_at IS NULL AND id IN (${marcadores})
+    `).bind(user.id, agora, comentario, ...ids).run();
   } else {
     await db.prepare(`
-      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at)
-      SELECT id, ?, ? FROM alerts WHERE resolved_at IS NULL
-    `).bind(user.id, agora).run();
+      INSERT OR IGNORE INTO alert_reads(alert_id,user_id,read_at,comentario)
+      SELECT id, ?, ?, ? FROM alerts WHERE resolved_at IS NULL
+    `).bind(user.id, agora, comentario).run();
   }
 
   return json({ ok: true, ...(await alertasNaoVistos(db, user.id)) });
@@ -4244,6 +4296,13 @@ function normalizarClienteGpon(c, i) {
     rx_power: numeroGpon(primeiroGpon(c?.rx_power, c?.rx, c?.signal, c?.sinal_rx)),
     tx_power: numeroGpon(primeiroGpon(c?.tx_power, c?.tx, c?.sinal_tx)),
     box_id: String(primeiroGpon(c?.box_id, c?.caixa_id, c?.cto_id, c?.cto, "")),
+    /* Porta do splitter dentro da CTO. O coletor já resolve isto a partir de
+       porta_ftth/ftth_porta do IXC; sem repassar o campo aqui, a tela da caixa
+       não tinha como dizer em que porta cada cliente está pendurado. */
+    box_port: String(primeiroGpon(c?.box_port, c?.porta_ftth, c?.ftth_porta, c?.porta_caixa, c?.cto_port, c?.porta_cto, "")),
+    /* Código do cliente no ERP: é o número que o operador procura no IXC, e não
+       o id sintético da ONU. */
+    ixc_id: String(primeiroGpon(c?.ixc_id, c?.customer_id, c?.cliente_id, "")),
     drop_path: pontosGpon(primeiroGpon(c?.drop_path, c?.caminho_drop, c?.route, c?.rota, [])),
     path: Array.isArray(caminho) ? caminho : []
   };
@@ -4256,6 +4315,9 @@ function normalizarCaixaGpon(c, i) {
     name: String(primeiroGpon(c?.name, c?.nome, c?.label, c?.identificacao, `Caixa ${i + 1}`)),
     type: String(primeiroGpon(c?.type, c?.tipo, "CTO")),
     status: String(primeiroGpon(c?.status, c?.estado, "online")).toLowerCase(),
+    /* Portas do splitter: com a capacidade a tela da caixa mostra ocupação, e
+       não só a contagem de clientes. */
+    capacity: numeroGpon(primeiroGpon(c?.capacity, c?.capacidade, c?.portas)),
     pop_id: String(primeiroGpon(c?.pop_id, c?.pop, "")),
     address: String(primeiroGpon(c?.address, c?.endereco, loc?.address, loc?.endereco, "")),
     lat: numeroGpon(primeiroGpon(c?.lat, c?.latitude, loc?.lat, loc?.latitude)),
