@@ -44,6 +44,11 @@ export function collectorConfig() {
     pushToken: String(process.env.GPON_PUSH_TOKEN || required("COLLECTOR_TOKEN")),
     intervalMs: Math.max(10000, Number(process.env.COLLECTOR_INTERVAL_MS || 10000)),
     ixcIntervalMs: Math.max(60000, Number(process.env.IXC_REFRESH_INTERVAL_MS || 600000)),
+    /* A leitura rápida na OLT é o único ciclo que fala com o equipamento de
+       produção a cada 10 s. Um parque muito grande, ou uma OLT que não aguenta
+       o "show gpon onu state" nesse ritmo, desliga aqui e continua com o
+       Radius do IXC em 10 s e a OLT no ciclo completo. */
+    ontFast: !/^(0|false|nao|não|off)$/i.test(String(process.env.ONT_FAST_ENABLED ?? "1").trim()),
     devices: [device("ZTE_C350"), device("ZTE_C300")],
     ixc: {
       baseUrl: required("IXC_BASE_URL").replace(/\/+$/, ""),

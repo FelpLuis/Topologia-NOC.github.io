@@ -66,6 +66,32 @@
   padding-top: var(--s-4);
 }
 
+/* Filtros da Lista: barra de pesquisa + chips de estado convivem na mesma
+   barra de ferramentas, para o operador consultar por texto e estado de uma
+   vez só. Os chips reutilizam .gpon-filters e .chip da tela do mapa. */
+.gpon-list-toolbar { flex-wrap: wrap; }
+.gpon-list-filters { flex: 1 1 auto; }
+
+/* ---------- Dashboards ---------- */
+.gpon-dash-view {
+  min-height: 420px;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.gpon-dash-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.gpon-dash-head h2 { margin-top: 4px; font-size: var(--fs-18); }
+.gpon-dash-head .page-sub { margin: 2px 0 0; }
+
 /* ---------- Indicadores ---------- */
 .gpon-kpis {
   display: grid;
@@ -691,3 +717,31 @@
 @media (prefers-reduced-motion: reduce) {
   .gpon-workspace, .gpon-marker, .gpon-cluster, .gpon-client-row, .gpon-layer { transition: none; }
 }
+
+/* Histórico de estado da ONU no painel de detalhe.
+
+   A lista é longa por natureza — uma ONU instável rende dezenas de eventos —
+   e divide espaço com o caminho ponta a ponta no mesmo painel estreito. Rolar
+   dentro do bloco mantém os dados de identificação sempre visíveis acima. */
+.gpon-history {
+  display: grid;
+  gap: var(--s-1);
+  margin-top: var(--s-3);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.gpon-hist {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  align-items: start;
+  gap: var(--s-2);
+  padding: var(--s-2);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  border-left: 2px solid var(--ok-500);
+}
+.gpon-hist.is-off { border-left-color: var(--danger-500); }
+.gpon-hist .gpon-dot { margin-top: 4px; }
+.gpon-hist b, .gpon-hist small { display: block; }
+.gpon-hist b { font-size: var(--fs-11); text-transform: capitalize; }
+.gpon-hist small { margin-top: 2px; color: var(--text-3); font-size: var(--fs-10); }

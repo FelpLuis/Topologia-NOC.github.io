@@ -125,9 +125,48 @@ export function parseOnuBaseInfo(output) {
 
 const inventoryCache = new Map();
 
+/* Sessões persistentes por OLT.
+
+   Abrir SSH/Telnet, autenticar e mandar "terminal length 0" custa alguns
+   segundos — aceitável a cada dez minutos, proibitivo num ciclo de dez. Com a
+   sessão viva, o ciclo rápido é só o tempo de a OLT despejar a tabela de
+   estados. A fila serializa os comandos: dois "show" simultâneos no mesmo
+   shell embaralham a saída dos dois. Qualquer falha derruba a sessão em vez de
+   tentar reaproveitá-la — reconectar é barato perto de interpretar lixo. */
+const sessions = new Map();
+
+export async function withZteSession(device, fn) {
+  let entry = sessions.get(device.id);
+  if (!entry) { entry = { shell: null, queue: Promise.resolve() }; sessions.set(device.id, entry); }
+  const execucao = entry.queue.then(async () => {
+    if (!entry.shell) entry.shell = await openZte(device);
+    try { return await fn(entry.shell); }
+    catch (error) {
+      try { entry.shell?.close(); } catch { /* a sessão já morreu */ }
+      entry.shell = null;
+      throw error;
+    }
+  });
+  entry.queue = execucao.then(() => {}, () => {});
+  return execucao;
+}
+
+export function closeZteSessions() {
+  for (const entry of sessions.values()) {
+    try { entry.shell?.close(); } catch { /* encerrando mesmo assim */ }
+    entry.shell = null;
+  }
+}
+
+/* Só a tabela de estados: é o dado que muda de segundo a segundo. Modelo,
+   serial e modo de autenticação são cadastro e vêm do ciclo completo. */
+export async function collectZteStates(device) {
+  return withZteSession(device, async (shell) =>
+    parseOnuStates(await shell.command("show gpon onu state", 240000), device));
+}
+
 export async function collectZte(device) {
-  const shell = await openZte(device);
-  try {
+  return withZteSession(device, async (shell) => {
     const states = parseOnuStates(await shell.command("show gpon onu state", 240000), device);
     let base = inventoryCache.get(device.id);
     if (!base) {
@@ -140,5 +179,5 @@ export async function collectZte(device) {
       inventoryCache.set(device.id, base);
     }
     return states.map((onu) => ({ ...onu, ...(base.get(onu.onu_index) || {}) }));
-  } finally { await shell.close(); }
+  });
 }

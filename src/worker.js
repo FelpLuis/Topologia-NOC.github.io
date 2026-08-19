@@ -5356,6 +5356,104 @@ async function loadGponSnapshot(env) {
   return data;
 }
 
+/* ---------------- histórico auditável do estado GPON ----------------
+
+   Um ciclo de coleta chega a cada 10 s. Gravar o estado inteiro a cada ciclo
+   encheria o banco com milhões de linhas idênticas por dia, então só as
+   *transições* viram histórico: o cliente que mudou de estado, com o valor
+   anterior ao lado do novo e a origem que observou a mudança. Cada ciclo — com
+   transição ou sem — vira uma linha em gpon_sync_runs, que é o que prova que a
+   coleta estava viva às 03h14 mesmo sem nada ter acontecido. */
+
+/* Teto de transições gravadas por ciclo. Uma PON inteira caindo produz
+   milhares de mudanças de uma vez; sem teto, um ciclo de 10 s tentaria escrever
+   dezenas de milhares de linhas e estouraria o tempo da ingestão. O total
+   observado fica no run, então o corte aparece na auditoria em vez de sumir. */
+const GPON_HISTORY_MAX_PER_RUN = 4000;
+const GPON_HISTORY_BATCH = 25;
+
+/* O RX oscila décimos de dBm o tempo todo. Registrar cada respiro afogaria as
+   quedas reais em ruído; 2 dB é a menor variação que muda a leitura operacional
+   de um enlace. */
+const GPON_RX_DELTA_DB = 2;
+
+const GPON_HISTORY_RETENTION_DAYS = 90;
+const GPON_RUNS_RETENTION_DAYS = 30;
+
+const textoGpon = (valor, max = 160) => String(valor ?? "").slice(0, max);
+
+/* CURRENT_TIMESTAMP do SQLite grava "AAAA-MM-DD HH:MM:SS" em UTC. Comparar
+   isso com um ISO ("...T...Z") ordena errado — o espaço vem antes do "T" —, e
+   filtro e poda erravam por até um dia. */
+const carimboSqlGpon = (data) => data.toISOString().replace("T", " ").slice(0, 19);
+const normalStatusGpon = (valor) => textoGpon(valor || "unknown", 40).toLowerCase();
+const onlineGpon = (valor) => normalStatusGpon(valor) === "online";
+
+/* Compara o estado conhecido com o que acabou de chegar. Devolve null quando
+   nada digno de registro mudou — o caso comum, e o que mantém o histórico
+   legível. */
+export function transicaoGpon(anterior, atual) {
+  const statusAntes = anterior ? normalStatusGpon(anterior.status) : null;
+  const statusDepois = normalStatusGpon(atual.status);
+  const detalheAntes = anterior ? textoGpon(anterior.state_detail) : null;
+  const detalheDepois = textoGpon(atual.state_detail);
+  const rxAntes = anterior ? numeroGpon(anterior.rx_power) : null;
+  const rxDepois = numeroGpon(atual.rx_power);
+
+  if (!anterior) return { event: "baseline", statusAntes: null, detalheAntes: null, rxAntes: null, statusDepois, detalheDepois };
+  if (statusAntes !== statusDepois) return { event: "status", statusAntes, detalheAntes, rxAntes, statusDepois, detalheDepois };
+  if (detalheAntes !== detalheDepois) return { event: "status", statusAntes, detalheAntes, rxAntes, statusDepois, detalheDepois };
+  if (rxAntes !== null && rxDepois !== null && Math.abs(rxDepois - rxAntes) >= GPON_RX_DELTA_DB)
+    return { event: "signal", statusAntes, detalheAntes, rxAntes, statusDepois, detalheDepois };
+  return null;
+}
+
+/* Grava as transições em lotes pequenos: o D1 aceita um batch grande, mas um
+   lote enorme dentro de uma requisição de 10 s é o que estoura primeiro. */
+async function gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes) {
+  const recortadas = transicoes.slice(0, GPON_HISTORY_MAX_PER_RUN);
+  for (let i = 0; i < recortadas.length; i += GPON_HISTORY_BATCH) {
+    await db.batch(recortadas.slice(i, i + GPON_HISTORY_BATCH).map(t => db.prepare(`
+      INSERT INTO gpon_status_history
+        (client_id,run_id,origin,event,status_before,status_after,detail_before,detail_after,
+         rx_power_before,rx_power,tx_power,olt_id,onu_index,serial,client_name,synced_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(t.client_id, runId, origem, t.event, t.status_before, t.status_after,
+      t.detail_before, t.detail_after, t.rx_power_before, t.rx_power, t.tx_power,
+      t.olt_id, t.onu_index, t.serial, t.client_name, syncedAt)));
+  }
+  return recortadas.length;
+}
+
+async function registrarCicloGpon(db, dados) {
+  await db.prepare(`
+    INSERT INTO gpon_sync_runs
+      (id,kind,origin,source,synced_at,clients_count,boxes_count,alerts_count,changes_count,
+       transitions_count,online_count,offline_count,data_bytes,lag_ms,ip,error)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(dados.id, dados.kind, dados.origin, dados.source, dados.synced_at,
+    dados.clients_count | 0, dados.boxes_count | 0, dados.alerts_count | 0, dados.changes_count | 0,
+    dados.transitions_count | 0, dados.online_count | 0, dados.offline_count | 0,
+    dados.data_bytes | 0, dados.lag_ms, textoGpon(dados.ip, 60), textoGpon(dados.error, 300)).run();
+}
+
+/* A defasagem entre o instante da coleta e o da gravação é o número que diz se
+   a promessa de 10 s está sendo cumprida de ponta a ponta. */
+function atrasoGpon(syncedAt) {
+  const instante = Date.parse(String(syncedAt || ""));
+  if (!Number.isFinite(instante)) return null;
+  const atraso = Date.now() - instante;
+  return atraso >= 0 && atraso < 24 * 60 * 60 * 1000 ? atraso : null;
+}
+
+function lerStatusCompactoGpon(linha) {
+  if (!linha?.data_json) return [];
+  try {
+    const lido = JSON.parse(linha.data_json);
+    return Array.isArray(lido) ? lido : [];
+  } catch { return []; }
+}
+
 async function handleGponIngest(env, request) {
   const expected = String(env.GPON_SYNC_TOKEN || "");
   const authorization = String(request.headers.get("Authorization") || "");
@@ -5370,11 +5468,13 @@ async function handleGponIngest(env, request) {
   if (!clients || !boxes || !alerts || clients.length > 30000 || boxes.length > 10000 || alerts.length > 30000)
     return json({ error: "INVALID_GPON_SNAPSHOT" }, 400);
 
-  const serialized = JSON.stringify({
-    source: String(data.source || "Coletor ZTE + IXC Provedor").slice(0, 120),
-    synced_at: String(data.synced_at || new Date().toISOString()).slice(0, 40), clients, boxes, alerts
-  });
+  const source = String(data.source || "Coletor ZTE + IXC Provedor").slice(0, 120);
+  const syncedAt = String(data.synced_at || new Date().toISOString()).slice(0, 40);
+  const origem = textoGpon(data.origin || "ont+ixc", 30);
+  const serialized = JSON.stringify({ source, synced_at: syncedAt, clients, boxes, alerts });
+  const bytes = new TextEncoder().encode(serialized).byteLength;
   const version = bytesToBase64Url(randomBytes(18));
+  const runId = bytesToBase64Url(randomBytes(12));
   const chunkSize = 128 * 1024;
   const chunks = [];
   for (let offset = 0; offset < serialized.length; offset += chunkSize) chunks.push(serialized.slice(offset, offset + chunkSize));
@@ -5384,19 +5484,70 @@ async function handleGponIngest(env, request) {
       INSERT INTO gpon_snapshot_chunks(version,chunk_index,data_text) VALUES (?,?,?)
     `).bind(version, index + position, chunk)));
   }
+
+  /* A leitura compacta anterior é o último estado conhecido de cada cliente.
+     Ela precisa ser lida antes de ser substituída: é contra ela que a
+     fotografia nova vira histórico. */
+  const anteriores = new Map(lerStatusCompactoGpon(
+    await db.prepare(`SELECT data_json FROM gpon_status_snapshot WHERE id=1`).first()
+  ).map(linha => [String(linha.client_id), linha]));
+  const primeiraCarga = anteriores.size === 0;
+
+  const compacto = [], transicoes = [];
+  let online = 0;
+  for (const cliente of clients) {
+    const id = textoGpon(cliente?.id);
+    if (!id) continue;
+    const linha = {
+      client_id: id, status: normalStatusGpon(cliente?.status), state_detail: textoGpon(cliente?.state_detail),
+      rx_power: numeroGpon(cliente?.rx_power), tx_power: numeroGpon(cliente?.tx_power)
+    };
+    compacto.push(linha);
+    if (onlineGpon(linha.status)) online += 1;
+    const mudanca = transicaoGpon(anteriores.get(id), linha);
+    /* Na primeira fotografia o parque inteiro seria "novo". Registrar 30 mil
+       linhas de nascimento não conta nenhuma história — a linha do tempo
+       começa na primeira mudança de verdade. */
+    if (!mudanca || (primeiraCarga && mudanca.event === "baseline")) continue;
+    transicoes.push({
+      client_id: id, event: mudanca.event, status_before: mudanca.statusAntes, status_after: mudanca.statusDepois,
+      detail_before: mudanca.detalheAntes, detail_after: mudanca.detalheDepois,
+      rx_power_before: mudanca.rxAntes, rx_power: linha.rx_power, tx_power: linha.tx_power,
+      olt_id: textoGpon(cliente?.olt_id, 60), onu_index: textoGpon(cliente?.onu_index, 60),
+      serial: textoGpon(cliente?.serial, 60), client_name: textoGpon(cliente?.name, 120)
+    });
+  }
+
   await db.prepare(`
     INSERT INTO gpon_snapshot_state(id,version,source,synced_at,chunk_count,data_bytes,clients_count,boxes_count,alerts_count,updated_at)
     VALUES (1,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
     ON CONFLICT(id) DO UPDATE SET version=excluded.version,source=excluded.source,synced_at=excluded.synced_at,
       chunk_count=excluded.chunk_count,data_bytes=excluded.data_bytes,clients_count=excluded.clients_count,
       boxes_count=excluded.boxes_count,alerts_count=excluded.alerts_count,updated_at=CURRENT_TIMESTAMP
-  `).bind(version, String(data.source || "Coletor ZTE + IXC Provedor").slice(0, 120),
-    String(data.synced_at || new Date().toISOString()).slice(0, 40), chunks.length,
-    new TextEncoder().encode(serialized).byteLength, clients.length, boxes.length, alerts.length).run();
+  `).bind(version, source, syncedAt, chunks.length, bytes, clients.length, boxes.length, alerts.length).run();
   await db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version).run();
   await db.prepare(`DELETE FROM gpon_client_status`).run();
-  await db.prepare(`DELETE FROM gpon_status_snapshot`).run();
-  return json({ ok: true, clients: clients.length, boxes: boxes.length, alerts: alerts.length });
+
+  /* A leitura compacta passa a cobrir o parque inteiro, e não só quem mudou
+     desde a última fotografia. É o que permite servir o estado atual — e
+     comparar o próximo delta — sem reabrir os pedaços do snapshot. */
+  await db.prepare(`
+    INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
+  `).bind(JSON.stringify(compacto), syncedAt).run();
+
+  const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
+  await registrarCicloGpon(db, {
+    id: runId, kind: "snapshot", origin: origem, source, synced_at: syncedAt,
+    clients_count: clients.length, boxes_count: boxes.length, alerts_count: alerts.length,
+    changes_count: clients.length, transitions_count: transicoes.length,
+    online_count: online, offline_count: compacto.length - online, data_bytes: bytes,
+    lag_ms: atrasoGpon(syncedAt), ip: getClientIP(request),
+    error: transicoes.length > gravadas ? `histórico truncado: ${gravadas} de ${transicoes.length}` : ""
+  });
+
+  return json({ ok: true, run_id: runId, clients: clients.length, boxes: boxes.length,
+    alerts: alerts.length, transitions: transicoes.length, transitions_stored: gravadas });
 }
 
 async function handleGponStatusIngest(env, request) {
@@ -5408,24 +5559,63 @@ async function handleGponStatusIngest(env, request) {
   catch (error) { return json({ error: error?.message === "BODY_TOO_LARGE" ? "BODY_TOO_LARGE" : "INVALID_JSON" }, 400); }
   if (!Array.isArray(data?.changes) || data.changes.length > 30000) return json({ error: "INVALID_GPON_STATUS" }, 400);
   const rows = data.changes.map(change => ({
-    id: String(change?.id || "").slice(0, 160), status: String(change?.status || "unknown").slice(0, 40),
-    detail: String(change?.state_detail || "").slice(0, 160),
-    rx: numeroGpon(change?.rx_power), tx: numeroGpon(change?.tx_power)
+    id: textoGpon(change?.id), status: normalStatusGpon(change?.status),
+    detail: textoGpon(change?.state_detail),
+    rx: numeroGpon(change?.rx_power), tx: numeroGpon(change?.tx_power),
+    olt_id: textoGpon(change?.olt_id, 60), onu_index: textoGpon(change?.onu_index, 60),
+    serial: textoGpon(change?.serial, 60), name: textoGpon(change?.name, 120)
   })).filter(row => row.id);
   const db = getDB(env), syncedAt = String(data.synced_at || new Date().toISOString()).slice(0, 40);
+  const origem = textoGpon(data.origin || "ont+ixc", 30);
+  const runId = bytesToBase64Url(randomBytes(12));
   const current = await db.prepare(`SELECT data_json FROM gpon_status_snapshot WHERE id=1`).first();
-  let existing = [];
-  if (current?.data_json) { try { existing = JSON.parse(current.data_json); } catch {} }
-  const byId = new Map((Array.isArray(existing) ? existing : []).map(row => [String(row.client_id), row]));
-  rows.forEach(row => byId.set(row.id, { client_id: row.id, status: row.status, state_detail: row.detail, rx_power: row.rx, tx_power: row.tx }));
-  if (rows.length) await db.batch([
+  const byId = new Map(lerStatusCompactoGpon(current).map(row => [String(row.client_id), row]));
+
+  /* O delta é comparado com o estado guardado antes de sobrescrevê-lo: é essa
+     comparação — e não o fato de o coletor ter enviado a linha — que define o
+     que virou transição. O coletor pode reenviar o mesmo valor sem que nada
+     tenha acontecido de fato na rede. */
+  const transicoes = [];
+  for (const row of rows) {
+    const atual = { client_id: row.id, status: row.status, state_detail: row.detail, rx_power: row.rx, tx_power: row.tx };
+    const mudanca = transicaoGpon(byId.get(row.id), atual);
+    byId.set(row.id, atual);
+    if (!mudanca) continue;
+    transicoes.push({
+      client_id: row.id, event: mudanca.event, status_before: mudanca.statusAntes, status_after: mudanca.statusDepois,
+      detail_before: mudanca.detalheAntes, detail_after: mudanca.detalheDepois,
+      rx_power_before: mudanca.rxAntes, rx_power: row.rx, tx_power: row.tx,
+      olt_id: row.olt_id, onu_index: row.onu_index, serial: row.serial, client_name: row.name
+    });
+  }
+
+  const compacto = [...byId.values()];
+  const online = compacto.filter(linha => onlineGpon(linha.status)).length;
+
+  /* Sem transição nenhuma, o estado servido não mudou: mexer em synced_at faria
+     cada tela reabrir o snapshot inteiro a cada 10 s sem um único dado novo.
+     updated_at avança sempre — é o batimento que prova que a coleta está viva
+     mesmo numa madrugada em que nada oscilou. */
+  if (transicoes.length) await db.batch([
     db.prepare(`
       INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
-    `).bind(JSON.stringify([...byId.values()]), syncedAt),
+    `).bind(JSON.stringify(compacto), syncedAt),
     db.prepare(`UPDATE gpon_snapshot_state SET synced_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`).bind(syncedAt)
   ]);
-  return json({ ok: true, changes: rows.length });
+  else await db.prepare(`UPDATE gpon_snapshot_state SET updated_at=CURRENT_TIMESTAMP WHERE id=1`).run();
+
+  const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
+  await registrarCicloGpon(db, {
+    id: runId, kind: "status", origin: origem, source: textoGpon(data.source || "", 120), synced_at: syncedAt,
+    clients_count: compacto.length, changes_count: rows.length, transitions_count: transicoes.length,
+    online_count: online, offline_count: compacto.length - online, lag_ms: atrasoGpon(syncedAt),
+    ip: getClientIP(request),
+    error: transicoes.length > gravadas ? `histórico truncado: ${gravadas} de ${transicoes.length}` : ""
+  });
+
+  return json({ ok: true, run_id: runId, changes: rows.length,
+    transitions: transicoes.length, transitions_stored: gravadas });
 }
 
 async function handleGponRevision(env, request) {
@@ -5433,6 +5623,89 @@ async function handleGponRevision(env, request) {
   if (gate.response) return gate.response;
   const row = await getDB(env).prepare(`SELECT version,synced_at,updated_at FROM gpon_snapshot_state WHERE id=1`).first();
   return json(row || { version: null, synced_at: null, updated_at: null });
+}
+
+/* Estado atual sem o cadastro junto. A tela recarrega o snapshot completo —
+   nomes, endereços, coordenadas, caixas — só quando a versão muda; a cada 10 s
+   ela quer apenas saber quem mudou de estado, e isso é uma ordem de grandeza
+   menos dado no fio. */
+async function handleGponStatusRead(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const estado = await db.prepare(`SELECT version,synced_at,updated_at FROM gpon_snapshot_state WHERE id=1`).first();
+  if (!estado) return json({ version: null, synced_at: null, updated_at: null, clients: [] });
+  const compacto = await db.prepare(`SELECT data_json,synced_at FROM gpon_status_snapshot WHERE id=1`).first();
+  const linhas = lerStatusCompactoGpon(compacto);
+  return json({
+    version: estado.version, synced_at: compacto?.synced_at || estado.synced_at,
+    updated_at: estado.updated_at,
+    clients: linhas.map(linha => ({
+      id: linha.client_id, status: linha.status, state_detail: linha.state_detail,
+      rx_power: linha.rx_power ?? null, tx_power: linha.tx_power ?? null
+    }))
+  });
+}
+
+/* Linha do tempo de uma ONU — ou as últimas transições do parque inteiro
+   quando nenhum cliente é informado. É a resposta para "quando caiu", "quantas
+   vezes oscilou hoje" e "que fonte observou a mudança". */
+async function handleGponHistory(env, request, url) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+  const clientId = textoGpon(url.searchParams.get("client_id") || "");
+  const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 500);
+  const desdeBruto = textoGpon(url.searchParams.get("since") || "", 40);
+  const desdeData = desdeBruto ? new Date(desdeBruto) : null;
+  const desde = desdeData && !Number.isNaN(desdeData.getTime()) ? carimboSqlGpon(desdeData) : "";
+  const evento = textoGpon(url.searchParams.get("event") || "", 20);
+
+  const condicoes = [], valores = [];
+  if (clientId) { condicoes.push("client_id=?"); valores.push(clientId); }
+  if (desde) { condicoes.push("created_at>=?"); valores.push(desde); }
+  if (evento) { condicoes.push("event=?"); valores.push(evento); }
+  const onde = condicoes.length ? `WHERE ${condicoes.join(" AND ")}` : "";
+
+  const { results } = await getDB(env).prepare(`
+    SELECT id,client_id,run_id,origin,event,status_before,status_after,detail_before,detail_after,
+           rx_power_before,rx_power,tx_power,olt_id,onu_index,serial,client_name,synced_at,created_at
+    FROM gpon_status_history ${onde}
+    ORDER BY id DESC LIMIT ?
+  `).bind(...valores, limite).all();
+
+  return json({ client_id: clientId || null, limit: limite, events: results || [] });
+}
+
+/* Auditoria da coleta: cada ciclo recebido, com origem, contagem e defasagem.
+   Um buraco nesta lista é a prova de que a coleta parou — o histórico de
+   transições, sozinho, não distingue "nada mudou" de "ninguém olhou". */
+async function handleGponSyncRuns(env, request, url) {
+  const gate = await requirePermission(env, request, "audit.view");
+  if (gate.response) return gate.response;
+  const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 60, 1), 300);
+  const tipo = textoGpon(url.searchParams.get("kind") || "", 20);
+  const onde = tipo ? "WHERE kind=?" : "";
+  const valores = tipo ? [tipo] : [];
+  const { results } = await getDB(env).prepare(`
+    SELECT id,kind,origin,source,synced_at,received_at,clients_count,boxes_count,alerts_count,
+           changes_count,transitions_count,online_count,offline_count,data_bytes,lag_ms,ip,error
+    FROM gpon_sync_runs ${onde}
+    ORDER BY received_at DESC, rowid DESC LIMIT ?
+  `).bind(...valores, limite).all();
+  return json({ limit: limite, runs: results || [] });
+}
+
+/* O histórico é append-only e nasce de um ciclo de 10 s: sem poda ele cresce
+   para sempre. A retenção é longa o bastante para uma apuração de SLA e curta
+   o bastante para o banco não virar um problema. */
+async function podarHistoricoGpon(env) {
+  const db = getDB(env);
+  const corte = (dias) => carimboSqlGpon(new Date(Date.now() - dias * 24 * 60 * 60 * 1000));
+  const historico = await db.prepare(`DELETE FROM gpon_status_history WHERE created_at<?`)
+    .bind(corte(Number(env.GPON_HISTORY_RETENTION_DAYS) || GPON_HISTORY_RETENTION_DAYS)).run();
+  const ciclos = await db.prepare(`DELETE FROM gpon_sync_runs WHERE received_at<?`)
+    .bind(corte(Number(env.GPON_RUNS_RETENTION_DAYS) || GPON_RUNS_RETENTION_DAYS)).run();
+  return { historico: historico?.meta?.changes ?? null, ciclos: ciclos?.meta?.changes ?? null };
 }
 
 async function handleGponCollectorStatus(env, request) {
@@ -5689,6 +5962,15 @@ export default {
         if (url.pathname === "/api/gpon/status" && request.method === "POST")
           return await handleGponStatusIngest(env,request);
 
+        if (url.pathname === "/api/gpon/status" && request.method === "GET")
+          return await handleGponStatusRead(env,request);
+
+        if (url.pathname === "/api/gpon/history" && request.method === "GET")
+          return await handleGponHistory(env,request,url);
+
+        if (url.pathname === "/api/gpon/sync-runs" && request.method === "GET")
+          return await handleGponSyncRuns(env,request,url);
+
         if (url.pathname === "/api/gpon/revision" && request.method === "GET")
           return await handleGponRevision(env,request);
 
@@ -5807,10 +6089,26 @@ export default {
      source='cron', e sem ZABBIX_URL/ZABBIX_TOKEN configurados ela não roda —
      nada de encher o log de erro em instalação que ainda não integrou. */
   async scheduled(event, env, ctx) {
-    if (!env.ZABBIX_URL || !env.ZABBIX_TOKEN) return;
     ctx.waitUntil((async () => {
       try {
         await ensureDatabase(env);
+      } catch (error) {
+        console.error(JSON.stringify({message:"Cron não conseguiu preparar o banco",error:error instanceof Error?error.message:String(error)}));
+        return;
+      }
+
+      /* A poda roda mesmo sem Zabbix: o histórico GPON nasce do coletor, que é
+         independente dele, e era o único trecho do cron que dependia de uma
+         integração não relacionada para sequer começar. */
+      try {
+        const podado = await podarHistoricoGpon(env);
+        if (podado.historico || podado.ciclos) console.log(JSON.stringify({message:"Retenção GPON aplicada",...podado}));
+      } catch (error) {
+        console.error(JSON.stringify({message:"Retenção GPON falhou",error:error instanceof Error?error.message:String(error)}));
+      }
+
+      if (!env.ZABBIX_URL || !env.ZABBIX_TOKEN) return;
+      try {
         const resultado = await runZabbixSync(env, { source: "cron" });
         if (!resultado.ok) {
           console.error(JSON.stringify({message:"Zabbix cron sync falhou",error:resultado.error,cron:event.cron}));

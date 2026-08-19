@@ -926,6 +926,109 @@ ativado, o painel solicita uma coleta atual do Zabbix no intervalo configurado
 último espelho persistido e marca a leitura como atrasada.
 
 
+## Coleta GPON (ONT + IXC) e histórico auditável
+
+A tela `/gpon` mostra o estado de cada ONU do parque com atualização de **10
+segundos** e guarda no banco a linha do tempo de tudo que mudou.
+
+### Os três ritmos do coletor
+
+`collector/server.mjs` roda dentro da rede das OLTs e mantém três ciclos, porque
+os dados têm custos e velocidades muito diferentes:
+
+| Ciclo | Intervalo | O que traz | Variável |
+| --- | --- | --- | --- |
+| Completo | 10 min | Cadastro do IXC (clientes, contratos, caixas, coordenadas) + `baseinfo` das PONs (serial, modelo) | `IXC_REFRESH_INTERVAL_MS` |
+| ONT | 10 s | `show gpon onu state` em cada OLT — se a ONU está acesa na fibra | `COLLECTOR_INTERVAL_MS` |
+| Radius | 10 s | `radusuarios` do IXC — se o cliente autenticou | `COLLECTOR_INTERVAL_MS` |
+
+Os dois ciclos rápidos correm **em paralelo e independentes**: cada um pula a vez
+enquanto o anterior não terminou, então uma OLT lenta se auto-regula sem atrasar
+a leitura do Radius. O intervalo é o piso, não uma promessa — se o
+`show gpon onu state` de uma OLT grande levar 25 s, o ciclo dela passa a ser de
+25 s, e `/health` no coletor reporta `ont_cycle_ms` e `radius_cycle_ms` para que
+isso seja visível em vez de suposto.
+
+A sessão SSH/Telnet com cada OLT fica **aberta entre os ciclos**
+(`withZteSession` em `collector/zte-cli.mjs`). Abrir, autenticar e mandar
+`terminal length 0` custa alguns segundos — aceitável a cada dez minutos,
+proibitivo a cada dez. Qualquer falha derruba a sessão e o ciclo seguinte
+reconecta.
+
+`ONT_FAST_ENABLED=0` desliga só a leitura rápida na OLT, para parques em que
+consultar o equipamento de produção a cada 10 s não é aceitável. O estado
+continua vindo do Radius em 10 s e da OLT no ciclo completo.
+
+### Como as duas fontes viram um estado só
+
+A ONU acesa e o cliente autenticado são perguntas diferentes, e o operador
+precisa das duas na mesma linha (`combinarEstado`):
+
+| ONT | Radius | Estado exibido | Detalhe |
+| --- | --- | --- | --- |
+| fora de `working` | qualquer | o próprio estado da OLT (`los`, `dyinggasp`…) | `ONU LOS` |
+| `working` | offline | `offline` | `ONU ativa • Radius offline` |
+| `working` | online | `online` | `ONU working • Radius online` |
+
+O detalhe é o que decide se o chamado é de campo ou de provisionamento.
+
+### O que fica no banco
+
+Duas tabelas novas (`migrations/0019_gpon_history.sql`), as duas append-only:
+
+- **`gpon_status_history`** — uma linha por *transição*: estado anterior ao lado
+  do novo, RX de antes e de agora, origem que observou (`ont`, `ixc`,
+  `snapshot`), identidade da ONU (OLT, índice, serial, cliente) e o ciclo que a
+  trouxe. Repetição do mesmo estado não vira evento, e o RX só entra quando varia
+  2 dB ou mais — sem isso a oscilação normal do sinal afogaria as quedas reais.
+- **`gpon_sync_runs`** — uma linha por *ciclo recebido*, inclusive os que não
+  mudaram nada, com contagem, defasagem (`lag_ms`) e IP de origem. Um buraco
+  nesta lista é a prova de que a coleta parou: o histórico de transições,
+  sozinho, não distingue “a rede está estável” de “ninguém olhou”.
+
+O snapshot (`gpon_snapshot_*`) continua sendo sobrescrito — ele responde “como
+está agora”. As duas tabelas acima respondem “quando mudou, de quê para quê e
+quem observou”.
+
+A poda roda no cron do Worker, independente do Zabbix estar configurado:
+
+```
+GPON_HISTORY_RETENTION_DAYS=90
+GPON_RUNS_RETENTION_DAYS=30
+```
+
+### Rotas
+
+| Rota | Método | Quem pode | Para quê |
+| --- | --- | --- | --- |
+| `/api/gpon/ingest` | POST | `GPON_SYNC_TOKEN` | Fotografia completa do parque |
+| `/api/gpon/status` | POST | `GPON_SYNC_TOKEN` | Delta de estado do ciclo de 10 s |
+| `/api/gpon/status` | GET | `topology.view` | Estado atual sem o cadastro junto |
+| `/api/gpon/revision` | GET | `topology.view` | Versão do snapshot + batimento da coleta |
+| `/api/gpon/history` | GET | `topology.view` | Linha do tempo (`client_id`, `limit`, `since`, `event`) |
+| `/api/gpon/sync-runs` | GET | `audit.view` | Auditoria dos ciclos de coleta |
+
+### Como a tela acompanha 10 segundos
+
+`public/js/noc-gpon-map.js` consulta `/api/gpon/revision` a cada 10 s e decide:
+
+- **versão mudou** → cadastro novo, relê o snapshot inteiro (`/api/gpon/clients`);
+- **só o `synced_at` mudou** → estado novo, busca `/api/gpon/status` e aplica o
+  delta sobre os clientes já indexados, sem reprojetar coordenada nem refazer
+  índice. É a resposta comum do ciclo, e é o que torna 10 s sustentável: baixar
+  megabytes de nome e endereço para descobrir que três ONUs caíram era o que
+  impedia a tela de acompanhar a coleta nesse ritmo;
+- **nada mudou** → só atualiza o relógio do cabeçalho.
+
+Um ciclo sem nenhuma transição move o `updated_at` (batimento) e **não** o
+`synced_at`, então a tela distingue “a rede está calma há meia hora” de “a coleta
+morreu”. O cabeçalho mostra a alteração mais recente, e o `title` traz os dois
+instantes.
+
+Clicar num cliente abre, junto da ficha, o **histórico do estado** daquela ONU —
+as últimas 25 transições, buscadas sob demanda.
+
+
 ## Catálogo de telas e ações
 
 Toda tela e toda funcionalidade do sistema são **declaradas no catálogo do

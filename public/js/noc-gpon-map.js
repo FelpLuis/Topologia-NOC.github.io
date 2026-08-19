@@ -43,9 +43,22 @@
     selected: null, layers: { clients: true, boxes: true, pops: true, drops: true },
     map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null, fitted: false,
     frame: 0, view: "map", page: 0, searchTimer: 0,
+    revision: null, checkedAt: null, historyToken: 0,
   };
 
   const nb = (v) => Number(v || 0).toLocaleString("pt-BR");
+
+  /* "há 8 s" diz na hora se a coleta está no ritmo prometido; um carimbo de
+     data completo obriga o operador a fazer a conta de cabeça. */
+  function relativo(iso) {
+    const instante = Date.parse(String(iso || ""));
+    if (!Number.isFinite(instante)) return "—";
+    const s = Math.max(0, Math.round((Date.now() - instante) / 1000));
+    if (s < 60) return `há ${s}s`;
+    if (s < 3600) return `há ${Math.round(s / 60)}min`;
+    if (s < 86400) return `há ${Math.round(s / 3600)}h`;
+    return new Date(instante).toLocaleString("pt-BR");
+  }
   const short = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(".0", "")}k` : String(n));
 
   /* 0°,0° é o "sem GPS" de todo cadastro que grava zero em vez de vazio.
@@ -298,16 +311,19 @@
     if ($("#listSearchIcon")) $("#listSearchIcon").innerHTML = icon("search");
     if ($("#detailIcon")) $("#detailIcon").innerHTML = icon("topology");
     $("#refreshMap").innerHTML = `${icon("refresh")} Atualizar`;
+    if ($("#dashRefresh")) $("#dashRefresh").innerHTML = `${icon("refresh")} Atualizar`;
     $("#mapZoomOut").innerHTML = icon("zoomOut");
     $("#mapZoomIn").innerHTML = icon("zoomIn");
     $("#mapFit").innerHTML = icon("fit");
     if ($("#mapSearchClear")) $("#mapSearchClear").innerHTML = icon("close");
+    if ($("#listSearchClear")) $("#listSearchClear").innerHTML = icon("close");
     if ($("#sideToggle")) $("#sideToggle").innerHTML = icon("chevronLeft");
     $$("[data-layer]").forEach((el) => {
       el.innerHTML = `${icon(el.dataset.layerIcon || "circle")}<span>${esc(el.dataset.layerLabel || el.dataset.layer)}</span>`;
     });
 
     $("#refreshMap").onclick = () => load(true);
+    if ($("#dashRefresh")) $("#dashRefresh").onclick = () => load(true);
     $("#mapZoomIn").onclick = () => zoom(2);
     $("#mapZoomOut").onclick = () => zoom(.5);
     $("#mapFit").onclick = () => { state.fitted = false; fit(); };
@@ -316,6 +332,7 @@
       if ($("#mapSearch") && $("#mapSearch").value !== value) $("#mapSearch").value = value;
       if ($("#gponListSearch") && $("#gponListSearch").value !== value) $("#gponListSearch").value = value;
       if ($("#mapSearchClear")) $("#mapSearchClear").hidden = !value;
+      if ($("#listSearchClear")) $("#listSearchClear").hidden = !value;
       clearTimeout(state.searchTimer);
       /* A base pode ter dezenas de milhares de linhas: filtrar a cada tecla
          travava a digitação. */
@@ -330,6 +347,7 @@
     $("#mapSearch").oninput = (e) => updateQuery(e.target.value);
     if ($("#gponListSearch")) $("#gponListSearch").oninput = (e) => updateQuery(e.target.value);
     if ($("#mapSearchClear")) $("#mapSearchClear").onclick = () => { updateQuery("", true); $("#mapSearch").focus(); };
+    if ($("#listSearchClear")) $("#listSearchClear").onclick = () => { updateQuery("", true); $("#gponListSearch").focus(); };
 
     $$("[data-gpon-view]").forEach((el) => el.onclick = () => setView(el.dataset.gponView));
     if ($("#gponPrevPage")) $("#gponPrevPage").onclick = () => { state.page = Math.max(0, state.page - 1); renderTable(); };
@@ -384,7 +402,7 @@
 
     try {
       const saved = localStorage.getItem(VIEW_KEY);
-      if (saved === "map" || saved === "list") state.view = saved;
+      if (saved === "map" || saved === "list" || saved === "dash") state.view = saved;
       const focus = localStorage.getItem(FOCUS_KEY);
       if (focus) state.focus = focus;
       if (localStorage.getItem(SIDE_KEY) === "off") toggleSide(true);
@@ -426,16 +444,62 @@
     if (!state.feed.configured) return load(false);
     try {
       const revision = await NOC.api("/api/gpon/revision");
-      if (revision.synced_at && revision.synced_at !== state.feed.synced_at) await load(false);
+      state.checkedAt = revision.updated_at || state.checkedAt;
+      /* Versão nova é cadastro novo — cliente que entrou, caixa que mudou de
+         lugar — e daí não tem como escapar de reler o snapshot inteiro. Só o
+         synced_at ter andado significa que mudou estado, e estado cabe numa
+         fração do peso: essa é a resposta comum do ciclo de 10 s, e baixar
+         megabytes de nome e endereço para descobrir que três ONUs caíram era o
+         que impedia a tela de acompanhar a coleta nesse ritmo. */
+      if (revision.version && state.revision && revision.version !== state.revision) return load(false);
+      if (revision.synced_at && revision.synced_at !== state.feed.synced_at) return patchStatus();
+      renderSource();
     } catch { /* a próxima volta tenta de novo */ }
+  }
+
+  /* Aplica o estado novo sobre os clientes já indexados. Nenhuma coordenada é
+     reprojetada e nenhum índice é refeito: só os campos que a coleta observa e
+     as marcas derivadas deles. */
+  async function patchStatus() {
+    let delta;
+    try { delta = await NOC.api("/api/gpon/status"); }
+    catch { return; }
+    if (!Array.isArray(delta.clients)) return;
+    let mudou = 0;
+    for (const linha of delta.clients) {
+      const row = state.idx.client.get(String(linha.id));
+      if (!row) continue;
+      const c = row.c;
+      if (c.status === linha.status && c.state_detail === linha.state_detail &&
+          c.rx_power === linha.rx_power && c.tx_power === linha.tx_power) continue;
+      c.status = linha.status; c.state_detail = linha.state_detail;
+      c.rx_power = linha.rx_power; c.tx_power = linha.tx_power;
+      row.off = !statusOnline(c.status);
+      row.low = signalCritical(c);
+      row.alert = row.off || row.low;
+      mudou += 1;
+    }
+    state.feed.synced_at = delta.synced_at || state.feed.synced_at;
+    if (delta.version) state.revision = delta.version;
+    if (!mudou) return renderSource();
+    state.alerts = computeAlerts();
+    invalidate();
+    render();
   }
 
   async function load(manual) {
     const button = $("#refreshMap");
     button.disabled = true;
-    const [top, feed] = await Promise.allSettled([NOC.load(), NOC.api("/api/gpon/clients")]);
+    const [top, feed, revision] = await Promise.allSettled([
+      NOC.load(), NOC.api("/api/gpon/clients"), NOC.api("/api/gpon/revision")]);
     if (top.status === "fulfilled") state.topology = top.value;
     else NOC.errorState($("#gponDetail"), top.reason, () => load(true));
+    /* A versão que acompanha este snapshot é o que permite ao ciclo de 10 s
+       decidir entre reler tudo e aplicar só o delta de estado. */
+    if (revision.status === "fulfilled") {
+      state.revision = revision.value?.version || state.revision;
+      state.checkedAt = revision.value?.updated_at || state.checkedAt;
+    }
     state.feed = feed.status === "fulfilled" ? feed.value : {
       configured: true, unavailable: true, clients: [], boxes: [], alerts: [],
       message: "A fonte da OLT não respondeu nesta atualização.",
@@ -457,21 +521,21 @@
   }
 
   function setView(view) {
-    if (view !== "map" && view !== "list") return;
+    if (!["map", "list", "dash"].includes(view)) return;
     state.view = view;
     try { localStorage.setItem(VIEW_KEY, view); } catch { /* modo privado */ }
     applyView(true);
   }
 
   function applyView(focus) {
-    const mapView = $("#gponMapView"), listView = $("#gponListView");
+    const mapView = $("#gponMapView"), listView = $("#gponListView"), dashView = $("#gponDashView");
     if (!listView) return;
-    const showMap = state.view === "map";
-    mapView.hidden = !showMap;
-    listView.hidden = showMap;
+    mapView.hidden = state.view !== "map";
+    listView.hidden = state.view !== "list";
+    if (dashView) dashView.hidden = state.view !== "dash";
     $$("[data-gpon-view]").forEach((el) => el.setAttribute("aria-pressed", String(el.dataset.gponView === state.view)));
-    if (showMap) { if (state.fitted) renderMap(); else fit(); }
-    else if (focus) $("#gponListSearch")?.focus();
+    if (state.view === "map") { if (state.fitted) renderMap(); else fit(); }
+    else if (state.view === "list" && focus) $("#gponListSearch")?.focus();
   }
 
   /* ---------------- cabeçalho e indicadores ---------------- */
@@ -481,7 +545,15 @@
     const badge = $("#sourceBadge");
     badge.className = `badge ${f.unavailable ? "badge-danger" : f.configured ? "badge-ok" : "badge-warn"}`;
     badge.textContent = f.unavailable ? "Fonte OLT indisponível" : f.configured ? `Fonte: ${f.source || "OLT"}` : "Fonte OLT não configurada";
-    $("#syncTime").textContent = f.synced_at ? `Atualizado ${new Date(f.synced_at).toLocaleString("pt-BR")}` : "Sem sincronização da OLT";
+    /* Dois instantes diferentes, e a diferença importa numa madrugada calma:
+       "atualizado" é quando o estado mudou pela última vez, "verificado" é
+       quando a coleta passou por aqui pela última vez. Só o primeiro deixava
+       o telão parecer travado depois de meia hora de rede estável. */
+    const sync = $("#syncTime");
+    sync.textContent = f.synced_at ? `Alteração ${relativo(f.synced_at)}` : "Sem sincronização da OLT";
+    sync.title = [f.synced_at ? `Última alteração de estado: ${new Date(f.synced_at).toLocaleString("pt-BR")}` : "",
+      state.checkedAt ? `Última verificação da coleta: ${new Date(state.checkedAt).toLocaleString("pt-BR")}` : ""]
+      .filter(Boolean).join(" • ");
     const message = $("#mapMessage");
     const semLocal = state.rows.length - state.rows.filter((r) => r.located).length;
     message.hidden = false;
@@ -512,6 +584,7 @@
       if ($("#mapSearch")) $("#mapSearch").value = "";
       if ($("#gponListSearch")) $("#gponListSearch").value = "";
       if ($("#mapSearchClear")) $("#mapSearchClear").hidden = true;
+      if ($("#listSearchClear")) $("#listSearchClear").hidden = true;
     }
     state.cache = null; state.sorted = null;
     renderFilters(); renderClientList(); renderTable();
@@ -1024,6 +1097,48 @@
     </button>`;
   }
 
+  /* Linha do tempo da ONU selecionada. O snapshot responde "está fora agora";
+     só o histórico responde "caiu às 3h12, voltou às 3h14 e já é a quarta vez
+     hoje" — que é a diferença entre trocar um drop e abrir um chamado de
+     rota. A busca é por cliente e sob demanda: carregar a linha do tempo do
+     parque inteiro junto do mapa seria pagar caro por um dado que só interessa
+     depois do clique. */
+  const EVENTO_ROTULO = { status: "Estado", signal: "Sinal", baseline: "Primeira leitura" };
+  const ORIGEM_ROTULO = { ont: "OLT", ixc: "IXC Radius", "ont+ixc": "OLT + IXC", snapshot: "Sincronização completa" };
+
+  async function carregarHistorico(clientId) {
+    const token = ++state.historyToken;
+    let dados;
+    try { dados = await NOC.api(`/api/gpon/history?limit=25&client_id=${encodeURIComponent(clientId)}`); }
+    catch { dados = null; }
+    /* O operador pode ter clicado noutro cliente enquanto isto voltava. */
+    if (token !== state.historyToken) return;
+    const host = $("#gponHistory");
+    if (!host) return;
+    const eventos = dados?.events || [];
+    if (!eventos.length) {
+      host.innerHTML = `<p class="muted">${dados ? "Nenhuma mudança registrada no período retido." : "Não foi possível ler o histórico."}</p>`;
+      return;
+    }
+    host.innerHTML = eventos.map((e) => {
+      const caiu = String(e.status_after || "").toLowerCase() !== "online";
+      const de = e.status_before ? `${esc(e.status_before)} → ` : "";
+      /* Repetir o mesmo número entre parênteses ("RX −24 dBm (era −24)") só
+         ocupa espaço: o valor anterior interessa quando ele mudou. */
+      const mudouRx = e.rx_power_before !== null && e.rx_power_before !== undefined && e.rx_power_before !== e.rx_power;
+      const sinal = e.rx_power === null || e.rx_power === undefined ? ""
+        : ` • RX ${esc(e.rx_power)} dBm${mudouRx ? ` (era ${esc(e.rx_power_before)})` : ""}`;
+      return `<div class="gpon-hist ${caiu ? "is-off" : "is-on"}">
+        <i class="gpon-dot ${caiu ? "is-off" : ""}" aria-hidden="true"></i>
+        <div>
+          <b>${de}${esc(e.status_after)}</b>
+          <small>${esc(e.detail_after || EVENTO_ROTULO[e.event] || e.event)}${sinal}</small>
+          <small class="mono">${esc(new Date(e.created_at.replace(" ", "T") + (e.created_at.endsWith("Z") ? "" : "Z")).toLocaleString("pt-BR"))} • ${esc(ORIGEM_ROTULO[e.origin] || e.origin)}</small>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
   function renderDetail() {
     const host = $("#gponDetail"), sel = state.selected;
     if (!sel) return;
@@ -1040,7 +1155,10 @@
           <div><span>Caixa / CTO</span><b>${esc([boxById(c.box_id)?.name || c.box_id || "—", c.box_port ? `porta ${c.box_port}` : ""].filter(Boolean).join(" • "))}</b></div><div><span>Drop</span><b>${c.drop_path?.length ? `${c.drop_path.length} pontos` : boxById(c.box_id) ? "Ligação direta cadastrada" : "Sem traçado"}</b></div>
         </div>
         <b style="font-size:var(--fs-12)">Conexão ponta a ponta</b>
-        <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>`;
+        <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>
+        <b style="font-size:var(--fs-12)">Histórico do estado</b>
+        <div class="gpon-history" id="gponHistory"><p class="muted">Carregando histórico…</p></div>`;
+      carregarHistorico(c.id);
     } else if (sel.type === "box") {
       const b = boxById(sel.id); if (!b) return;
       const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id)).sort(porPorta);
