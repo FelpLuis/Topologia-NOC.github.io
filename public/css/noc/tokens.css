@@ -112,11 +112,11 @@
 
   --focus-ring: 0 0 0 3px rgba(29, 201, 255, .45);
 
-/* Cromia do shell: topbar #01017a, sidebar #01b068, texto #ffffff */
+/* Cromia do shell: topbar #01017a, sidebar #171c64, texto #ffffff */
   --appbar-bg: #01017a;
   --appbar-line: rgba(255, 255, 255, .15);
   --appbar-glow: rgba(255, 255, 255, .10);
-  --sidebar-bg: #01b068;
+  --sidebar-bg: #171c64;
   --sidebar-line: rgba(255, 255, 255, .15);
 
   /* Pintura única da tela de acesso: marca e formulário dividem o mesmo fundo,
@@ -173,7 +173,7 @@
   --appbar-bg: #01017a;
   --appbar-line: rgba(0, 0, 0, .15);
   --appbar-glow: rgba(0, 0, 0, .10);
-  --sidebar-bg: #01b068;
+  --sidebar-bg: #171c64;
   --sidebar-line: rgba(0, 0, 0, .15);
 
   --auth-bg:
