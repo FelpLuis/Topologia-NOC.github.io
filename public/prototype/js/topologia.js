@@ -209,7 +209,7 @@
         <td class="num">${e.portas.length - used(e)}</td>
         <td><span class="row" style="gap:var(--s-2)"><span class="meter meter-sm ${occClass(o)} grow"><span style="width:${o}%"></span></span><small class="mono">${o}%</small></span></td>
         <td><span class="badge ${s.badge}"><i class="dot ${s.dot}"></i>${s.label}</span></td>
-        <td><button class="btn btn-sm" type="button" data-open="${esc(e.id)}">Detalhes</button></td>
+        
       </tr>`;
     }).join("");
     $$("#listBody [data-open]").forEach((b) => (b.onclick = () => openDevice(b.dataset.open)));
