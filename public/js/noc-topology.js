@@ -34,6 +34,8 @@
     /* No mapa geográfico o POP começa como um alfinete e só vira card quando
        clicado — num mapa, cinco cards abertos tapam a cidade inteira. */
     geoOpen: new Set(),
+    /* Anel óptico (aba POPs): posições manuais dos POPs no diagrama do anel. */
+    ringLayout: {}, ringDirty: false, ringDraft: {},
   };
   let basemap = null; // camada de tiles, criada na primeira vez que o mapa OSM abre
   const isGeo = () => state.view === "geo";
@@ -220,6 +222,731 @@
       </tr>`;
     }).join("");
     $$("#listBody [data-open]").forEach((b) => (b.onclick = () => openDevice(b.dataset.open)));
+  }
+
+  /* ---------------- anel óptico (aba POPs) ---------------- */
+  const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const nomeCurto = (p) => norm(p?.nome).replace(/^pop\s*/, "").trim();
+  const tipoDaRota = (r) => (/subterr/i.test(r) ? "Subterrânea" : "Aérea");
+  const rotaAponta = (rota, alvo) => !!nomeCurto(alvo) && norm(rota).includes(nomeCurto(alvo));
+
+  function ringLinks() {
+    const pops = NOC.pops();
+    const map = new Map();
+    pops.forEach((p) => (p.rotas || []).forEach((r) => {
+      const destino = pops.find((q) => q.id !== p.id && rotaAponta(r, q));
+      if (!destino) return;
+      const key = [p.id, destino.id].sort().join("|");
+      const cur = map.get(key) || { a: key.split("|")[0], b: key.split("|")[1], tipos: new Set() };
+      cur.tipos.add(tipoDaRota(r));
+      map.set(key, cur);
+    }));
+    return [...map.values()];
+  }
+
+  function renderPopsView() {
+    const popsList = $("#popsList");
+    if (!popsList) return;
+    const canEdit = NOC.canAll(["topology.edit", "topology.pop.link"]);
+    const canEditPop = NOC.canAll(["topology.edit", "pops.edit"]);
+    const canCreatePop = NOC.canAll(["topology.edit", "pops.create"]);
+    const canRingLayout = NOC.canAll(["topology.edit", "pops.ring.layout"]);
+
+    const pops = NOC.pops();
+    popsList.innerHTML = pops.length ? pops.map((pop, i) => {
+      const list = NOC.devicesOfPop(pop.id);
+      const s = NOC.statsOf(list);
+      return `<article class="card" id="pop-${esc(pop.id)}">
+        <div class="card-head">
+          <div class="row" style="gap:var(--s-4);align-items:flex-start">
+            <span class="pop-marker purple" style="height:46px"></span>
+            <div>
+              <span class="kicker">Ponto de presença</span>
+              <h2 style="margin:4px 0 2px">${esc(pop.nome)}</h2>
+              <p class="dim mono" style="font-size:var(--fs-11)">${esc(pop.id)}</p>
+              ${pop.endereco ? `<p class="dim" style="font-size:var(--fs-12);margin-top:4px">${icon("pops")} ${esc(pop.endereco)}</p>` : ""}
+            </div>
+          </div>
+          <span class="row" style="gap:6px">
+            <span class="badge">${list.length} equipamento(s)</span>
+            <button class="btn btn-sm" type="button" data-edit-pop="${esc(pop.id)}"
+              ${canEditPop ? "" : "disabled title='Requer as ações topology.edit + pops.edit'"}>${icon("edit")} Editar informações</button>
+            <button class="btn btn-danger btn-sm" type="button" data-delete-pop="${esc(pop.id)}"
+              ${NOC.canAll(["topology.edit", "topology.delete", "pops.delete"]) ? "" : "disabled title='Requer as ações topology.edit + topology.delete + pops.delete'"}>${icon("trash")} Excluir</button>
+          </span>
+        </div>
+
+        <div class="card-body stack">
+          <div class="kv">
+            <div><label>Portas</label><strong>${s.portas}</strong></div>
+            <div><label>Em uso</label><strong>${s.emUso}</strong></div>
+            <div><label>Livres</label><strong>${s.livres}</strong></div>
+            <div><label>Ocupação</label><strong>${s.ocup}<span class="unit">%</span></strong></div>
+          </div>
+          <span class="meter ${NOC.occClass(s.ocup)}"><span style="width:${s.ocup}%"></span></span>
+
+          <div>
+            <h3 style="font-size:var(--fs-12);margin-bottom:var(--s-2)">Rotas do anel</h3>
+            <div class="row wrap" style="gap:6px">
+              ${(pop.rotas || []).length ? pop.rotas.map((r) => `<span class="badge ${/subterr/i.test(r) ? "badge-info" : ""}">${esc(r)}</span>`).join("")
+                : '<span class="dim" style="font-size:var(--fs-12)">Nenhuma rota cadastrada.</span>'}
+            </div>
+          </div>
+
+          ${(pop.equipamentos || []).length ? `<div>
+            <h3 style="font-size:var(--fs-12);margin-bottom:var(--s-2)">Anotações de campo</h3>
+            <div class="stack" style="gap:var(--s-2)">
+              ${pop.equipamentos.map((e) => `<div class="device-row">
+                <b>${esc(e.nome || "—")}</b>
+                <small>${esc(e.modelo || "")}</small>
+                ${e.observacao ? `<small class="dim">${esc(e.observacao)}</small>` : ""}
+              </div>`).join("")}
+            </div>
+          </div>` : ""}
+
+          <div>
+            <div class="row-between" style="margin-bottom:var(--s-2)">
+              <h3 style="font-size:var(--fs-12)">Equipamentos vinculados</h3>
+              <button class="btn btn-ghost btn-sm" type="button" data-add="${esc(pop.id)}" ${canEdit ? "" : "disabled"}>
+                ${icon("plus")} Vincular equipamento</button>
+            </div>
+            <div class="stack" style="gap:var(--s-2)">
+              ${list.length ? list.map((e) => {
+                const o = NOC.occupancy(e);
+                return `<div class="device-row">
+                  <div class="row-top">
+                    <div class="grow" style="min-width:0">
+                      <b class="truncate">${esc(e.nome)}</b>
+                      ${NOC.isSuggested(e) ? '<span class="badge badge-warn">sugerido</span>' : ""}
+                      <br><small class="truncate">${esc(e.modelo || "")} • ${esc(e.categoria || "")}</small>
+                    </div>
+                    <div class="row wrap" style="gap:6px;justify-content:flex-end">
+                      <a class="btn btn-sm" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir</a>
+                      <button class="btn btn-sm" type="button" data-device-details="${esc(e.id)}">Detalhes</button>
+                      <button class="btn btn-sm" type="button" data-unlink="${esc(e.id)}" ${canEdit ? "" : "disabled"}>Desvincular</button>
+                    </div>
+                  </div>
+                  <div class="row" style="gap:var(--s-3)">
+                    <span class="meter meter-sm ${NOC.occClass(o)} grow"><span style="width:${o}%"></span></span>
+                    <small class="mono dim">${NOC.usedPorts(e)}/${e.portas.length} portas</small>
+                  </div>
+                </div>`;
+              }).join("") : `<div class="empty" style="padding:var(--s-6) 0">
+                  <span class="empty-icon">${icon("port")}</span>
+                  <b>Nenhum equipamento vinculado</b>
+                  <p>Este POP existe no anel, mas ainda não tem equipamento associado.</p>
+                </div>`}
+            </div>
+          </div>
+        </div>
+      </article>`;
+    }).join("") : `<div class="card"><div class="empty">
+      <span class="empty-icon">${icon("pops")}</span><b>Nenhum POP cadastrado</b>
+      <p>Adicione o primeiro POP para começar a montar o anel óptico.</p>
+      <button class="btn btn-sm btn-primary" type="button" data-new-pop style="margin-top:var(--s-3)" ${canCreatePop ? "" : "disabled"}>Adicionar POP</button></div></div>`;
+
+    $$("#popsList [data-unlink]").forEach((b) => (b.onclick = () => vincular(b.dataset.unlink, null)));
+    $$("#popsList [data-device-details]").forEach((b) => (b.onclick = () => openDeviceDetails(b.dataset.deviceDetails)));
+    $$("#popsList [data-add]").forEach((b) => (b.onclick = () => openLink(b.dataset.add)));
+    $$("#popsList [data-edit-pop]").forEach((b) => (b.onclick = () => openEditPop(b.dataset.editPop)));
+    $$("#popsList [data-delete-pop]").forEach((b) => (b.onclick = () => deletePop(b.dataset.deletePop)));
+    $$("#popsList [data-new-pop]").forEach((b) => (b.onclick = openNewPop));
+
+    renderRingTopo();
+    renderStatsTopo();
+  }
+
+  /* ---------------- anel óptico (aba POPs) - renderização ---------------- */
+  const RING = { w: 260, h: 240, cx: 130, cy: 120, r: 92, minX: 30, maxX: 230, minY: 26, maxY: 210 };
+  const nomeExibicao = (p) => {
+    const base = String(p?.nome || "").replace(/^POP\s*/i, "").trim();
+    if (/\p{Ll}/u.test(base)) return base;
+    return base.toLowerCase().replace(/(^|[\s\-/])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase());
+  };
+  const preso = (v, min, max) => Math.max(min, Math.min(max, Math.round(v)));
+
+  function ringPos(p, i, total) {
+    const m = state.ringLayout[p.id];
+    if (m && Number.isFinite(+m.x) && Number.isFinite(+m.y)) return { x: +m.x, y: +m.y };
+    const ang = (i / total) * Math.PI * 2 - Math.PI / 2;
+    return { x: RING.cx + RING.r * Math.cos(ang), y: RING.cy + RING.r * Math.sin(ang) };
+  }
+
+  function renderRingTopo() {
+    const host = $("#ringMapTopo");
+    const bar = $("#ringBarTopo");
+    const pops = NOC.pops();
+    if (!host) return;
+    if (!pops.length) {
+      host.innerHTML = '<p class="dim" style="font-size:var(--fs-12)">Sem POPs cadastrados.</p>';
+      if (bar) bar.hidden = true;
+      return;
+    }
+    const pos = {};
+    pops.forEach((p, i) => (pos[p.id] = ringPos(p, i, pops.length)));
+    const links = ringLinks();
+
+    host.innerHTML = `
+      <svg class="ring-svg ${state.ringDirty ? "is-editing" : ""}" viewBox="0 0 ${RING.w} ${RING.h}"
+           style="width:100%;height:auto;touch-action:none" role="img"
+           aria-label="Diagrama do anel óptico entre os POPs">
+        ${links.map((l) => {
+          const a = pos[l.a], b = pos[l.b];
+          if (!a || !b) return "";
+          const sub = l.tipos.has("Subterrânea");
+          return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+            stroke="${sub ? "var(--purple-400)" : "var(--cyan-400)"}" stroke-width="1.6"
+            stroke-dasharray="${sub ? "6 5" : "0"}" opacity=".7"></line>`;
+        }).join("")}
+        ${pops.map((p) => {
+          const q = pos[p.id];
+          const s = NOC.statsOf(NOC.devicesOfPop(p.id));
+          const manual = !!state.ringLayout[p.id];
+          return `<g class="ring-node" data-pop="${esc(p.id)}">
+            <circle cx="${q.x}" cy="${q.y}" r="13" fill="var(--surface-1)"
+              stroke="${manual && state.ringDirty ? "var(--purple-400)" : "var(--cyan-400)"}" stroke-width="1.6"/>
+            <text x="${q.x}" y="${q.y + 3.5}" text-anchor="middle" style="font:700 9px var(--font-mono);fill:var(--text-1);pointer-events:none">${s.ocup}%</text>
+            <text x="${q.x}" y="${q.y + (q.y < RING.cy ? -20 : 30)}" text-anchor="middle" style="font:700 9px var(--font-sans);fill:var(--text-3);pointer-events:none">${esc(nomeExibicao(p))}</text>
+            <title>${esc(p.nome)}${state.ringDirty ? " — arraste para posicionar" : ""}</title>
+          </g>`;
+        }).join("")}
+      </svg>
+      <div class="stack" style="gap:6px;margin-top:var(--s-3);font-size:var(--fs-11)">
+        <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--cyan-400);display:block"></i> Rota aérea</span>
+        <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--purple-400);display:block"></i> Rota subterrânea</span>
+      </div>`;
+    renderRingBarTopo();
+    bindRingDragTopo();
+  }
+
+  function renderRingBarTopo() {
+    const bar = $("#ringBarTopo");
+    if (!bar) return;
+    bar.hidden = !state.ringDirty;
+    const n = Object.keys(state.ringLayout).length;
+    const status = $("#ringStatusTopo");
+    if (status) status.textContent = state.ringDirty
+      ? "posições não salvas"
+      : n ? `${n} POP(s) posicionado(s)` : "arraste os POPs no diagrama";
+    const save = $("#ringSaveTopo");
+    const discard = $("#ringDiscardTopo");
+    const auto = $("#ringAutoTopo");
+    if (save) save.disabled = !state.ringDirty;
+    if (discard) discard.disabled = !state.ringDirty;
+    if (auto) auto.disabled = !n;
+    const btn = $("#btnRingTopo");
+    if (btn) {
+      btn.setAttribute("aria-pressed", String(state.ringDirty));
+      btn.textContent = state.ringDirty ? "Sair do mapa" : "Editar mapa";
+    }
+  }
+
+  function bindRingDragTopo() {
+    const host = $("#ringMapTopo");
+    if (!host || !state.ringDirty) return;
+    host.addEventListener("pointerdown", (ev) => {
+      const no = ev.target.closest(".ring-node");
+      const svg = host.querySelector("svg");
+      if (!no || !svg) return;
+      ev.preventDefault();
+      const id = no.dataset.pop;
+      const pops = NOC.pops();
+      const atual = ringPos(pops.find((p) => p.id === id), pops.findIndex((p) => p.id === id), pops.length);
+      const rect = svg.getBoundingClientRect();
+      const escala = RING.w / (rect.width || RING.w);
+      const dx = atual.x - (ev.clientX - rect.left) * escala;
+      const dy = atual.y - (ev.clientY - rect.top) * escala;
+      const sx = ev.clientX, sy = ev.clientY;
+      let quadro = null, ativo = false;
+
+      const mover = (e) => {
+        if (!ativo && Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) < 3) return;
+        ativo = true;
+        state.ringLayout[id] = {
+          x: preso((e.clientX - rect.left) * escala + dx, RING.minX, RING.maxX),
+          y: preso((e.clientY - rect.top) * escala + dy, RING.minY, RING.maxY),
+        };
+        state.ringDirty = true;
+        if (!quadro) quadro = requestAnimationFrame(() => { quadro = null; renderRingTopo(); });
+      };
+      const soltar = () => {
+        removeEventListener("pointermove", mover);
+        removeEventListener("pointerup", soltar);
+        removeEventListener("pointercancel", soltar);
+        renderRingTopo();
+      };
+      addEventListener("pointermove", mover);
+      addEventListener("pointerup", soltar);
+      addEventListener("pointercancel", soltar);
+    });
+  }
+
+  function renderStatsTopo() {
+    const vinculados = NOC.data().equipamentos.filter((e) => NOC.effectivePop(e));
+    const s = NOC.statsOf(vinculados);
+    const stats = $("#ringStatsTopo");
+    if (stats) stats.innerHTML = `
+      <div><label>POPs</label><strong>${NOC.pops().length}</strong></div>
+      <div><label>Rotas</label><strong>${ringLinks().length}</strong></div>
+      <div><label>Portas</label><strong>${s.portas}</strong></div>
+      <div><label>Sem POP</label><strong>${NOC.unlinked().length}</strong></div>`;
+  }
+
+  /* ---------------- gestão de POPs (aba POPs) ---------------- */
+  async function persistPop(reason, mensagem, undo) {
+    try {
+      await NOC.save(reason);
+      renderPopsView();
+      toast(mensagem.titulo, {
+        text: mensagem.texto,
+        type: mensagem.tipo || "ok",
+        action: undo ? { label: "Desfazer", run: undo } : null,
+      });
+      return true;
+    } catch (err) {
+      renderPopsView();
+      toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
+      return false;
+    }
+  }
+
+  function openNewPop() {
+    modal({
+      labelledBy: "newPopTitle",
+      html: `
+        <form id="newPopForm">
+          <div class="modal-head">
+            <div><span class="kicker">Ponto de presença</span>
+              <h2 id="newPopTitle" style="margin-top:6px">Adicionar POP</h2>
+              <p class="muted" style="font-size:var(--fs-13);margin-top:4px">O novo POP entra no fim da sequência do anel.</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="field">
+              <label for="newPopName">Nome do POP *</label>
+              <input class="input" id="newPopName" required placeholder="Ex.: POP ASCENTY" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="newPopAddress">Endereço</label>
+              <input class="input" id="newPopAddress" placeholder="Rua, número, bairro, cidade e CEP">
+            </div>
+            <div class="alert alert-info" style="animation:none">${icon("info")}
+              <span>Depois do cadastro, use <b>Rotas</b> para ligá-lo ao anel óptico e <b>Vincular equipamento</b> para associar o inventário.</span>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <span class="dim" style="font-size:var(--fs-11)">O identificador é criado automaticamente.</span>
+            <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="submit">Adicionar POP</button></span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#newPopForm", host);
+        const name = $("#newPopName", form);
+        name.focus();
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = name.value.trim();
+          if (!nome) return name.focus();
+          const t = NOC.data();
+          const base = nome.replace(/^pop\s+/i, "").trim() || nome;
+          const novo = {
+            id: NOC.novoId("pop", base, t.pops),
+            nome,
+            endereco: $("#newPopAddress", form).value.trim(),
+            rotas: [],
+            equipamentos: [],
+          };
+          if (!novo.endereco) delete novo.endereco;
+          t.pops.push(novo);
+
+          const ok = await persistPop("TOPOLOGY_CREATE_POP", {
+            titulo: `${nome} adicionado`,
+            texto: "Agora você pode criar as rotas do anel e vincular equipamentos.",
+          }, async () => {
+            t.pops = t.pops.filter((p) => p.id !== novo.id);
+            await persistPop("TOPOLOGY_DELETE_POP", { titulo: "Cadastro desfeito", tipo: "info" });
+          });
+          if (ok) close();
+          else t.pops = t.pops.filter((p) => p.id !== novo.id);
+        };
+      },
+    });
+  }
+
+  function deleteRequirements(pop) {
+    const t = NOC.data();
+    const codes = ["topology.edit", "topology.delete", "pops.delete"];
+    if (t.equipamentos.some((e) => e.popId === pop.id)) codes.push("topology.pop.link");
+    if (t.pops.some((p) => p.id !== pop.id && (p.rotas || []).some((r) => rotaAponta(r, pop)))) codes.push("pops.routes");
+    if (t.config?.ringLayout?.[pop.id]) codes.push("pops.ring.layout");
+    return codes;
+  }
+
+  function deletePop(popId) {
+    const pop = NOC.popRecord(popId);
+    if (!pop) return;
+    const required = deleteRequirements(pop);
+    if (!NOC.canAll(required)) {
+      toast("Seu perfil não pode excluir este POP", {
+        text: `A exclusão e a limpeza dos vínculos exigem: ${required.join(" + ")}.`,
+        type: "warn",
+      });
+      return;
+    }
+
+    const vinculados = NOC.data().equipamentos.filter((e) => e.popId === pop.id).length;
+    const referencias = NOC.data().pops.reduce((n, p) => n + (p.id === pop.id ? 0 : (p.rotas || []).filter((r) => rotaAponta(r, pop)).length), 0);
+    askConfirm({
+      title: `Excluir ${pop.nome}?`,
+      text: [
+        "O POP será removido do cadastro e do anel óptico.",
+        vinculados ? `${vinculados} equipamento(s) ficarão sem POP.` : "",
+        referencias ? `${referencias} referência(s) de rota serão removidas.` : "",
+      ].filter(Boolean).join(" "),
+      confirmLabel: "Excluir POP",
+      danger: true,
+      onConfirm: () => removePop(pop),
+    });
+  }
+
+  async function removePop(pop) {
+    const t = NOC.data();
+    const popsAntes = JSON.parse(JSON.stringify(t.pops));
+    const vinculosAntes = t.equipamentos.map((e) => ({ id: e.id, popId: e.popId ?? null }));
+    const ringAntes = { ...(t.config?.ringLayout || {}) };
+    const stateRingAntes = { ...state.ringLayout };
+
+    t.pops = t.pops
+      .filter((p) => p.id !== pop.id)
+      .map((p) => ({ ...p, rotas: (p.rotas || []).filter((r) => !rotaAponta(r, pop)) }));
+    t.equipamentos.forEach((e) => { if (e.popId === pop.id) e.popId = null; });
+    if (t.config?.ringLayout) delete t.config.ringLayout[pop.id];
+    delete state.ringLayout[pop.id];
+
+    const restore = () => {
+      t.pops = JSON.parse(JSON.stringify(popsAntes));
+      const porId = new Map(vinculosAntes.map((v) => [v.id, v.popId]));
+      t.equipamentos.forEach((e) => { if (porId.has(e.id)) e.popId = porId.get(e.id); });
+      t.config = t.config || {};
+      t.config.ringLayout = { ...ringAntes };
+      state.ringLayout = { ...stateRingAntes };
+    };
+
+    const ok = await persistPop("TOPOLOGY_DELETE_POP", {
+      titulo: `${pop.nome} excluído`,
+      texto: "Os vínculos ficaram pendentes e as referências do anel foram limpas.",
+      tipo: "warn",
+    }, async () => {
+      restore();
+      await persistPop("TOPOLOGY_CREATE_POP", { titulo: "POP restaurado", tipo: "info" });
+    });
+    if (!ok) { restore(); renderPopsView(); }
+  }
+
+  function openEditPop(popId) {
+    const pop = (NOC.data()?.pops || []).find((item) => item.id === popId);
+    if (!pop) return;
+    const canEditRoutes = NOC.canAll(["topology.edit", "pops.routes"]);
+    const canRename = NOC.canAll(["topology.edit", "pops.edit", "pops.routes"]);
+
+    const noteRow = (e = {}) => `<div class="device-row pop-note">
+      <div class="row" style="gap:var(--s-3);align-items:flex-start">
+        <div class="field grow"><label>Nome / identificação</label><input class="input" data-note-name value="${esc(e.nome || "")}" placeholder="Ex.: Rack principal"></div>
+        <div class="field grow"><label>Modelo / detalhe</label><input class="input" data-note-model value="${esc(e.modelo || "")}" placeholder="Ex.: Huawei S6730"></div>
+        <button class="btn btn-sm btn-icon" data-remove-note type="button" aria-label="Remover anotação" title="Remover anotação">${icon("close")}</button>
+      </div>
+      <div class="field"><label>Observação</label><textarea class="textarea" data-note-observation rows="2" placeholder="Informações úteis para a equipe de campo">${esc(e.observacao || "")}</textarea></div>
+    </div>`;
+
+    modal({
+      wide: true,
+      labelledBy: "editPopTitle",
+      html: `
+        <form id="editPopForm">
+          <div class="modal-head">
+            <div><span class="kicker">Ponto de presença</span>
+              <h2 id="editPopTitle" style="margin-top:6px">Editar informações do POP</h2>
+              <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(pop.id)} · identificador permanente</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="field">
+              <label for="editPopName">Nome do POP *</label>
+              <input class="input" id="editPopName" required value="${esc(pop.nome || "")}" ${canRename ? "" : "readonly"}>
+              ${canRename ? '<small class="dim">Ao renomear, as referências existentes no anel também serão atualizadas.</small>'
+                : '<small class="dim">Para renomear também é necessária a permissão de editar rotas.</small>'}
+            </div>
+            <div class="field">
+              <label for="editPopAddress">Endereço</label>
+              <input class="input" id="editPopAddress" value="${esc(pop.endereco || "")}" placeholder="Rua, número, bairro, cidade e CEP">
+              <small class="dim">Informe o endereço físico onde o POP está instalado.</small>
+            </div>
+            <div class="field">
+              <label for="editPopRoutes">Rotas do anel</label>
+              <textarea class="textarea mono" id="editPopRoutes" rows="5" ${canEditRoutes ? "" : "readonly"}
+                placeholder="Aérea → Santos&#10;Subterrânea → Cubatão">${esc((pop.rotas || []).join("\n"))}</textarea>
+              <small class="dim">Digite uma rota por linha, no formato “Aérea → Destino” ou “Subterrânea → Destino”.${canEditRoutes ? "" : " Seu perfil não permite editar rotas."}</small>
+            </div>
+            <div class="row-between">
+              <div><h3 style="font-size:var(--fs-13)">Anotações de campo</h3><small class="dim">Dados descritivos do local; não alteram os equipamentos vinculados.</small></div>
+              <button class="btn btn-sm" id="addPopNote" type="button">${icon("plus")} Adicionar anotação</button>
+            </div>
+            <div class="stack" id="popNotes" style="gap:var(--s-2)">
+              ${(pop.equipamentos || []).map(noteRow).join("") || '<p class="dim" data-no-notes>Nenhuma anotação cadastrada.</p>'}
+            </div>
+          </div>
+          <div class="modal-foot">
+            <span class="dim" style="font-size:var(--fs-11)">A alteração será registrada na auditoria.</span>
+            <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="submit">Salvar informações</button></span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#editPopForm", host);
+        const notes = $("#popNotes", host);
+        const bindRemove = () => $$("[data-remove-note]", notes).forEach((b) => (b.onclick = () => {
+          b.closest(".pop-note")?.remove();
+          if (!$(".pop-note", notes)) notes.innerHTML = '<p class="dim" data-no-notes>Nenhuma anotação cadastrada.</p>';
+        }));
+        bindRemove();
+        $("#addPopNote", host).onclick = () => {
+          $("[data-no-notes]", notes)?.remove();
+          notes.insertAdjacentHTML("beforeend", noteRow());
+          bindRemove();
+          const fields = $$("[data-note-name]", notes);
+          fields[fields.length - 1]?.focus();
+        };
+
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = $("#editPopName", form).value.trim();
+          if (!nome) return $("#editPopName", form).focus();
+          const antes = JSON.parse(JSON.stringify(NOC.data().pops || []));
+          const nomeAnterior = pop.nome;
+          const mudouNome = nome !== nomeAnterior;
+          const rotas = $("#editPopRoutes", form).value.split(/\r?\n/).map((rota) => rota.trim()).filter(Boolean);
+
+          if (mudouNome) {
+            for (const outro of NOC.data().pops) {
+              if (outro.id === pop.id || !Array.isArray(outro.rotas)) continue;
+              outro.rotas = outro.rotas.map((rota) => rotaAponta(rota, pop)
+                ? `${tipoDaRota(rota)} → ${nomeExibicao({ nome })}`
+                : rota);
+            }
+          }
+          pop.nome = nome;
+          pop.endereco = $("#editPopAddress", form).value.trim();
+          if (canEditRoutes) pop.rotas = rotas;
+          pop.equipamentos = $$(".pop-note", notes).map((row) => ({
+            nome: $("[data-note-name]", row).value.trim(),
+            modelo: $("[data-note-model]", row).value.trim(),
+            observacao: $("[data-note-observation]", row).value.trim(),
+          })).filter((e) => e.nome || e.modelo || e.observacao);
+
+          const ok = await persistPop(
+            "TOPOLOGY_UPDATE_POP",
+            { titulo: "Informações do POP salvas", texto: mudouNome ? `${nomeAnterior} passou a se chamar ${nome}.` : `${nome} foi atualizado.` },
+            async () => {
+              NOC.data().pops = JSON.parse(JSON.stringify(antes));
+              await persistPop("TOPOLOGY_UPDATE_POP", { titulo: "Alteração do POP desfeita", tipo: "info" });
+            }
+          );
+          if (ok) close();
+          else {
+            NOC.data().pops = antes;
+            renderPopsView();
+          }
+        };
+      },
+    });
+  }
+
+  async function vincular(deviceId, popId) {
+    const e = NOC.data().equipamentos.find((x) => x.id === deviceId);
+    if (!e) return;
+    try {
+      const antes = await NOC.setPop(deviceId, popId);
+      renderPopsView();
+      toast(popId ? `${e.nome} vinculado` : `${e.nome} desvinculado`, {
+        text: popId ? "Passa a contar na ocupação deste POP no Dashboard." : "Sai da ocupação do POP e vira pendência no Dashboard.",
+        type: popId ? "ok" : "warn",
+        action: {
+          label: "Desfazer",
+          run: async () => {
+            try { await NOC.setPop(deviceId, antes); renderPopsView(); toast("Vínculo revertido", { type: "info" }); }
+            catch (err) { toast("Não foi possível reverter", { text: err.message, type: "danger" }); }
+          },
+        },
+      });
+    } catch (err) {
+      renderPopsView();
+      toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
+    }
+  }
+
+  function openLink(popId) {
+    const pop = NOC.popById(popId);
+    const candidatos = NOC.data().equipamentos.filter((e) => e.popId !== popId);
+    modal({
+      labelledBy: "linkTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${esc(pop.nome)}</span>
+            <h2 id="linkTitle" style="margin-top:6px">Vincular equipamento</h2>
+            <p class="muted" style="font-size:var(--fs-13);margin-top:4px">Um equipamento pertence a um POP de cada vez. Ao vincular aqui, ele sai do POP anterior.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <div class="field">
+            <label for="linkSel">Equipamento</label>
+            <select class="select" id="linkSel">
+              ${candidatos.map((e) => {
+                const atual = NOC.popById(e.popId);
+                return `<option value="${esc(e.id)}">${esc(e.nome)} — ${atual ? esc(atual.nome) : "sem POP"}</option>`;
+              }).join("")}
+            </select>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">A troca é registrada na auditoria.</span>
+          <span class="row"><button class="btn" data-close type="button">Cancelar</button>
+          <button class="btn btn-primary" data-go type="button">Vincular</button></span>
+        </div>`,
+      onMount: (host, close) => {
+        $("[data-go]", host).onclick = () => {
+          const id = $("#linkSel", host).value;
+          close();
+          vincular(id, popId);
+        };
+      },
+    });
+  }
+
+  function openDeviceDetails(deviceId) {
+    const e = NOC.data().equipamentos.find((item) => item.id === deviceId);
+    if (!e) return;
+    const canEdit = NOC.canAll(["topology.edit", "topology.equipment.edit"]);
+    const canPop = NOC.canAll(["topology.edit", "topology.pop.link"]);
+    const emUso = NOC.usedPorts(e);
+
+    modal({
+      wide: true,
+      labelledBy: "popDeviceTitle",
+      html: `
+        <form id="popDeviceForm">
+          <div class="modal-head">
+            <div><span class="kicker">${esc(NOC.popById(e.popId)?.nome || "Sem POP vinculado")} • ${esc(e.categoria || "Equipamento")}</span>
+              <h2 id="popDeviceTitle" style="margin-top:6px">Detalhes do equipamento</h2>
+              <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(e.id)} · identificador permanente</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar detalhes">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="kv">
+              <div><label>Portas</label><strong>${e.portas.length}</strong></div>
+              <div><label>Em uso</label><strong>${emUso}</strong></div>
+              <div><label>Livres</label><strong>${e.portas.length - emUso}</strong></div>
+              <div><label>Ocupação</label><strong>${NOC.occupancy(e)}<span class="unit">%</span></strong></div>
+            </div>
+
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevName">Nome *</label>
+                <input class="input" id="popDevName" data-field="nome" value="${esc(e.nome || "")}" disabled required></div>
+              <div class="field grow"><label for="popDevManufacturer">Fabricante</label>
+                <input class="input" id="popDevManufacturer" data-field="fabricante" value="${esc(e.fabricante || "")}" disabled placeholder="Ex.: Huawei"></div>
+            </div>
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevModel">Modelo</label>
+                <input class="input" id="popDevModel" data-field="modelo" value="${esc(e.modelo || "")}" disabled></div>
+              <div class="field grow"><label for="popDevCategory">Categoria</label>
+                <input class="input" id="popDevCategory" data-field="categoria" value="${esc(e.categoria || "")}" disabled></div>
+            </div>
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevSerial">Número de série / patrimônio</label>
+                <input class="input mono" id="popDevSerial" data-field="serial" value="${esc(e.serial || "")}" disabled></div>
+              <div class="field grow"><label for="popDevPop">POP vinculado</label>
+                <select class="select" id="popDevPop" ${canPop ? "data-editable" : ""} disabled>
+                  <option value="">— Sem POP vinculado —</option>
+                  ${NOC.pops().map((p) => `<option value="${esc(p.id)}" ${e.popId === p.id ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}
+                </select>
+                ${canPop ? "" : '<span class="field-hint">Alterar o vínculo exige permissão específica.</span>'}
+              </div>
+            </div>
+            <div class="field"><label for="popDevLocation">Local dentro do POP</label>
+              <input class="input" id="popDevLocation" data-field="local" value="${esc(e.local || "")}" disabled placeholder="Ex.: Sala 2, rack A3, U12"></div>
+            <div class="field"><label for="popDevObservation">Observação operacional</label>
+              <textarea class="textarea" id="popDevObservation" data-field="observacao" rows="4" disabled>${esc(e.observacao || "")}</textarea></div>
+
+            <div class="alert alert-info" style="animation:none">${icon("info")}
+              <span>Portas, enlaces e acesso remoto continuam disponíveis na ficha completa da Topologia.</span>
+            </div>
+          </div>
+          <div class="modal-foot" style="flex-wrap:wrap">
+            <a class="btn" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir na Topologia</a>
+            <span class="row wrap">
+              <button class="btn" data-cancel-edit type="button" hidden>Cancelar edição</button>
+              <button class="btn btn-primary" data-edit-device type="button"
+                ${canEdit ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.edit'"}>${icon("edit")} Editar</button>
+              <button class="btn btn-primary" data-save-device type="submit" hidden>Salvar alterações</button>
+            </span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#popDeviceForm", host);
+        const edit = $("[data-edit-device]", form);
+        const cancel = $("[data-cancel-edit]", form);
+        const save = $("[data-save-device]", form);
+        const textFields = $$('[data-field]', form);
+        const editable = () => [...textFields, ...$$('[data-editable]', form)];
+
+        const setEditing = (active) => {
+          editable().forEach((field) => (field.disabled = !active));
+          edit.hidden = active;
+          cancel.hidden = !active;
+          save.hidden = !active;
+          if (active) $("#popDevName", form).focus();
+        };
+        const restoreInputs = () => {
+          textFields.forEach((field) => (field.value = String(e[field.dataset.field] || "")));
+          $("#popDevPop", form).value = e.popId || "";
+          setEditing(false);
+        };
+
+        edit.onclick = () => setEditing(true);
+        cancel.onclick = restoreInputs;
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = $("#popDevName", form).value.trim();
+          if (!nome) {
+            toast("Informe o nome do equipamento", { type: "warn" });
+            $("#popDevName", form).focus();
+            return;
+          }
+
+          const antes = JSON.parse(JSON.stringify(e));
+          textFields.forEach((field) => {
+            const value = field.value.trim();
+            if (value) e[field.dataset.field] = value;
+            else delete e[field.dataset.field];
+          });
+          e.nome = nome;
+          if (canPop) e.popId = $("#popDevPop", form).value || null;
+          save.disabled = true;
+
+          try {
+            await NOC.save("TOPOLOGY_UPDATE");
+            renderPopsView();
+            toast("Equipamento atualizado", { text: "Alteração registrada na auditoria.", type: "ok" });
+            close();
+          } catch (err) {
+            for (const key of Object.keys(e)) if (!Object.hasOwn(antes, key)) delete e[key];
+            Object.assign(e, antes);
+            save.disabled = false;
+            toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
+          }
+        };
+      },
+    });
   }
 
   /* ================= MAPA ================= */
@@ -2704,6 +3431,7 @@
     renderEdges();
     renderTable();
     renderMissing();
+    renderPopsView();
     // Camada de fibra da PARTE ISP: só existe nas telas que carregam noc-fibra.js.
     window.FIBRA?.render();
   }
@@ -2766,7 +3494,7 @@
     catch (e) { return VIEW_INICIAL || "mapa"; /* modo privado */ }
   }
 
-  /* Troca entre mapa esquemático, mapa geográfico e lista. */
+  /* Troca entre mapa esquemático, mapa geográfico, lista e POPs. */
   function setView(view) {
     const antes = state.view;
     if (antes === view) return;
@@ -2782,19 +3510,36 @@
       });
       return;
     }
+    // Sair da aba POPs com alterações no anel não salvas
+    if (antes === "pops" && state.ringDirty) {
+      askConfirm({
+        title: "Sair sem salvar o mapa do anel?",
+        text: "Os POPs voltam para as posições da última gravação.",
+        confirmLabel: "Descartar alterações",
+        danger: true,
+        onConfirm: () => { state.ringLayout = { ...(NOC.data()?.config?.ringLayout || {}) }; state.ringDirty = false; setView(view); },
+      });
+      return;
+    }
 
     state.view = view;
     /* Entrando no mapa geográfico, todo POP volta a ser alfinete: o card é do
        clique. Cards herdados do esquema cobririam o mapa logo na abertura. */
     if (view === "geo") { state.geoOpen.clear(); state.expanded.clear(); }
+    // Inicializar o layout do anel ao entrar na aba POPs
+    if (view === "pops") {
+      state.ringLayout = { ...(NOC.data()?.config?.ringLayout || {}) };
+      state.ringDirty = false;
+    }
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* modo privado */ }
     $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.view === view)));
 
-    const mapa = view !== "lista";
+    const mapa = view !== "lista" && view !== "pops";
     $("#stage").hidden = !mapa;
     const side = $(".topo-side");
     if (side) side.hidden = !mapa;
-    $("#listView").hidden = mapa;
+    $("#listView").hidden = view !== "lista";
+    $("#popsView").hidden = view !== "pops";
     const legend = $("#legend");
     if (legend) {
       const views = (legend.dataset.views || "mapa").split(/\s+/);
@@ -2856,6 +3601,7 @@
     const t = NOC.data();
     if (t.config?.coreTitle) $("#topoKicker").textContent = t.config.coreTitle;
     state.layout = { ...(t.config?.layout || {}) };
+    state.ringLayout = { ...(t.config?.ringLayout || {}) };
     // Cada botão declara a ação que exige no HTML (data-action) e o NOC
     // aplica o perfil do usuário de uma vez só.
     NOC.applyActions(document);
@@ -2961,6 +3707,54 @@
       },
     });
     renderLayoutBar();
+
+    // Anel óptico (aba POPs)
+    const btnRingTopo = $("#btnRingTopo");
+    if (btnRingTopo) btnRingTopo.onclick = () => {
+      state.ringDirty = !state.ringDirty;
+      btnRingTopo.setAttribute("aria-pressed", String(state.ringDirty));
+      btnRingTopo.textContent = state.ringDirty ? "Sair do mapa" : "Editar mapa";
+      renderRingTopo();
+    };
+    const ringSaveTopo = $("#ringSaveTopo");
+    if (ringSaveTopo) ringSaveTopo.onclick = async () => {
+      const antes = { ...(NOC.data()?.config?.ringLayout || {}) };
+      const gravar = (posicoes) => {
+        const t = NOC.data();
+        t.config = { ...(t.config || {}), ringLayout: posicoes };
+        state.ringLayout = { ...posicoes };
+        state.ringDirty = false;
+      };
+      const depois = { ...state.ringLayout };
+      gravar(depois);
+      const ok = await persistPop(
+        "TOPOLOGY_RING_LAYOUT",
+        { titulo: "Mapa do anel salvo", texto: "O desenho vale para todos os usuários." },
+        async () => {
+          gravar(antes);
+          await persistPop("TOPOLOGY_RING_LAYOUT", { titulo: "Desenho anterior restaurado", tipo: "info" });
+        }
+      );
+      if (!ok) state.ringDirty = true;
+      renderRingTopo();
+    };
+    const ringDiscardTopo = $("#ringDiscardTopo");
+    if (ringDiscardTopo) ringDiscardTopo.onclick = () => {
+      state.ringLayout = { ...(NOC.data()?.config?.ringLayout || {}) };
+      state.ringDirty = false;
+      renderRingTopo();
+    };
+    const ringAutoTopo = $("#ringAutoTopo");
+    if (ringAutoTopo) ringAutoTopo.onclick = () => askConfirm({
+      title: "Voltar ao desenho automático?",
+      text: "As posições manuais são descartadas e os POPs voltam a se distribuir em círculo, na sequência cadastrada.",
+      confirmLabel: "Usar desenho automático",
+      onConfirm: () => {
+        state.ringLayout = {};
+        state.ringDirty = true;
+        renderRingTopo();
+      },
+    });
 
     $$("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 

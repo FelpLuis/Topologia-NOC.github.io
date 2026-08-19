@@ -37,6 +37,7 @@
             <button type="button" data-view="mapa" aria-pressed="true" title="Mapa esquemático, sem fundo geográfico">Esquema</button>
             <button type="button" data-view="geo" aria-pressed="false" title="POPs sobre o mapa do OpenStreetMap, na localização cadastrada">Mapa</button>
             <button type="button" data-view="lista" aria-pressed="false">Lista</button>
+            <button type="button" data-view="pops" aria-pressed="false">POPs</button>
           </div>
           <button class="btn btn-sm topo-filter-toggle" id="toggleFilters" type="button"
                   aria-expanded="false" aria-controls="filterPanel">
@@ -127,6 +128,38 @@
               </thead>
               <tbody id="listBody"></tbody>
             </table>
+          </div>
+        </section>
+
+        <section id="popsView" hidden style="padding:var(--s-5);overflow:auto">
+          <div class="stack" style="gap:var(--s-5)">
+            <div class="split split-fixed-aside">
+              <section class="stack" style="gap:var(--s-4)" id="popsList"></section>
+
+              <aside class="stack" style="gap:var(--s-4)">
+                <section class="card">
+                  <div class="card-head">
+                    <div><h2>Anel óptico</h2><p>Rotas registradas entre POPs.</p></div>
+                    <div class="row" style="gap:6px">
+                      <button class="btn btn-sm" id="btnRingTopo" type="button" data-action="topology.edit pops.ring.layout">Editar mapa</button>
+                    </div>
+                  </div>
+                  <div class="card-body">
+                    <div id="ringMapTopo"></div>
+                    <div class="row wrap" id="ringBarTopo" hidden style="gap:6px;margin-top:var(--s-3);justify-content:flex-end">
+                      <small class="dim grow" id="ringStatusTopo" style="font-size:var(--fs-11)"></small>
+                      <button class="btn btn-sm" id="ringAutoTopo" type="button">Automático</button>
+                      <button class="btn btn-sm" id="ringDiscardTopo" type="button">Descartar</button>
+                      <button class="btn btn-sm btn-primary" id="ringSaveTopo" type="button">Salvar</button>
+                    </div>
+                  </div>
+                </section>
+                <section class="card">
+                  <div class="card-head"><div><h2>Resumo</h2><p>Somatório da malha.</p></div></div>
+                  <div class="card-body"><div class="kv" id="ringStatsTopo"></div></div>
+                </section>
+              </aside>
+            </div>
           </div>
         </section>
       </div>
