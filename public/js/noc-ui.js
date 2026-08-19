@@ -378,15 +378,48 @@ window.UI = (() => {
     });
   }
 
-  /* A barra tem uma largura só. Se o parque de setores crescer — ou se a janela
-     encolher sem chegar ao ponto do celular — algum setor fica escondido pelo
-     recorte do menu. Quando isso acontece, o botão da gaveta volta a aparecer
-     em tela cheia: nenhum setor fica sem caminho. */
+  /* A barra tem uma largura só. Se o parque de setores crescer, se a janela
+     encolher sem chegar ao ponto do celular, ou se a busca abrir e comer a
+     largura, algum setor deixa de caber. Recortar a linha não serve: o recorte
+     também cortaria a lista que o botão abre. Então o setor que não cabe sai da
+     barra e o botão da gaveta acende — nenhum setor fica sem caminho. */
   function ajustarTransbordoMenu() {
     const nav = $("[data-appbar-nav]");
     const bar = $(".appbar");
     if (!nav || !bar) return;
-    bar.classList.toggle("has-nav-overflow", nav.scrollWidth > nav.clientWidth + 1);
+    const grupos = $$(".appbar-nav-group", nav);
+    if (!grupos.length) { bar.classList.remove("has-nav-overflow"); return; }
+
+    grupos.forEach((g) => g.classList.remove("is-off"));
+    const espaco = nav.clientWidth;
+    const vao = parseFloat(getComputedStyle(nav).columnGap) || 0;
+    let usado = 0, sobrou = false, fecharAbertos = false;
+    grupos.forEach((g) => {
+      usado += (usado ? vao : 0) + g.offsetWidth;
+      if (usado <= espaco) return;
+      const menu = $(".appbar-nav-menu", g);
+      // Setor retirado da barra não pode deixar a lista dele aberta na tela.
+      if (menu && !menu.hidden) fecharAbertos = true;
+      g.classList.add("is-off");
+      sobrou = true;
+    });
+    /* A ordem de corte é a do cadastro, e o NOC é o último setor — numa janela
+       de 1000px quem trabalha no NOC perderia justamente o próprio setor. Então
+       o setor da tela aberta fica, e sai no lugar dele o último que coube. */
+    const atual = grupos.find((g) => $(".appbar-nav-trigger", g)?.getAttribute("aria-current") === "true");
+    if (atual && atual.classList.contains("is-off")) {
+      atual.classList.remove("is-off");
+      let falta = atual.offsetWidth + vao;
+      for (let i = grupos.length - 1; i >= 0 && falta > 0; i--) {
+        const g = grupos[i];
+        if (g === atual || g.classList.contains("is-off")) continue;
+        falta -= g.offsetWidth + vao;
+        g.classList.add("is-off");
+      }
+    }
+
+    if (fecharAbertos) fecharMenusAppbar();
+    bar.classList.toggle("has-nav-overflow", sobrou);
   }
 
   let menusAppbarLigados = false;
@@ -777,18 +810,22 @@ window.UI = (() => {
     let resultados = [], atual = 0;
 
     const limpar = () => { lista.hidden = true; lista.innerHTML = ""; resultados = []; atual = 0; };
+    /* Abrir e fechar a busca muda a largura que sobra para o menu: os setores
+       precisam ser recontados nos dois sentidos. */
     const fechar = () => {
       caixa.classList.remove("is-open");
       botao.setAttribute("aria-expanded", "false");
       campo.value = "";
       campo.tabIndex = -1;
       limpar();
+      ajustarTransbordoMenu();
     };
     const abrir = () => {
       caixa.classList.add("is-open");
       botao.setAttribute("aria-expanded", "true");
       campo.tabIndex = 0;
       campo.focus();
+      ajustarTransbordoMenu();
     };
     const marcar = () => {
       $$(".palette-item", lista).forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.i === atual)));

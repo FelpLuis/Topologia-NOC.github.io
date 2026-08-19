@@ -782,15 +782,19 @@ table.table { width: 100%; border-collapse: collapse; }
    o mapa da topologia do que para uma lista sempre aberta, e no celular já
    ficava escondida. A navegação completa continua a um clique, na gaveta.
    --------------------------------------------------------- */
+/* Sem `overflow` aqui: a linha do menu tem 38px de altura e recortava justamente
+   a lista que os botões abrem — o setor parecia não abrir. O que não cabe na
+   largura é retirado pelo runtime (`.is-off`), que também acende o botão da
+   gaveta; assim nada transborda e nada é recortado. */
 .appbar-nav {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 .appbar-nav-group { position: relative; flex: none; }
+.appbar-nav-group.is-off { display: none; }
 .appbar-nav-trigger {
   display: inline-flex;
   align-items: center;

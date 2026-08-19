@@ -1172,7 +1172,7 @@
       carregarHistorico(c.id);
       const btnEditar = host.querySelector("[data-editar-cadastro]");
       if (btnEditar && window.NOC_CLIENTES) btnEditar.onclick = () =>
-        window.NOC_CLIENTES.abrirCadastro(cadastro || { client_id: c.id, nome: c.name }, () => load(false));
+        window.NOC_CLIENTES.abrirCadastro(cadastro || { client_id: c.id, nome: c.name }, cadastro ? "edit" : "create", () => load(false));
     } else if (sel.type === "box") {
       const b = boxById(sel.id); if (!b) return;
       const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id)).sort(porPorta);

@@ -123,7 +123,7 @@
         </td>
       </tr>`).join("");
     NOC.applyActions(corpo);
-    $$("[data-editar]", corpo).forEach((b) => b.onclick = () => abrirCadastro({ client_id: b.dataset.editar }));
+    $$("[data-editar]", corpo).forEach((b) => b.onclick = () => abrirCadastro({ client_id: b.dataset.editar }, "edit"));
     $$("[data-excluir]", corpo).forEach((b) => b.onclick = () => excluir(b.dataset.excluir));
   }
 
@@ -218,9 +218,10 @@
     } catch { /* lista de sugestão é acessória */ }
   }
 
-  async function abrirCadastro(dados = {}, onSalvo = null) {
-    const temPermissao = await pode(dados.client_id ? "clientes.edit" : "clientes.create");
-    const corpoForm = dados.client_id
+  async function abrirCadastro(dados = {}, modo = dados?.cliente_id ? "edit" : "create", onSalvo = null) {
+    const ehEdicao = modo === "edit";
+    const temPermissao = await pode(ehEdicao ? "clientes.edit" : "clientes.create");
+    const corpoForm = ehEdicao && dados.client_id
       ? await NOC.api(`/api/clientes/${encodeURIComponent(dados.client_id)}`).catch(() => dados)
       : { ...dados };
 
@@ -234,7 +235,7 @@
         <div class="modal-head">
           <div>
             <span class="kicker">${icon("users")} Cadastro de cliente</span>
-            <h2 id="clienteModalTitle" style="margin-top:8px">${corpoForm.client_id ? `Editar — ${esc(corpoForm.client_id)}` : "Novo cadastro"}</h2>
+            <h2 id="clienteModalTitle" style="margin-top:8px">${ehEdicao ? `Editar — ${esc(corpoForm.client_id)}` : "Novo cadastro"}</h2>
             ${!temPermissao ? `<p class="muted" style="font-size:var(--fs-12);margin-top:6px">Seu perfil não permite gravar este cadastro.</p>` : ""}
           </div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
@@ -389,13 +390,13 @@
             return;
           }
           try {
-            if (dados.client_id) {
+            if (ehEdicao && dados.client_id) {
               await NOC.api(`/api/clientes/${encodeURIComponent(dados.client_id)}`, { method: "PUT", body: JSON.stringify(corpo) });
             } else {
               await NOC.api("/api/clientes", { method: "POST", body: JSON.stringify(corpo) });
             }
             close();
-            toast(dados.client_id ? "Cadastro atualizado" : "Cadastro criado", { type: "ok" });
+            toast(ehEdicao ? "Cadastro atualizado" : "Cadastro criado", { type: "ok" });
             if (onSalvo) onSalvo();
             if (ehTela) carregar();
           } catch (error) {
@@ -417,7 +418,7 @@
     })) });
     if (!$("#clienteSearchIcon")) return;
     $("#clienteSearchIcon").innerHTML = icon("search");
-    $("#btnNovoCliente").onclick = () => abrirCadastro();
+    $("#btnNovoCliente").onclick = () => abrirCadastro({}, "create");
     $("#clienteBusca").oninput = (e) => {
       state.q = e.target.value; state.page = 0; renderLista();
     };
