@@ -237,6 +237,62 @@ CREATE TABLE IF NOT EXISTS gpon_status_snapshot (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+/* Histórico auditável do estado GPON.
+
+   O snapshot e a leitura compacta respondem "como está agora" e são
+   sobrescritos a cada ciclo — não servem para responder "quando caiu",
+   "quantas vezes oscilou" nem "quem foi a fonte da informação". Estas duas
+   tabelas são append-only: gpon_status_history guarda cada transição de estado
+   de uma ONU (com o valor anterior, o novo e a origem que a observou) e
+   gpon_sync_runs guarda cada ciclo de coleta recebido, mesmo quando ele não
+   mudou nada. Juntas elas reconstroem a linha do tempo de qualquer cliente e
+   provam a procedência de cada mudança. */
+CREATE TABLE IF NOT EXISTS gpon_status_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id TEXT NOT NULL,
+  run_id TEXT,
+  origin TEXT NOT NULL DEFAULT 'collector',
+  event TEXT NOT NULL DEFAULT 'status',
+  status_before TEXT,
+  status_after TEXT NOT NULL,
+  detail_before TEXT,
+  detail_after TEXT NOT NULL DEFAULT '',
+  rx_power_before REAL,
+  rx_power REAL,
+  tx_power REAL,
+  olt_id TEXT NOT NULL DEFAULT '',
+  onu_index TEXT NOT NULL DEFAULT '',
+  serial TEXT NOT NULL DEFAULT '',
+  client_name TEXT NOT NULL DEFAULT '',
+  synced_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS gpon_sync_runs (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  origin TEXT NOT NULL DEFAULT 'collector',
+  source TEXT NOT NULL DEFAULT '',
+  synced_at TEXT,
+  received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  clients_count INTEGER NOT NULL DEFAULT 0,
+  boxes_count INTEGER NOT NULL DEFAULT 0,
+  alerts_count INTEGER NOT NULL DEFAULT 0,
+  changes_count INTEGER NOT NULL DEFAULT 0,
+  transitions_count INTEGER NOT NULL DEFAULT 0,
+  online_count INTEGER NOT NULL DEFAULT 0,
+  offline_count INTEGER NOT NULL DEFAULT 0,
+  data_bytes INTEGER NOT NULL DEFAULT 0,
+  lag_ms INTEGER,
+  ip TEXT NOT NULL DEFAULT '',
+  error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpon_history_client ON gpon_status_history(client_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_gpon_history_created ON gpon_status_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_gpon_history_run ON gpon_status_history(run_id);
+CREATE INDEX IF NOT EXISTS idx_gpon_runs_received ON gpon_sync_runs(received_at DESC);
+
 CREATE TABLE IF NOT EXISTS zabbix_hosts (
   hostid TEXT PRIMARY KEY,
   host TEXT NOT NULL,
