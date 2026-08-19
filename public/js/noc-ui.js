@@ -11,6 +11,10 @@ window.UI = (() => {
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+  const navegar = (href) => {
+    const destino = String(href ?? "").trim();
+    if (destino.startsWith("/") && !/^\/\//.test(destino)) location.href = destino;
+  };
   const num = (v, d = 0) => Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 
@@ -333,7 +337,7 @@ window.UI = (() => {
     const setorPadrao = porSetor.get("noc") || porSetor.values().next().value || [];
     itens.forEach((n) => (porSetor.get(n.sector) || setorPadrao).push(n));
     const item = (n) => `
-      <a class="nav-item" data-nav="${n.code}" data-code="${n.code}" href="${n.href}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
+      <a class="nav-item" data-nav="${esc(n.code)}" data-code="${esc(n.code)}" href="${esc(n.href)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
         ${icon(n.icon)}<span>${esc(n.label)}</span>
       </a>`;
     const setor = (s) => {
@@ -379,7 +383,7 @@ window.UI = (() => {
 
       mobile.innerHTML =
         principais.map((n, i) => `
-          <a href="${n.href}" data-nav="${n.code}" data-code="${n.code}" title="${esc(n.label)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
+          <a href="${esc(n.href)}" data-nav="${esc(n.code)}" data-code="${esc(n.code)}" title="${esc(n.label)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
             ${icon(n.icon)}<span>${esc(rotulos[i])}</span>
           </a>`).join("") +
         `<button type="button" data-nav-sheet aria-haspopup="dialog">
@@ -670,7 +674,7 @@ window.UI = (() => {
 
   /* ---------------- paleta de comandos ---------------- */
   function paletteCommands() {
-    const cmds = NAV().map((n) => ({ group: "Ir para", label: n.label, hint: n.desc, icon: n.icon, run: () => (location.href = n.href) }));
+    const cmds = NAV().map((n) => ({ group: "Ir para", label: n.label, hint: n.desc, icon: n.icon, run: () => navegar(n.href) }));
     cmds.push(
       { group: "Ações", label: "Alternar tema claro/escuro", hint: "Atalho: T", icon: "moon", run: toggleTheme },
       { group: "Ações", label: "Ver atalhos de teclado", hint: "Atalho: ?", icon: "keyboard", run: openShortcuts },
