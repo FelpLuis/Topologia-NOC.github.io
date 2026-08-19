@@ -21,7 +21,6 @@
 <header data-appbar></header>
 
 <div class="shell">
-  <aside data-sidebar></aside>
 
   <main class="content content-wide" id="main">
     <div class="topo-layout">
@@ -114,18 +113,58 @@
           </div>
         </section>
 
+        <!-- A aba "Lista" é o cadastro da PARTE ISP embutido: os mesmos cards de
+             isp-cadastro.html, renderizados pelo noc-isp-cadastro.js. -->
         <section id="listView" hidden style="padding:var(--s-5);overflow:auto">
-          <div class="table-wrap">
-            <table class="table" aria-label="Equipamentos da topologia ISP">
-              <thead>
-                <tr>
-                  <th>Equipamento</th><th>Cliente ISP</th><th>Categoria</th>
-                  <th class="num">Portas</th><th class="num">Em uso</th><th class="num">Livres</th>
-                  <th style="min-width:150px">Ocupação</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="listBody"></tbody>
-            </table>
+          <div class="page-head">
+            <div>
+              <span class="kicker">PARTE ISP</span>
+              <h1 class="page-title" style="font-size:var(--fs-20)">Cadastro de ISP</h1>
+              <p class="page-sub">Cadastre, edite e exclua os clientes ISP e os equipamentos de cada um. O mesmo cadastro alimenta a Topologia ISP e o Mapa de fibra.</p>
+            </div>
+            <div class="row wrap" style="gap:var(--s-2)">
+              <button class="btn btn-sm btn-primary" id="btnNovoIsp" type="button"
+                      data-action="topology.edit pops.create">Novo ISP</button>
+            </div>
+          </div>
+
+          <div class="split split-aside">
+            <section class="stack" style="gap:var(--s-4)">
+              <div class="card">
+                <div class="card-body row wrap" style="gap:var(--s-3);align-items:center">
+                  <div class="input-affix grow" style="min-width:220px">
+                    <span class="affix-icon" id="ispIconSearch"></span>
+                    <input class="input" id="ispBusca" type="search" placeholder="Buscar ISP por nome, identificador ou endereço…"
+                           aria-label="Buscar ISP">
+                  </div>
+                  <div class="row wrap" style="gap:6px" id="ispTipos" role="group" aria-label="Filtrar por tipo"></div>
+                  <span class="row" style="gap:var(--s-3);margin-left:auto">
+                    <span class="dim" id="ispCount" style="font-size:var(--fs-11)">—</span>
+                    <button class="btn btn-ghost btn-sm" id="ispLimpar" type="button">Limpar</button>
+                  </span>
+                </div>
+              </div>
+
+              <div class="stack" id="ispAvisos" style="gap:var(--s-3)"></div>
+              <div class="stack" id="ispList" style="gap:var(--s-4)"></div>
+            </section>
+
+            <aside class="stack" style="gap:var(--s-4)">
+              <section class="card">
+                <div class="card-head"><div><h2>Resumo</h2><p>Somatório da PARTE ISP.</p></div></div>
+                <div class="card-body"><div class="kv" id="ispStats"></div></div>
+              </section>
+              <section class="card">
+                <div class="card-head"><div><h2>Como funciona</h2><p>O que cada ação faz.</p></div></div>
+                <div class="card-body stack" style="gap:var(--s-3);font-size:var(--fs-12)">
+                  <p><b>Novo ISP</b> cria o cliente com nome, tipo, endereço e localização. Com latitude e longitude ele já aparece no mapa de fibra.</p>
+                  <p><b>Novo equipamento</b> cadastra o aparelho já vinculado ao ISP, com as portas nascendo livres.</p>
+                  <p><b>Vincular existente</b> aproveita um equipamento que ficou sem ISP.</p>
+                  <p><b>Excluir</b> um ISP com equipamentos pergunta se eles ficam sem vínculo ou saem junto.</p>
+                  <p class="dim">Toda alteração é gravada com auditoria e pode ser desfeita pelo aviso que aparece após salvar.</p>
+                </div>
+              </section>
+            </aside>
           </div>
         </section>
       </div>
@@ -139,5 +178,6 @@
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
 <script src="/js/noc-topology.js?v=20260818-3"></script>
+<script src="/js/noc-isp-cadastro.js"></script>
 </body>
 </html>

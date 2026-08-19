@@ -911,6 +911,8 @@ table.table { width: 100%; border-collapse: collapse; }
 
 /* O botão da gaveta só aparece onde o menu da barra não cabe. */
 .appbar-menu-btn { display: none; }
+/* Classe posta pelo runtime quando o menu não cabe inteiro na barra. */
+.appbar.has-nav-overflow .appbar-menu-btn { display: inline-flex; }
 
 .user-menu {
   display: flex;
@@ -959,7 +961,8 @@ table.table { width: 100%; border-collapse: collapse; }
 .menu-label { padding: var(--s-2) var(--s-3); font-size: var(--fs-10); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--text-3); font-weight: 800; }
 
 /* Uma coluna só: o menu mora na barra superior e na gaveta. O `<aside
-   data-sidebar>` continua nas páginas, vazio, e some daqui. */
+   data-sidebar>` saiu das telas, mas a regra fica de rede — tela nova copiada
+   de um modelo antigo não abre uma coluna vazia por isso. */
 .shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1089,6 +1092,15 @@ table.table { width: 100%; border-collapse: collapse; }
   /* Aberta, a busca precisa da barra inteira: a marca sai de cena enquanto
      se digita, senão o campo fica com menos de 120px. */
   .appbar-search.is-open .appbar-search-input { width: min(320px, 60vw); }
+  /* Preso à direita do ícone, o painel de resultados saía pela borda esquerda
+     do telefone. Aqui ele se prende à janela, de calha a calha. */
+  .appbar-search-results {
+    position: fixed;
+    top: calc(var(--appbar-h) + 6px);
+    left: var(--s-3);
+    right: var(--s-3);
+    width: auto;
+  }
   .appbar:has(.appbar-search.is-open) .brand { display: none; }
 
   .mobile-nav {

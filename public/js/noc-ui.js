@@ -234,6 +234,7 @@ window.UI = (() => {
     { code: "isp", label: "Topologia ISP", href: "/isp.html", icon: "topology", sector: "noc", desc: "Mapa por cliente ISP, equipamentos e portas" },
     { code: "isp-mapa", label: "Mapa de fibra ISP", href: "/isp-mapa.html", icon: "noc", sector: "noc", desc: "Clientes ISP e caminhos de fibra no mapa" },
     { code: "isp-cadastro", label: "Cadastro de POPs ISP", href: "/isp-cadastro.html", icon: "users", sector: "noc", desc: "Cadastrar, editar e excluir ISPs e equipamentos" },
+    { code: "clientes", label: "Cadastro de Cliente", href: "/clientes.html", icon: "users", sector: "noc", global: true, desc: "Dados, endereço, faturamento e acessos dos clientes" },
     { code: "dashboard", label: "Dashboard NOC", href: "/dashboard.html", icon: "dashboard", sector: "noc", desc: "Painel operacional para TV" },
     { code: "platform", label: "Gerenciar plataforma", href: "/platform.html", icon: "platform", sector: "noc", desc: "Perfis, ações, telas, usuários e auditoria" },
     { code: "trafego", label: "Tráfego", desc: "Monitoramento de tráfego, utilização e erros por interface", href: "/trafego.html", icon: "trafego"},
@@ -266,7 +267,7 @@ window.UI = (() => {
     if (!Array.isArray(telas) || !telas.length) return NAV_PADRAO;
     return telas
       .filter((s) => s.nav !== 0 && s.route)
-      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", sector: s.sector || "noc", desc: s.description || "" }));
+      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", sector: s.sector || "noc", desc: s.description || "", global: Number(s.global) === 1 }));
   }
 
   // A tela atual é reconhecida pela rota, e não por um id fixo em cada página.
@@ -331,7 +332,13 @@ window.UI = (() => {
     const setores = SETORES();
     const porSetor = new Map(setores.map((setor) => [setor.code, []]));
     const setorPadrao = porSetor.get("noc") || porSetor.values().next().value || [];
-    itens.forEach((n) => (porSetor.get(n.sector) || setorPadrao).push(n));
+    /* Tela global entra em todos os blocos de setor — é o caso do cadastro de
+       cliente, que o HELPDESK, a logística, o comercial, o SAC, o financeiro e
+       o NOC usam ao mesmo tempo. */
+    itens.forEach((n) => {
+      if (n.global) setores.forEach((s) => (porSetor.get(s.code) || setorPadrao).push(n));
+      else (porSetor.get(n.sector) || setorPadrao).push(n);
+    });
     return { itens, setores, porSetor };
   }
 
@@ -371,6 +378,17 @@ window.UI = (() => {
     });
   }
 
+  /* A barra tem uma largura só. Se o parque de setores crescer — ou se a janela
+     encolher sem chegar ao ponto do celular — algum setor fica escondido pelo
+     recorte do menu. Quando isso acontece, o botão da gaveta volta a aparecer
+     em tela cheia: nenhum setor fica sem caminho. */
+  function ajustarTransbordoMenu() {
+    const nav = $("[data-appbar-nav]");
+    const bar = $(".appbar");
+    if (!nav || !bar) return;
+    bar.classList.toggle("has-nav-overflow", nav.scrollWidth > nav.clientWidth + 1);
+  }
+
   let menusAppbarLigados = false;
   function wireAppbarNav(root) {
     $$(".appbar-nav-group", root).forEach((g) => {
@@ -390,6 +408,7 @@ window.UI = (() => {
       if (!(e.target instanceof Element) || !e.target.closest(".appbar-nav-group")) fecharMenusAppbar();
     }, true);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharMenusAppbar(); });
+    addEventListener("resize", ajustarTransbordoMenu);
   }
 
   /* Monta o menu da barra superior e o inferior do celular com as telas
@@ -421,6 +440,7 @@ window.UI = (() => {
           </div>`;
       }).join("");
       wireAppbarNav(barNav);
+      ajustarTransbordoMenu();
     }
 
     /* Barra inferior do celular: quatro telas e o botão do menu completo.

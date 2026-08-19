@@ -145,11 +145,14 @@ async function aplicarEstado(origem) {
 }
 
 /* ---- ciclo completo: cadastro + estado ---- */
-async function syncFull() {
+/* `forcar` é o caminho do botão "Atualizar" da tela: lê a OLT inteira e ignora
+   a janela de recirculação do IXC, para a resposta ser fresca de verdade e não
+   uma reedição da última coleta dentro do intervalo. */
+async function syncFull(forcar = false) {
   if (state.syncing) return state.syncing;
   state.syncing = (async () => {
     const mapping = await loadMap(), collected = [];
-    const refreshIxc = !state.ixc || Date.now() - state.ixcSyncedAt >= config.ixcIntervalMs;
+    const refreshIxc = forcar || !state.ixc || Date.now() - state.ixcSyncedAt >= config.ixcIntervalMs;
     const [results, ixcResult] = await Promise.all([
       Promise.allSettled(config.devices.map((device) => collectZte(device))),
       refreshIxc ? collectIxc(config.ixc).then((value) => ({ value }), (error) => ({ error })) : Promise.resolve({ value: state.ixc }),
@@ -270,6 +273,19 @@ const server = http.createServer(async (request, response) => {
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("Cache-Control", "no-store");
   if (request.url === "/health") return response.end(JSON.stringify(saude()));
+  if (request.url === "/api/gpon/sync" && request.method === "POST") {
+    if (!authorized(request)) { response.statusCode = 401; return response.end(JSON.stringify({ error: "UNAUTHORIZED" })); }
+    try {
+      /* O coletor também empurra o snapshot para o Worker ao final de syncFull:
+         além de responder com o estado fresco, a força também atualiza o D1. */
+      await syncFull(true);
+      response.end(JSON.stringify({ source: "Coletor ZTE + IXC Provedor", forced: true, synced_at: state.syncedAt,
+        ixc: state.ixcStats, clients: state.clients, boxes: state.boxes, alerts: state.alerts }));
+    } catch (error) {
+      response.statusCode = 503; response.end(JSON.stringify({ error: "COLLECTOR_UNAVAILABLE" }));
+    }
+    return;
+  }
   if (request.url !== "/api/gpon/clientes") { response.statusCode = 404; return response.end(JSON.stringify({ error: "NOT_FOUND" })); }
   if (!authorized(request)) { response.statusCode = 401; return response.end(JSON.stringify({ error: "UNAUTHORIZED" })); }
   try {

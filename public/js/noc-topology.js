@@ -3501,8 +3501,16 @@
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* modo privado */ }
     $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.view === view)));
 
-    const mapa = view !== "pops";
+    /* A aba "Lista" da Topologia ISP é o cadastro embutido (isp-cadastro).
+       Ela substitui o palco quando presente; nas demais telas não existe
+       `#listView`, então nada muda. */
+    const mapa = view === "mapa" || view === "geo";
     $("#stage").hidden = !mapa;
+    const listView = $("#listView");
+    if (listView) {
+      listView.hidden = view !== "lista";
+      if (view === "lista") window.ISP_CADASTRO?.render();
+    }
     const side = $(".topo-side");
     if (side) side.hidden = !mapa;
     $("#popsView").hidden = view !== "pops";
@@ -3725,8 +3733,12 @@
     $$("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 
     const inicial = modoPreferido();
-    if (inicial === "geo" || inicial === "pops") setView(inicial);
+    if (inicial === "geo" || inicial === "pops" || inicial === "lista") setView(inicial);
     else syncLayoutButton();
+
+    // Cadastro embutido na aba "Lista": renderiza assim que a topologia
+    // termina de carregar, mesmo quando a tela abre direto nesse modo.
+    if ($("#listView")) window.ISP_CADASTRO?.render();
 
     const params = new URLSearchParams(location.search);
     const wanted = params.get("device");

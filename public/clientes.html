@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Cadastro de Cliente</title>
+<meta name="description" content="Cadastro dos clientes da rede: dados, endereço, faturamento, aparelhos, ONT/ONU e acessos.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">CADASTRO</span>
+        <h1 class="page-title">Cadastro de Cliente</h1>
+        <p class="page-sub">Dados, endereço, faturamento, aparelhos vinculados, ONT/ONU e acessos (PPPoE, roteador e WiFi). O que o cadastro corrige — nome, endereço e coordenadas — sobrepõe o feed da OLT/IXC no mapa GPON.</p>
+      </div>
+      <div class="row wrap" style="gap:var(--s-2)">
+        <a class="btn btn-sm" href="/gpon.html">Mapa GPON</a>
+        <button class="btn btn-sm btn-primary" id="btnNovoCliente" type="button"
+                data-action="clientes.create">Novo cadastro</button>
+      </div>
+    </div>
+
+    <section class="stack" style="gap:var(--s-4)">
+      <div class="card">
+        <div class="card-body row wrap" style="gap:var(--s-3);align-items:center">
+          <div class="input-affix grow" style="min-width:220px">
+            <span class="affix-icon" id="clienteSearchIcon"></span>
+            <input class="input" id="clienteBusca" type="search" placeholder="Buscar por nome, código, telefone ou documento…"
+                   aria-label="Buscar cliente">
+          </div>
+          <div class="row wrap" style="gap:6px" id="clienteStatus" role="group" aria-label="Filtrar por status de faturamento"></div>
+          <span class="row" style="gap:var(--s-3);margin-left:auto">
+            <span class="dim" id="clienteCount" style="font-size:var(--fs-11)">—</span>
+            <button class="btn btn-ghost btn-sm" id="clienteLimpar" type="button">Limpar</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table class="table" aria-label="Clientes cadastrados">
+            <thead>
+              <tr>
+                <th>Cliente</th><th>Contato</th><th>Endereço</th>
+                <th>Faturamento</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="clienteListBody">
+              <tr><td colspan="6" class="dim" style="padding:var(--s-5)">Carregando cadastros…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-body row" style="gap:var(--s-3);justify-content:flex-end">
+          <span class="dim" id="clientePageLabel" style="font-size:var(--fs-11)">—</span>
+          <button class="btn btn-sm" id="clientePrevPage" type="button">Anterior</button>
+          <button class="btn btn-sm" id="clienteNextPage" type="button">Próxima</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-geo.js"></script>
+<script src="/js/noc-clientes.js?v=20260819-1"></script>
+</body>
+</html>

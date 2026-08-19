@@ -775,7 +775,47 @@
   }
 
   /* ---------------- abertura ---------------- */
+  /* Modo embutido: quando esta tela roda dentro da Topologia ISP (a aba
+     "Lista" de isp.html), o shell e o carregamento já foram feitos pelo
+     noc-topology.js. Este arquivo então só liga os controles do cadastro e
+     expõe a renderização para a topologia chamar ao trocar de modo — sem
+     montar um segundo shell nem buscar a topologia duas vezes. */
+  const embutido = () => !!document.querySelector("#listView") && !!document.querySelector("#ispList");
+
+  function ligarControles() {
+    NOC.applyActions(document);
+    const iconEl = $("#ispIconSearch") || $("#iconSearch");
+    if (iconEl) iconEl.innerHTML = icon("search");
+    const novo = $("#btnNovoIsp");
+    if (novo) {
+      novo.innerHTML = icon("plus") + " Novo ISP";
+      novo.onclick = () => formIsp(null);
+    }
+    const busca = $("#ispBusca");
+    if (busca) busca.addEventListener("input", (ev) => {
+      state.busca = ev.target.value.trim();
+      render();
+    });
+    const limpar = $("#ispLimpar");
+    if (limpar) limpar.onclick = () => {
+      state.busca = ""; state.tipo = "";
+      busca.value = "";
+      render();
+    };
+  }
+
   async function boot() {
+    if (embutido()) {
+      /* A topologia já carregou (ou está carregando) os dados e chama
+         ISP_CADASTRO.render() assim que termina — renderizar aqui com a
+         topologia ainda no ar mostraria um vazio que some em seguida. */
+      ligarControles();
+      state.foco = new URLSearchParams(location.search).get("pop");
+      window.ISP_CADASTRO = { render };
+      if (NOC.data()) render();
+      return;
+    }
+
     UI.mountShell({
       search: () => {
         if (!NOC.data()) return [];
@@ -804,20 +844,7 @@
       return;
     }
 
-    NOC.applyActions(document);
-    $("#iconSearch").innerHTML = icon("search");
-    $("#btnNovoIsp").innerHTML = icon("plus") + " Novo ISP";
-    $("#btnNovoIsp").onclick = () => formIsp(null);
-    $("#ispBusca").addEventListener("input", (ev) => {
-      state.busca = ev.target.value.trim();
-      render();
-    });
-    $("#ispLimpar").onclick = () => {
-      state.busca = ""; state.tipo = "";
-      $("#ispBusca").value = "";
-      render();
-    };
-
+    ligarControles();
     state.foco = new URLSearchParams(location.search).get("pop");
     render();
   }

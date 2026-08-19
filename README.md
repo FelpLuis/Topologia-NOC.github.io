@@ -627,7 +627,7 @@ Há dois caminhos para cadastrar a localização:
 
 A PARTE ISP é um **segundo recorte da topologia**, com o mesmo formato de documento e as
 mesmas regras de edição e auditoria da rede NOC, mas com dados próprios: os clientes ISP
-entram como POPs e o caminho físico da fibra vira um cadastro à parte. No menu lateral ela
+entram como POPs e o caminho físico da fibra vira um cadastro à parte. No menu ela
 tem um grupo só dela, com duas telas:
 
 | Tela | Rota | O que faz |
@@ -1050,9 +1050,10 @@ Worker** (`SCREENS` e `ACTIONS` em `src/worker.js`) e aparecem em
 | `platform` | `/platform.html` | Gerenciar plataforma |
 | `legado` | `/legado.html` | Editor clássico |
 
-O menu lateral, o menu inferior e o guardião de rotas (`public/js/auth-guard.js`)
-são montados a partir desse catálogo: incluir uma tela nova no `SCREENS` já a
-coloca em Perfis, no menu e sob controle de acesso, sem lista fixa no front.
+O menu da barra superior, a gaveta lateral, o menu inferior e o guardião de rotas
+(`public/js/auth-guard.js`) são montados a partir desse catálogo: incluir uma tela
+nova no `SCREENS` já a coloca em Perfis, no menu e sob controle de acesso, sem
+lista fixa no front.
 
 ### Ações
 

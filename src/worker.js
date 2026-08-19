@@ -586,6 +586,45 @@ CREATE INDEX IF NOT EXISTS idx_wa_conv_sector ON wa_conversations(sector_id,stat
 CREATE INDEX IF NOT EXISTS idx_wa_conv_assignee ON wa_conversations(assigned_user_id,status,updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_wamid ON wa_messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_wa_msg_conv ON wa_messages(conversation_id,created_at);
+
+/* Cadastro de clientes mantido pela própria plataforma, além do que a OLT e o
+   IXC informam. É o que a tela "Cadastro de Cliente" edita e o mapa GPON
+   sobrepõe ao feed (nome, endereço e coordenadas corrigidas). As senhas de
+   PPPoE/roteador/WiFi vão cifradas em AES-GCM, mesma proteção das credenciais
+   de acesso remoto: a lista nunca as devolve; só a leitura individual, para
+   quem tem a ação de edição, abre as senhas. */
+CREATE TABLE IF NOT EXISTS cliente_cadastro (
+  client_id TEXT PRIMARY KEY,
+  nome TEXT NOT NULL DEFAULT '',
+  documento TEXT NOT NULL DEFAULT '',
+  telefone TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',
+  endereco TEXT NOT NULL DEFAULT '',
+  bairro TEXT NOT NULL DEFAULT '',
+  cidade TEXT NOT NULL DEFAULT '',
+  uf TEXT NOT NULL DEFAULT '',
+  cep TEXT NOT NULL DEFAULT '',
+  lat REAL,
+  lon REAL,
+  plano TEXT NOT NULL DEFAULT '',
+  valor_mensal REAL,
+  vencimento_dia INTEGER,
+  status_faturamento TEXT NOT NULL DEFAULT 'ativo',
+  aparelhos_json TEXT NOT NULL DEFAULT '[]',
+  ont_serial TEXT NOT NULL DEFAULT '',
+  ont_modelo TEXT NOT NULL DEFAULT '',
+  ip_gerencia TEXT NOT NULL DEFAULT '',
+  login_pppoe TEXT NOT NULL DEFAULT '',
+  senha_pppoe_cipher TEXT NOT NULL DEFAULT '',
+  login_roteador TEXT NOT NULL DEFAULT '',
+  senha_roteador_cipher TEXT NOT NULL DEFAULT '',
+  ssid TEXT NOT NULL DEFAULT '',
+  senha_wifi_cipher TEXT NOT NULL DEFAULT '',
+  observacao TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
 `;
 
 
@@ -621,6 +660,7 @@ const SCREENS = [
   ["isp", "ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
+  ["clientes", "Cadastro de Cliente", "Dados, endereço, faturamento, aparelhos, ONT/ONU e acessos dos clientes", "/clientes.html", 1, "users", 19, 1],
   ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 0, "pops", 20, 0],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
@@ -694,7 +734,12 @@ const ACTIONS = [
   ["sectors.manage", "Gerenciar setores", "Criar setores e vincular usuários a um ou mais setores", "platform", "Plataforma", 65],
   ["audit.view", "Consultar auditoria", "Ver o histórico de ações da plataforma", "platform", "Plataforma", 70],
   ["audit.export", "Exportar auditoria", "Baixar o histórico em CSV", "platform", "Plataforma", 80],
-  ["settings.manage", "Alterar configurações", "Configurações administrativas da plataforma", "platform", "Plataforma", 90]
+  ["settings.manage", "Alterar configurações", "Configurações administrativas da plataforma", "platform", "Plataforma", 90],
+
+  ["clientes.view", "Consultar cadastro de clientes", "Ver dados, endereço, faturamento, aparelhos e acessos dos clientes", "clientes", "Cadastro de cliente", 10],
+  ["clientes.create", "Cadastrar cliente", "Criar o cadastro de um cliente", "clientes", "Cadastro de cliente", 20],
+  ["clientes.edit", "Editar cadastro de cliente", "Alterar dados, endereço, faturamento e acessos do cliente", "clientes", "Cadastro de cliente", 30],
+  ["clientes.delete", "Excluir cadastro de cliente", "Remover o cadastro de um cliente", "clientes", "Cadastro de cliente", 40]
 ];
 
 const ALL_ACTION_CODES = ACTIONS.map(x => x[0]);
@@ -727,6 +772,7 @@ const ROLE_PERMISSIONS = {
     "agenda.view","agenda.create","agenda.edit","agenda.delete",
     "crm.view","crm.create","crm.edit","crm.interact","crm.delete",
     "whatsapp.view","whatsapp.chat","whatsapp.supervise","whatsapp.manage",
+    "clientes.view","clientes.create","clientes.edit","clientes.delete",
     "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
   ],
   analista: [
@@ -735,31 +781,39 @@ const ROLE_PERMISSIONS = {
     "topology.pop.link","topology.layout","zabbix.view","zabbix.sync","trafego.settings",
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
     "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view",
-    "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view"
+    "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
+    "clientes.view","clientes.create","clientes.edit"
   ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat",
+    "clientes.view","clientes.create","clientes.edit"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
-    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view"
+    "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
+    "clientes.view","clientes.edit"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado"],
-  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado"],
-  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp"],
-  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado"],
-  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp"]
+  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes"],
+  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
+  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes"],
+  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
+  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes"]
 };
+
+/* Telas que aparecem no menu de todos os setores, e não só no setor ao qual
+   foram associadas no catálogo. O cadastro de cliente atende o HELPDESK, a
+   logística, o comercial, o SAC, o financeiro e o NOC ao mesmo tempo. */
+const SCREENS_GLOBAIS = new Set(["clientes"]);
 
 /* Perfis criados fora do catálogo (ou instalações antigas) recebem as ações
    novas a partir do que já tinham. Roda uma única vez, controlado por
@@ -1381,6 +1435,21 @@ async function ensureDatabaseImpl(env) {
         grantPermission(roleMap[role], "whatsapp.manage")
       ]);
     }
+  });
+
+  // O cadastro de cliente é para todo setor que já atende alguém. Na primeira
+  // implantação, quem já tinha tela operacional ganha a tela e o direito de
+  // consultar, cadastrar e editar; a exclusão fica com o administrador.
+  await seedOnce(db, "seed.clientes.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.flatMap(roleId => [
+      grantScreen(roleId, "clientes"),
+      grantPermission(roleId, "clientes.view"),
+      grantPermission(roleId, "clientes.create"),
+      grantPermission(roleId, "clientes.edit")
+    ]));
+    if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "clientes.delete")]);
   });
 
   // A PARTE ISP (topologia + mapa de fibra) segue a mesma regra da GPON: quem
@@ -4190,11 +4259,12 @@ async function handleAccess(env, request) {
   `).bind(user.role_id).all()).results.map(x=>x.code);
   const screens=(await db.prepare(`
     SELECT s.code,s.name,s.description,s.route,s.icon,s.sort,s.nav,
-      COALESCE(sec.code,'noc') sector
+      COALESCE(sec.code,'noc') sector,
+      CASE WHEN s.code IN (${[...SCREENS_GLOBAIS].map(() => "?").join(",")}) THEN 1 ELSE 0 END global
     FROM role_screens rs JOIN screens s ON s.id=rs.screen_id
     LEFT JOIN sectors sec ON sec.id=s.sector_id AND sec.active=1
     WHERE rs.role_id=? AND s.active=1 ORDER BY s.sort,s.id
-  `).bind(user.role_id).all()).results;
+  `).bind(user.role_id, ...[...SCREENS_GLOBAIS]).all()).results;
   const sectors=(await db.prepare(`
     SELECT code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
   `).all()).results || [];
@@ -4895,6 +4965,32 @@ async function decryptDevicePassword(env, encoded, userId, deviceId) {
   return new TextDecoder().decode(plaintext);
 }
 
+/* Senhas do cadastro de cliente (PPPoE, roteador, WiFi). Mesma cifra AES-GCM,
+   com o contexto amarrado ao id do cliente — uma senha lida em outro registro
+   falha ao decifrar, como a AAD de credenciais de acesso remoto já fazia. */
+function clienteAdditionalData(clientId) {
+  return new TextEncoder().encode(`topologia-noc\ncliente\n${clientId}`);
+}
+
+async function encryptClienteSenha(env, senha, clientId) {
+  if (senha === undefined || senha === null || senha === "") return "";
+  const iv = randomBytes(12);
+  const ciphertext = await crypto.subtle.encrypt({
+    name: "AES-GCM", iv, additionalData: clienteAdditionalData(clientId)
+  }, await credentialEncryptionKey(env), new TextEncoder().encode(String(senha)));
+  return `v1.${bytesToBase64Url(iv)}.${bytesToBase64Url(new Uint8Array(ciphertext))}`;
+}
+
+async function decryptClienteSenha(env, encoded, clientId) {
+  if (!encoded) return "";
+  const [version, ivText, cipherText] = String(encoded).split(".");
+  if (version !== "v1" || !ivText || !cipherText) throw new Error("CREDENCIAL_DE_CLIENTE_INVALIDA");
+  const plaintext = await crypto.subtle.decrypt({
+    name: "AES-GCM", iv: base64UrlToBytes(ivText), additionalData: clienteAdditionalData(clientId)
+  }, await credentialEncryptionKey(env), base64UrlToBytes(cipherText));
+  return new TextDecoder().decode(plaintext);
+}
+
 function publicCredential(row) {
   return row ? {
     username:row.login_username,
@@ -5276,7 +5372,38 @@ function normalizarCaixaGpon(c, i) {
 async function handleGponClients(env, request) {
   const gate = await requirePermission(env, request, "topology.view");
   if (gate.response) return gate.response;
-  return json(await carregarFeedGpon(env));
+  return json(await aplicarCadastroClientes(env, await carregarFeedGpon(env)));
+}
+
+/* O botão "Atualizar" da tela GPON. Diferente da leitura comum (que devolve o
+   que o Worker já tem), aqui o Worker pede ao coletor uma sincronização forçada:
+   a OLT inteira é lida de novo e o IXC ignora a janela de recirculação. No
+   Worker em nuvem sem acesso direto ao coletor, resta o último snapshot. */
+async function handleGponRefresh(env, request) {
+  const gate = await requirePermission(env, request, "topology.view");
+  if (gate.response) return gate.response;
+  const endpoint = String(env.GPON_CLIENTS_URL || "").trim();
+  if (endpoint) {
+    try {
+      const sourceUrl = new URL(endpoint);
+      const localDev = sourceUrl.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(sourceUrl.hostname);
+      if (sourceUrl.protocol !== "https:" && !localDev) throw new Error("GPON_CLIENTS_URL deve usar HTTPS");
+      sourceUrl.pathname = "/api/gpon/sync";
+      sourceUrl.search = "";
+      const headers = { Accept: "application/json", "Content-Type": "application/json" };
+      if (env.GPON_CLIENTS_TOKEN) headers.Authorization = `Bearer ${env.GPON_CLIENTS_TOKEN}`;
+      const upstream = await fetch(sourceUrl, { method: "POST", headers, signal: AbortSignal.timeout(90000) });
+      if (!upstream.ok) throw new Error(`HTTP ${upstream.status}`);
+      const tamanho = Number(upstream.headers.get("content-length") || 0);
+      if (tamanho > 8 * 1024 * 1024) throw new Error("Resposta GPON maior que 8 MiB");
+      const raw = await upstream.json();
+      const feed = payloadGpon(raw?.data || raw, "Sincronização forçada: a OLT e o IXC foram consultados agora.");
+      return json(await aplicarCadastroClientes(env, feed));
+    } catch (error) {
+      console.error(JSON.stringify({ message: "Falha na sincronização forçada GPON", error: error?.message || String(error) }));
+    }
+  }
+  return json(await aplicarCadastroClientes(env, await carregarFeedGpon(env)));
 }
 
 /* Leitura da OLT no formato de dados. handleGponClients apenas a embrulha em
@@ -5323,6 +5450,244 @@ function payloadGpon(data, message = "") {
     alerts: Array.isArray(alerts) ? alerts.filter(alert => !alert?.client_id) : [],
     ...(message ? { message } : {})
   };
+}
+
+/* ---- cadastro de clientes mantido na plataforma ---- */
+
+const CLIENTE_CAMPOS = [
+  "nome", "documento", "telefone", "email", "endereco", "bairro", "cidade", "uf", "cep",
+  "plano", "ont_serial", "ont_modelo", "ip_gerencia", "login_pppoe", "login_roteador", "ssid", "observacao"
+];
+const CLIENTE_NUMERICOS = ["lat", "lon", "valor_mensal", "vencimento_dia"];
+const STATUS_FATURAMENTO = new Set(["ativo", "inativo", "cancelado", "bloqueado", "suspenso"]);
+
+const parseJsonLista = (texto, padrao = []) => {
+  try { const v = JSON.parse(texto || "[]"); return Array.isArray(v) ? v : padrao; } catch { return padrao; }
+};
+
+/* O cadastro sai para a tela sem as senhas: elas só abrem na leitura individual
+   (e para quem tem a ação de edição). */
+function publicCadastro(cad) {
+  return {
+    client_id: String(cad.client_id),
+    nome: cad.nome, documento: cad.documento, telefone: cad.telefone, email: cad.email,
+    endereco: cad.endereco, bairro: cad.bairro, cidade: cad.cidade, uf: cad.uf, cep: cad.cep,
+    lat: cad.lat ?? null, lon: cad.lon ?? null,
+    plano: cad.plano, valor_mensal: cad.valor_mensal ?? null, vencimento_dia: cad.vencimento_dia ?? null,
+    status_faturamento: cad.status_faturamento,
+    aparelhos: parseJsonLista(cad.aparelhos_json),
+    ont_serial: cad.ont_serial, ont_modelo: cad.ont_modelo, ip_gerencia: cad.ip_gerencia,
+    login_pppoe: cad.login_pppoe, has_senha_pppoe: Boolean(cad.senha_pppoe_cipher),
+    login_roteador: cad.login_roteador, has_senha_roteador: Boolean(cad.senha_roteador_cipher),
+    ssid: cad.ssid, has_senha_wifi: Boolean(cad.senha_wifi_cipher),
+    observacao: cad.observacao, updated_at: cad.updated_at
+  };
+}
+
+/* O cadastro sobrepõe o feed onde o operador corrigiu a informação: nome e
+   endereço mais atualizados que o ERP, coordenadas ajustadas no mapa. Campos
+   vazios do cadastro deixam o dado da OLT/IXC passar. */
+function sobrescreverClienteCadastro(cad) {
+  const overrides = {};
+  if (String(cad.nome || "").trim()) overrides.name = cad.nome;
+  if (String(cad.endereco || "").trim()) overrides.address = cad.endereco;
+  const lat = Number(cad.lat), lon = Number(cad.lon);
+  if (cad.lat !== null && cad.lat !== undefined && Number.isFinite(lat) && Math.abs(lat) <= 90) overrides.lat = lat;
+  if (cad.lon !== null && cad.lon !== undefined && Number.isFinite(lon) && Math.abs(lon) <= 180) overrides.lon = lon;
+  if (String(cad.ip_gerencia || "").trim()) overrides.ip = cad.ip_gerencia;
+  return overrides;
+}
+
+async function aplicarCadastroClientes(env, feed) {
+  if (!feed || !Array.isArray(feed.clients)) return feed;
+  const rows = (await getDB(env).prepare(`SELECT * FROM cliente_cadastro`).all()).results || [];
+  if (!rows.length) return feed;
+  const mapa = new Map(rows.map((row) => [String(row.client_id), row]));
+  feed.clients = feed.clients.map((cliente) => {
+    const cad = mapa.get(String(cliente.id));
+    if (!cad) return cliente;
+    return { ...cliente, cadastro: publicCadastro(cad), ...sobrescreverClienteCadastro(cad) };
+  });
+  return feed;
+}
+
+function normalizarCadastroBody(body) {
+  const dados = {};
+  for (const campo of CLIENTE_CAMPOS)
+    dados[campo] = String(body?.[campo] ?? "").trim().slice(0, campo === "observacao" ? 2000 : 200);
+  for (const campo of CLIENTE_NUMERICOS) {
+    const valor = body?.[campo];
+    if (valor === undefined || valor === null || valor === "") { dados[campo] = null; continue; }
+    const numero = Number(valor);
+    dados[campo] = Number.isFinite(numero) ? numero : null;
+  }
+  dados.status_faturamento = STATUS_FATURAMENTO.has(body?.status_faturamento) ? body.status_faturamento : "ativo";
+  dados.aparelhos = (Array.isArray(body?.aparelhos) ? body.aparelhos : []).slice(0, 40).map((a, i) => ({
+    nome: String(a?.nome ?? a?.name ?? `Aparelho ${i + 1}`).trim().slice(0, 120),
+    tipo: String(a?.tipo ?? "").trim().slice(0, 60),
+    serial: String(a?.serial ?? "").trim().slice(0, 80)
+  })).filter(a => a.nome);
+  return dados;
+}
+
+async function handleClientesList(env, request, url) {
+  const gate = await requirePermission(env, request, "clientes.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const q = textoGpon(url.searchParams.get("q") || "", 80).toLowerCase();
+  let rows;
+  if (q) {
+    const termo = `%${q}%`;
+    rows = (await db.prepare(`
+      SELECT * FROM cliente_cadastro
+      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ? OR lower(documento) LIKE ?
+      ORDER BY nome,client_id
+    `).bind(termo, termo, termo, termo).all()).results || [];
+  } else {
+    rows = (await db.prepare(`SELECT * FROM cliente_cadastro ORDER BY nome,client_id`).all()).results || [];
+  }
+  const snapshot = await loadGponSnapshot(env).catch(() => null);
+  const porId = new Map((snapshot?.clients || []).map((c) => [String(c?.id), c]));
+  const registros = rows.map((row) => {
+    const feedCliente = porId.get(String(row.client_id));
+    return {
+      ...publicCadastro(row),
+      feed: feedCliente ? {
+        name: String(feedCliente.name || ""), username: String(feedCliente.username || ""),
+        serial: String(feedCliente.serial || ""), onu_index: String(feedCliente.onu_index || ""),
+        olt_id: String(feedCliente.olt_id || ""), pon: String(feedCliente.pon || ""),
+        status: String(feedCliente.status || ""), address: String(feedCliente.address || ""),
+        ixc_id: String(feedCliente.ixc_id || "")
+      } : null
+    };
+  });
+  return json({ registros, total: rows.length });
+}
+
+/* Clientes do feed que ainda não têm cadastro — o seletor do "Novo cadastro".
+   Sem expor a fonte completa: limitado à busca e a um teto pequeno. */
+async function handleClientesFeed(env, request, url) {
+  const gate = await requirePermission(env, request, "clientes.view");
+  if (gate.response) return gate.response;
+  const snapshot = await loadGponSnapshot(env).catch(() => null);
+  const brutos = Array.isArray(snapshot?.clients) ? snapshot.clients : [];
+  const registrados = new Set(((await getDB(env).prepare(`SELECT client_id FROM cliente_cadastro`).all()).results || [])
+    .map(r => String(r.client_id)));
+  const q = textoGpon(url.searchParams.get("q") || "", 80).toLowerCase();
+  const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
+  const clientes = brutos
+    .map(normalizarClienteGpon)
+    .filter((c) => !registrados.has(String(c.id)))
+    .map((c) => ({ id: c.id, name: c.name, username: c.username, serial: c.serial,
+      onu_index: c.onu_index, olt_id: c.olt_id, pon: c.pon, address: c.address, ixc_id: c.ixc_id }))
+    .filter((c) => !q || [c.id, c.name, c.username, c.serial, c.address, c.ixc_id]
+      .some((v) => String(v || "").toLowerCase().includes(q)))
+    .slice(0, limite);
+  return json({ clientes });
+}
+
+async function handleClientesCreate(env, request) {
+  const gate = await requirePermission(env, request, "clientes.create");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body = {};
+  try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const clientId = String(body.client_id || "").trim();
+  if (!clientId || clientId.length > 120) return json({ error: "CLIENTE_ID_OBRIGATORIO" }, 400);
+  const existe = await db.prepare(`SELECT client_id FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  if (existe) return json({ error: "CLIENTE_JA_CADASTRADO" }, 409);
+  const dados = normalizarCadastroBody(body);
+  let senhaPppoe = "", senhaRoteador = "", senhaWifi = "";
+  try {
+    senhaPppoe = await encryptClienteSenha(env, body.senha_pppoe, clientId);
+    senhaRoteador = await encryptClienteSenha(env, body.senha_roteador, clientId);
+    senhaWifi = await encryptClienteSenha(env, body.senha_wifi, clientId);
+  } catch (error) {
+    if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+      return json({ error: "CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA" }, 400);
+    throw error;
+  }
+  await db.prepare(`
+    INSERT INTO cliente_cadastro(client_id,nome,documento,telefone,email,endereco,bairro,cidade,uf,cep,
+      lat,lon,plano,valor_mensal,vencimento_dia,status_faturamento,aparelhos_json,
+      ont_serial,ont_modelo,ip_gerencia,login_pppoe,senha_pppoe_cipher,
+      login_roteador,senha_roteador_cipher,ssid,senha_wifi_cipher,observacao,updated_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(clientId, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco,
+    dados.bairro, dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano,
+    dados.valor_mensal, dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
+    dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
+    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi, dados.observacao, gate.user.id).run();
+  const depois = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  await audit(env, request, gate.user, "CLIENTE_CREATE", "cliente_cadastro", clientId, null, depois);
+  return json({ ok: true, cliente: publicCadastro(depois) }, 201);
+}
+
+async function handleClientesGet(env, request, clientId) {
+  const gate = await requirePermission(env, request, "clientes.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const row = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  if (!row) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
+  const dados = publicCadastro(row);
+  if (await hasPermission(env, gate.user, "clientes.edit")) {
+    try {
+      dados.senha_pppoe = await decryptClienteSenha(env, row.senha_pppoe_cipher, clientId);
+      dados.senha_roteador = await decryptClienteSenha(env, row.senha_roteador_cipher, clientId);
+      dados.senha_wifi = await decryptClienteSenha(env, row.senha_wifi_cipher, clientId);
+    } catch (error) {
+      console.error(JSON.stringify({ message: "Falha ao decifrar senha de cliente", error: error?.message || String(error) }));
+      dados.senhas_indisponiveis = true;
+    }
+  }
+  return json(dados);
+}
+
+async function handleClientesUpdate(env, request, clientId) {
+  const gate = await requirePermission(env, request, "clientes.edit");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  if (!antes) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
+  let body = {};
+  try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const dados = normalizarCadastroBody(body);
+  let senhaPppoe = antes.senha_pppoe_cipher, senhaRoteador = antes.senha_roteador_cipher, senhaWifi = antes.senha_wifi_cipher;
+  try {
+    if (body.senha_pppoe !== undefined) senhaPppoe = await encryptClienteSenha(env, body.senha_pppoe, clientId);
+    if (body.senha_roteador !== undefined) senhaRoteador = await encryptClienteSenha(env, body.senha_roteador, clientId);
+    if (body.senha_wifi !== undefined) senhaWifi = await encryptClienteSenha(env, body.senha_wifi, clientId);
+  } catch (error) {
+    if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
+      return json({ error: "CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA" }, 400);
+    throw error;
+  }
+  await db.prepare(`
+    UPDATE cliente_cadastro SET nome=?,documento=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
+      lat=?,lon=?,plano=?,valor_mensal=?,vencimento_dia=?,status_faturamento=?,aparelhos_json=?,
+      ont_serial=?,ont_modelo=?,ip_gerencia=?,login_pppoe=?,senha_pppoe_cipher=?,
+      login_roteador=?,senha_roteador_cipher=?,ssid=?,senha_wifi_cipher=?,observacao=?,
+      updated_by=?,updated_at=CURRENT_TIMESTAMP
+    WHERE client_id=?
+  `).bind(dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco, dados.bairro,
+    dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano, dados.valor_mensal,
+    dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
+    dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
+    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi, dados.observacao, gate.user.id, clientId).run();
+  const depois = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  await audit(env, request, gate.user, "CLIENTE_UPDATE", "cliente_cadastro", clientId, antes, depois);
+  return json({ ok: true, cliente: publicCadastro(depois) });
+}
+
+async function handleClientesDelete(env, request, clientId) {
+  const gate = await requirePermission(env, request, "clientes.delete");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  if (!antes) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
+  await db.prepare(`DELETE FROM cliente_cadastro WHERE client_id=?`).bind(clientId).run();
+  await audit(env, request, gate.user, "CLIENTE_DELETE", "cliente_cadastro", clientId, antes, null);
+  return json({ ok: true });
 }
 
 async function loadGponSnapshot(env) {
@@ -5976,6 +6341,24 @@ export default {
 
         if (url.pathname === "/api/gpon/collector-status" && request.method === "GET")
           return await handleGponCollectorStatus(env,request);
+
+        if (url.pathname === "/api/gpon/refresh" && request.method === "POST")
+          return await handleGponRefresh(env, request);
+
+        if (url.pathname === "/api/clientes" && request.method === "GET")
+          return await handleClientesList(env, request, url);
+        if (url.pathname === "/api/clientes" && request.method === "POST")
+          return await handleClientesCreate(env, request);
+        if (url.pathname === "/api/clientes/feed" && request.method === "GET")
+          return await handleClientesFeed(env, request, url);
+
+        const clienteMatch = url.pathname.match(/^\/api\/clientes\/([^/]+)$/);
+        if (clienteMatch) {
+          const clientId = decodeURIComponent(clienteMatch[1]);
+          if (request.method === "GET") return await handleClientesGet(env, request, clientId);
+          if (request.method === "PUT") return await handleClientesUpdate(env, request, clientId);
+          if (request.method === "DELETE") return await handleClientesDelete(env, request, clientId);
+        }
 
         if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
           return await handleTrafegoSettings(env,request);

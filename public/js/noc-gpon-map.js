@@ -490,8 +490,13 @@
   async function load(manual) {
     const button = $("#refreshMap");
     button.disabled = true;
+    /* Manual é o botão "Atualizar": pede à API uma sincronização forçada — o
+       Worker manda o coletor reler a OLT inteira e o IXC — e então relê tudo.
+       O ciclo de 10 s, sem passar por aqui, só aplica o delta que já chegou. */
     const [top, feed, revision] = await Promise.allSettled([
-      NOC.load(), NOC.api("/api/gpon/clients"), NOC.api("/api/gpon/revision")]);
+      NOC.load(),
+      manual ? NOC.api("/api/gpon/refresh", { method: "POST" }) : NOC.api("/api/gpon/clients"),
+      NOC.api("/api/gpon/revision")]);
     if (top.status === "fulfilled") state.topology = top.value;
     else NOC.errorState($("#gponDetail"), top.reason, () => load(true));
     /* A versão que acompanha este snapshot é o que permite ao ciclo de 10 s
@@ -511,8 +516,8 @@
        câmera na origem a cada ciclo: quem estava investigando um cliente
        perdia o zoom sozinho, sem ter tocado em nada. */
     if (state.view === "map" && !state.fitted) fit();
-    if (manual) toast("Mapa atualizado", { type: feed.status === "fulfilled" ? "ok" : "warn",
-      text: feed.status === "fulfilled" ? "Topologia e clientes foram recarregados." : "A topologia abriu, mas a fonte da OLT não respondeu." });
+    if (manual) toast("Atualização solicitada", { type: feed.status === "fulfilled" ? "ok" : "warn",
+      text: feed.status === "fulfilled" ? "A OLT e o IXC foram consultados e o mapa recarregado." : "Não foi possível sincronizar agora; o mapa mostra a última coleta recebida." });
   }
 
   function render() {
@@ -1149,18 +1154,25 @@
       const c = r.c;
       const path = derivedPath(c);
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
-      host.innerHTML = `<div class="gpon-detail-head"><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span><h2>${esc(c.name)}</h2><p class="muted">${esc(c.address || "Localização textual não informada")}</p></div>
+      const cadastro = c.cadastro;
+      host.innerHTML = `<div class="gpon-detail-head"><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span><h2>${esc(c.name)}</h2><p class="muted">${esc(c.address || "Localização textual não informada")}</p>
+        ${window.NOC_CLIENTES ? `<button class="btn btn-sm" data-editar-cadastro type="button">${icon("edit")} ${cadastro ? "Editar cadastro" : "Cadastrar cliente"}</button>` : ""}</div>
         <div class="gpon-detail-grid">
           <div><span>Usuário</span><b>${esc(c.username || "—")}</b></div><div><span>Serial ONU</span><b class="mono">${esc(c.serial || "—")}</b></div>
           <div><span>OLT</span><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b></div><div><span>PON</span><b class="mono">${esc(c.pon || "—")}</b></div>
           <div><span>RX óptico</span><b>${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</b></div><div><span>VLAN / IP</span><b>${esc([c.vlan, c.ip].filter(Boolean).join(" • ") || "—")}</b></div>
           <div><span>Caixa / CTO</span><b>${esc([boxById(c.box_id)?.name || c.box_id || "—", c.box_port ? `porta ${c.box_port}` : ""].filter(Boolean).join(" • "))}</b></div><div><span>Drop</span><b>${c.drop_path?.length ? `${c.drop_path.length} pontos` : boxById(c.box_id) ? "Ligação direta cadastrada" : "Sem traçado"}</b></div>
+          ${cadastro ? `<div><span>Telefone</span><b>${esc(cadastro.telefone || "—")}</b></div><div><span>Faturamento</span><b>${esc(cadastro.plano || cadastro.status_faturamento || "—")}</b></div>` : ""}
         </div>
+        ${cadastro && (cadastro.aparelhos?.length || cadastro.ont_serial) ? `<b style="font-size:var(--fs-12)">Aparelhos / ONU</b><div class="gpon-path">${(cadastro.aparelhos || []).map((a) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(a.nome)}</b><small>${esc([a.tipo, a.serial].filter(Boolean).join(" • "))}</small></div></div>`).join("")}${cadastro.ont_serial ? `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>ONU cadastrada</b><small class="mono">${esc(cadastro.ont_serial)}${cadastro.ont_modelo ? ` • ${esc(cadastro.ont_modelo)}` : ""}</small></div></div>` : ""}</div>` : ""}
         <b style="font-size:var(--fs-12)">Conexão ponta a ponta</b>
         <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>
         <b style="font-size:var(--fs-12)">Histórico do estado</b>
         <div class="gpon-history" id="gponHistory"><p class="muted">Carregando histórico…</p></div>`;
       carregarHistorico(c.id);
+      const btnEditar = host.querySelector("[data-editar-cadastro]");
+      if (btnEditar && window.NOC_CLIENTES) btnEditar.onclick = () =>
+        window.NOC_CLIENTES.abrirCadastro(cadastro || { client_id: c.id, nome: c.name }, () => load(false));
     } else if (sel.type === "box") {
       const b = boxById(sel.id); if (!b) return;
       const linked = state.rows.filter((r) => String(r.c.box_id) === String(b.id)).sort(porPorta);
