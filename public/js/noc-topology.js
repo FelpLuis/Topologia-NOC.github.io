@@ -3494,7 +3494,6 @@
     catch (e) { return VIEW_INICIAL || "mapa"; /* modo privado */ }
   }
 
-  /* Troca entre mapa esquemático, mapa geográfico, lista e POPs. */
   function setView(view) {
     const antes = state.view;
     if (antes === view) return;
@@ -3534,11 +3533,10 @@
     try { localStorage.setItem(VIEW_KEY, view); } catch (e) { /* modo privado */ }
     $$("[data-view]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.view === view)));
 
-    const mapa = view !== "lista" && view !== "pops";
+    const mapa = view !== "pops";
     $("#stage").hidden = !mapa;
     const side = $(".topo-side");
     if (side) side.hidden = !mapa;
-    $("#listView").hidden = view !== "lista";
     $("#popsView").hidden = view !== "pops";
     const legend = $("#legend");
     if (legend) {
@@ -3759,7 +3757,7 @@
     $$("[data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
 
     const inicial = modoPreferido();
-    if (inicial === "geo" || inicial === "lista") setView(inicial);
+    if (inicial === "geo" || inicial === "pops") setView(inicial);
     else syncLayoutButton();
 
     const params = new URLSearchParams(location.search);

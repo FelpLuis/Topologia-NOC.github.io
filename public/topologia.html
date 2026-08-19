@@ -36,8 +36,7 @@
           <div class="segmented" role="group" aria-label="Modo de visualização">
             <button type="button" data-view="mapa" aria-pressed="true" title="Mapa esquemático, sem fundo geográfico">Esquema</button>
             <button type="button" data-view="geo" aria-pressed="false" title="POPs sobre o mapa do OpenStreetMap, na localização cadastrada">Mapa</button>
-            <button type="button" data-view="lista" aria-pressed="false">Lista</button>
-            <button type="button" data-view="pops" aria-pressed="false">POPs</button>
+            <button type="button" data-view="pops" aria-pressed="false">Lista</button>
           </div>
           <button class="btn btn-sm topo-filter-toggle" id="toggleFilters" type="button"
                   aria-expanded="false" aria-controls="filterPanel">
@@ -113,21 +112,6 @@
             <button class="btn btn-ghost btn-icon btn-sm" id="zoomIn" type="button" aria-label="Aproximar" title="Aproximar (+)"></button>
             <span style="width:1px;height:20px;background:var(--line)"></span>
             <button class="btn btn-ghost btn-icon btn-sm" id="zoomFit" type="button" aria-label="Ajustar à tela" title="Ajustar à tela (0)"></button>
-          </div>
-        </section>
-
-        <section id="listView" hidden style="padding:var(--s-5);overflow:auto">
-          <div class="table-wrap">
-            <table class="table" aria-label="Equipamentos da topologia de rede">
-              <thead>
-                <tr>
-                  <th>Equipamento</th><th>POP</th><th>Categoria</th>
-                  <th class="num">Portas</th><th class="num">Em uso</th><th class="num">Livres</th>
-                  <th style="min-width:150px">Ocupação</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="listBody"></tbody>
-            </table>
           </div>
         </section>
 
