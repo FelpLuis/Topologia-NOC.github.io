@@ -259,7 +259,8 @@
     const out = st === "all" ? base
       : st === "online" ? base.filter((r) => !r.alert)
       : st === "offline" ? base.filter((r) => r.off)
-      : base.filter((r) => r.low);
+      : st === "signal" ? base.filter((r) => r.low)
+      : base.filter((r) => !r.located);
     return (state.cache = out);
   }
 
@@ -483,11 +484,38 @@
     $("#syncTime").textContent = f.synced_at ? `Atualizado ${new Date(f.synced_at).toLocaleString("pt-BR")}` : "Sem sincronização da OLT";
     const message = $("#mapMessage");
     const semLocal = state.rows.length - state.rows.filter((r) => r.located).length;
-    const info = f.message || (semLocal
-      ? `${nb(semLocal)} clientes vieram sem coordenada válida. Eles continuam na lista lateral e na aba Lista; relacione serial/ONU ao cadastro para posicioná-los no mapa.`
-      : "");
-    message.hidden = !info;
-    message.textContent = info;
+    message.hidden = false;
+    if (f.message) {
+      message.className = "gpon-map-message";
+      message.textContent = f.message;
+    } else if (semLocal) {
+      message.className = "gpon-map-message is-action";
+      message.innerHTML = `<span class="gpon-map-msg-icon">${icon("alert")}</span>
+        <span class="gpon-map-msg-text"><b>${nb(semLocal)} clientes sem coordenadas</b><small>Faltam latitude/longitude no cadastro para posicioná-los no mapa.</small></span>
+        <button class="btn btn-sm btn-primary" id="showNoCoord" type="button">${icon("edit")} Listar para editar</button>`;
+      $("#showNoCoord").onclick = () => showNoCoord();
+    } else {
+      message.hidden = true;
+      message.textContent = "";
+    }
+  }
+
+  /* "Listar para editar": ativa o filtro de clientes sem coordenada e abre a
+     aba Lista — a tabela é onde o operador tem serial, OLT, PON e endereço à
+     vista para conferir o cadastro que precisa de latitude/longitude. */
+  function showNoCoord() {
+    state.status = "nocoord";
+    state.listLimit = LIST_CHUNK;
+    state.page = 0;
+    if (state.query) {
+      state.query = "";
+      if ($("#mapSearch")) $("#mapSearch").value = "";
+      if ($("#gponListSearch")) $("#gponListSearch").value = "";
+      if ($("#mapSearchClear")) $("#mapSearchClear").hidden = true;
+    }
+    state.cache = null; state.sorted = null;
+    renderFilters(); renderClientList(); renderTable();
+    setView("list");
   }
 
   function renderKpis() {
@@ -544,8 +572,9 @@
 
   function renderFilters() {
     const base = baseRows();
-    const counts = { all: base.length, online: 0, offline: 0, signal: 0 };
+    const counts = { all: base.length, online: 0, offline: 0, signal: 0, nocoord: 0 };
     for (const r of base) {
+      if (!r.located) counts.nocoord++;
       if (r.off) counts.offline++;
       else if (r.low) counts.signal++;
       else counts.online++;

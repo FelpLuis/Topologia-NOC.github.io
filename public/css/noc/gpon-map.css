@@ -167,6 +167,9 @@
 .gpon-filters .chip[data-status="online"][aria-pressed="true"] {
   background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-text);
 }
+.gpon-filters .chip[data-status="nocoord"][aria-pressed="true"] {
+  background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text);
+}
 
 /* ---------- Camadas ----------
    Botões de alternância, e não caixas de seleção de 13 px: o alvo de toque é
@@ -488,6 +491,9 @@
   top: var(--s-4);
   transform: translateX(-50%);
   z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
   max-width: 520px;
   padding: var(--s-3) var(--s-4);
   border: 1px solid var(--warn-500);
@@ -495,8 +501,16 @@
   background: var(--surface-1);
   color: var(--text-2);
   font-size: var(--fs-11);
+  text-align: left;
   box-shadow: var(--shadow-2);
 }
+.gpon-map-msg-icon { flex: none; color: var(--warn-500); }
+.gpon-map-msg-icon .icon { width: 18px; height: 18px; }
+.gpon-map-msg-text { min-width: 0; }
+.gpon-map-msg-text b, .gpon-map-msg-text small { display: block; }
+.gpon-map-msg-text small { margin-top: 2px; color: var(--text-3); font-size: var(--fs-10); }
+.gpon-map-message .btn { flex: none; }
+.gpon-map-message.is-action { border-color: var(--info-line); }
 
 /* Atribuição do OSM: mesma forma da usada na topologia (.topo-attrib), e com
    área de clique de verdade — o link tinha 12px de altura. */
