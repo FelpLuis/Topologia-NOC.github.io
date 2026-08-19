@@ -287,8 +287,9 @@
                       ${NOC.isSuggested(e) ? '<span class="badge badge-warn">sugerido</span>' : ""}
                       <br><small class="truncate">${esc(e.modelo || "")} • ${esc(e.categoria || "")}</small>
                     </div>
-                    <div class="row" style="gap:6px">
+                    <div class="row wrap" style="gap:6px;justify-content:flex-end">
                       <a class="btn btn-sm" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir</a>
+                      <button class="btn btn-sm" type="button" data-device-details="${esc(e.id)}">Detalhes</button>
                       <button class="btn btn-sm" type="button" data-unlink="${esc(e.id)}" ${canEdit ? "" : "disabled"}>Desvincular</button>
                     </div>
                   </div>
@@ -312,6 +313,7 @@
       <button class="btn btn-sm btn-primary" type="button" data-new-pop style="margin-top:var(--s-3)" ${canCreatePop ? "" : "disabled"}>Adicionar POP</button></div></div>`;
 
     $$("[data-unlink]").forEach((b) => (b.onclick = () => vincular(b.dataset.unlink, null)));
+    $$("[data-device-details]").forEach((b) => (b.onclick = () => openDeviceDetails(b.dataset.deviceDetails)));
     $$("[data-add]").forEach((b) => (b.onclick = () => openLink(b.dataset.add)));
     $$("[data-edit-pop]").forEach((b) => (b.onclick = () => openEditPop(b.dataset.editPop)));
     $$("[data-delete-pop]").forEach((b) => (b.onclick = () => deletePop(b.dataset.deletePop)));
@@ -540,6 +542,136 @@
       render();
       toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
     }
+  }
+
+  /* ---------------- detalhes do equipamento ----------------
+     A ficha abre no próprio cadastro de POPs. "Abrir" continua levando ao
+     mapa completo, enquanto esta janela atende a consulta e a edição rápida
+     sem tirar o operador do POP que ele está organizando. */
+  function openDeviceDetails(deviceId) {
+    const e = NOC.data().equipamentos.find((item) => item.id === deviceId);
+    if (!e) return;
+    const canEdit = NOC.canAll(["topology.edit", "topology.equipment.edit"]);
+    const canPop = NOC.canAll(["topology.edit", "topology.pop.link"]);
+    const emUso = NOC.usedPorts(e);
+
+    modal({
+      wide: true,
+      labelledBy: "popDeviceTitle",
+      html: `
+        <form id="popDeviceForm">
+          <div class="modal-head">
+            <div><span class="kicker">${esc(NOC.popById(e.popId)?.nome || "Sem POP vinculado")} • ${esc(e.categoria || "Equipamento")}</span>
+              <h2 id="popDeviceTitle" style="margin-top:6px">Detalhes do equipamento</h2>
+              <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(e.id)} · identificador permanente</p></div>
+            <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar detalhes">${icon("close")}</button>
+          </div>
+          <div class="modal-body stack">
+            <div class="kv">
+              <div><label>Portas</label><strong>${e.portas.length}</strong></div>
+              <div><label>Em uso</label><strong>${emUso}</strong></div>
+              <div><label>Livres</label><strong>${e.portas.length - emUso}</strong></div>
+              <div><label>Ocupação</label><strong>${NOC.occupancy(e)}<span class="unit">%</span></strong></div>
+            </div>
+
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevName">Nome *</label>
+                <input class="input" id="popDevName" data-field="nome" value="${esc(e.nome || "")}" disabled required></div>
+              <div class="field grow"><label for="popDevManufacturer">Fabricante</label>
+                <input class="input" id="popDevManufacturer" data-field="fabricante" value="${esc(e.fabricante || "")}" disabled placeholder="Ex.: Huawei"></div>
+            </div>
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevModel">Modelo</label>
+                <input class="input" id="popDevModel" data-field="modelo" value="${esc(e.modelo || "")}" disabled></div>
+              <div class="field grow"><label for="popDevCategory">Categoria</label>
+                <input class="input" id="popDevCategory" data-field="categoria" value="${esc(e.categoria || "")}" disabled></div>
+            </div>
+            <div class="row wrap" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="popDevSerial">Número de série / patrimônio</label>
+                <input class="input mono" id="popDevSerial" data-field="serial" value="${esc(e.serial || "")}" disabled></div>
+              <div class="field grow"><label for="popDevPop">POP vinculado</label>
+                <select class="select" id="popDevPop" ${canPop ? "data-editable" : ""} disabled>
+                  <option value="">— Sem POP vinculado —</option>
+                  ${NOC.pops().map((p) => `<option value="${esc(p.id)}" ${e.popId === p.id ? "selected" : ""}>${esc(p.nome)}</option>`).join("")}
+                </select>
+                ${canPop ? "" : '<span class="field-hint">Alterar o vínculo exige permissão específica.</span>'}
+              </div>
+            </div>
+            <div class="field"><label for="popDevLocation">Local dentro do POP</label>
+              <input class="input" id="popDevLocation" data-field="local" value="${esc(e.local || "")}" disabled placeholder="Ex.: Sala 2, rack A3, U12"></div>
+            <div class="field"><label for="popDevObservation">Observação operacional</label>
+              <textarea class="textarea" id="popDevObservation" data-field="observacao" rows="4" disabled>${esc(e.observacao || "")}</textarea></div>
+
+            <div class="alert alert-info" style="animation:none">${icon("info")}
+              <span>Portas, enlaces e acesso remoto continuam disponíveis na ficha completa da Topologia.</span>
+            </div>
+          </div>
+          <div class="modal-foot" style="flex-wrap:wrap">
+            <a class="btn" href="/topologia.html?device=${encodeURIComponent(e.id)}">Abrir na Topologia</a>
+            <span class="row wrap">
+              <button class="btn" data-cancel-edit type="button" hidden>Cancelar edição</button>
+              <button class="btn btn-primary" data-edit-device type="button"
+                ${canEdit ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.edit'"}>${icon("edit")} Editar</button>
+              <button class="btn btn-primary" data-save-device type="submit" hidden>Salvar alterações</button>
+            </span>
+          </div>
+        </form>`,
+      onMount: (host, close) => {
+        const form = $("#popDeviceForm", host);
+        const edit = $("[data-edit-device]", form);
+        const cancel = $("[data-cancel-edit]", form);
+        const save = $("[data-save-device]", form);
+        const textFields = $$('[data-field]', form);
+        const editable = () => [...textFields, ...$$('[data-editable]', form)];
+
+        const setEditing = (active) => {
+          editable().forEach((field) => (field.disabled = !active));
+          edit.hidden = active;
+          cancel.hidden = !active;
+          save.hidden = !active;
+          if (active) $("#popDevName", form).focus();
+        };
+        const restoreInputs = () => {
+          textFields.forEach((field) => (field.value = String(e[field.dataset.field] || "")));
+          $("#popDevPop", form).value = e.popId || "";
+          setEditing(false);
+        };
+
+        edit.onclick = () => setEditing(true);
+        cancel.onclick = restoreInputs;
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const nome = $("#popDevName", form).value.trim();
+          if (!nome) {
+            toast("Informe o nome do equipamento", { type: "warn" });
+            $("#popDevName", form).focus();
+            return;
+          }
+
+          const antes = JSON.parse(JSON.stringify(e));
+          textFields.forEach((field) => {
+            const value = field.value.trim();
+            if (value) e[field.dataset.field] = value;
+            else delete e[field.dataset.field];
+          });
+          e.nome = nome;
+          if (canPop) e.popId = $("#popDevPop", form).value || null;
+          save.disabled = true;
+
+          try {
+            await NOC.save("TOPOLOGY_UPDATE");
+            render();
+            toast("Equipamento atualizado", { text: "Alteração registrada na auditoria.", type: "ok" });
+            close();
+          } catch (err) {
+            for (const key of Object.keys(e)) if (!Object.hasOwn(antes, key)) delete e[key];
+            Object.assign(e, antes);
+            save.disabled = false;
+            toast("Não foi possível salvar", { text: err.message, type: "danger", timeout: 7000 });
+          }
+        };
+      },
+    });
   }
 
   function openLink(popId) {
