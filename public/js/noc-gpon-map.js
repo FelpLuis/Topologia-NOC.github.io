@@ -592,6 +592,8 @@
   }
 
   function renderKpis() {
+    const host = $("#gponKpis");
+    if (!host) return;
     const total = state.rows.length;
     const online = state.rows.filter((r) => !r.off).length;
     const located = state.rows.filter((r) => r.located).length;
@@ -604,7 +606,7 @@
       ["OLTs em atendimento", nb(oltIds.size), oltIds.size ? [...oltIds].slice(0, 2).join(", ") : "Não informadas"],
       ["Alertas", nb(alertas), alertas ? "Requer atenção" : "Operação normal"],
     ];
-    $("#gponKpis").innerHTML = items.map(([label, value, small]) =>
+    host.innerHTML = items.map(([label, value, small]) =>
       `<div class="gpon-kpi"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(small)}</small></div>`).join("");
   }
 

@@ -80,7 +80,7 @@ test("o marcador é posicionado por translate, deixando transform para o CSS", (
 
 test("no telefone o mapa aparece antes do painel de filtros", () => {
   assert.match(css, /\.gpon-map \{ order: 1;/);
-  assert.match(css, /\.gpon-side \{ order: 3;/);
+  assert.match(css, /\.gpon-list-panel \{ order: 3;/);
 });
 
 test("o Worker repassa a porta da CTO, o código do ERP e a capacidade da caixa", () => {

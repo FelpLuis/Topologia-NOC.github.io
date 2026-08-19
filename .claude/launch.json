@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["wrangler", "dev", "--local", "--port", "8788"],
       "port": 8788
+    },
+    {
+      "name": "noc-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/Luis/AppData/Local/Temp/claude/C--projetoNOC-Topologia-NOC-github-io/fa992ed3-f19a-4e11-a5f4-f6e750125580/scratchpad/mock-server.mjs"],
+      "port": 8799
     }
   ]
 }

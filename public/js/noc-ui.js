@@ -192,7 +192,13 @@ window.UI = (() => {
     if (onMount) onMount(host, close);
     return { host, close };
   }
-  const drawer = (opts) => layer({ ...opts, className: "drawer-host", html: `<aside class="drawer">${opts.html}</aside>` });
+  /* `side: "left"` deixa a gaveta entrar pela esquerda — é a forma do menu de
+     navegação no celular. As gavetas de detalhe continuam vindo da direita. */
+  const drawer = (opts) => layer({
+    ...opts,
+    className: "drawer-host",
+    html: `<aside class="drawer${opts.side === "left" ? " drawer-left" : ""}">${opts.html}</aside>`,
+  });
   const modal = (opts) => layer({ ...opts, html: `<div class="modal-card ${opts.wide ? "is-wide" : ""}">${opts.html}</div>` });
 
   function confirm({ title, text, confirmLabel = "Confirmar", danger = false, onConfirm }) {
@@ -267,8 +273,8 @@ window.UI = (() => {
   const rotaAtual = () => location.pathname.replace(/\/index\.html$/, "/") || "/";
   const ehAtual = (href) => rotaAtual() === href;
 
-  const SIDEBAR_KEY = "updown.sidebar";
   let searchProvider = null; // a tela pode registrar itens próprios na paleta
+  let abrirBuscaAppbar = null; // definido ao montar a barra: usado pelo atalho "/"
 
   /* `active` continua aceito pelas telas, mas o item atual do menu é
      reconhecido pela rota — o menu agora vem do catálogo de telas. */
@@ -280,19 +286,18 @@ window.UI = (() => {
     if (bar) {
       bar.className = "appbar";
       bar.innerHTML = `
-        <button class="btn btn-ghost btn-icon" data-sidebar-toggle type="button" aria-label="Recolher menu lateral" title="Recolher menu (Ctrl+B)">${icon("menu")}</button>
+        <button class="btn btn-ghost btn-icon appbar-menu-btn" data-nav-drawer type="button" aria-label="Abrir navegação" title="Navegação (Ctrl+B)">${icon("menu")}</button>
         <a class="brand" href="/" aria-label="UPDOWN Telecom">
           <span class="brand-art" aria-hidden="true"></span>
         </a>
-        <div class="appbar-search">
-          <div class="input-affix">
-            <span class="affix-icon">${icon("search")}</span>
-            <input class="input" id="globalSearch" type="search" placeholder="Buscar equipamento, porta, POP ou capacidade…" aria-label="Busca global" autocomplete="off">
-          </div>
-        </div>
+        <nav class="appbar-nav" data-appbar-nav aria-label="Navegação principal"></nav>
         <div class="appbar-actions">
-          <button class="btn btn-ghost btn-icon appbar-search-btn" data-palette-open type="button" aria-label="Buscar equipamento, POP ou tela">${icon("search")}</button>
-          <button class="btn btn-ghost btn-icon" data-palette-open type="button" title="Paleta de comandos (Ctrl+K)" aria-label="Abrir paleta de comandos">${icon("keyboard")}</button>
+          <div class="appbar-search" data-appbar-search>
+            <button class="btn btn-ghost btn-icon" data-search-toggle type="button" aria-expanded="false" title="Buscar (/)" aria-label="Buscar tela, equipamento ou POP">${icon("search")}</button>
+            <input class="appbar-search-input" id="globalSearch" type="search" placeholder="Buscar tela, equipamento ou POP…" aria-label="Busca global" autocomplete="off" tabindex="-1">
+            <div class="appbar-search-results" role="listbox" aria-label="Resultados da busca" hidden></div>
+          </div>
+          <button class="btn btn-ghost btn-icon appbar-palette-btn" data-palette-open type="button" title="Paleta de comandos (Ctrl+K)" aria-label="Abrir paleta de comandos">${icon("keyboard")}</button>
           <button class="btn btn-ghost btn-icon" data-theme-toggle type="button"></button>
           <div style="position:relative">
             <button class="user-menu" data-user-menu type="button" aria-haspopup="true" aria-expanded="false">
@@ -304,23 +309,12 @@ window.UI = (() => {
         </div>`;
       applyTheme(document.documentElement.dataset.theme);
       wireUserMenu(bar);
-      $("#globalSearch", bar).addEventListener("focus", (e) => { e.target.blur(); openPalette(); });
+      wireAppbarSearch(bar);
     }
 
     renderNav();
 
-    const shell = $(".shell");
-    if (shell) {
-      let collapsed = false;
-      try { collapsed = localStorage.getItem(SIDEBAR_KEY) === "1"; } catch (e) { /* ignore */ }
-      shell.classList.toggle("is-collapsed", collapsed);
-      const toggle = $("[data-sidebar-toggle]");
-      if (toggle) toggle.onclick = () => {
-        const now = shell.classList.toggle("is-collapsed");
-        try { localStorage.setItem(SIDEBAR_KEY, now ? "1" : "0"); } catch (e) { /* ignore */ }
-      };
-    }
-
+    $$("[data-nav-drawer]").forEach((b) => (b.onclick = openNavSheet));
     $$("[data-shortcuts]").forEach((b) => (b.onclick = openShortcuts));
     $$("[data-palette-open]").forEach((b) => (b.onclick = () => openPalette()));
     $$("[data-theme-toggle]").forEach((b) => (b.onclick = toggleTheme));
@@ -329,23 +323,31 @@ window.UI = (() => {
     applyAccess(window.UPDOWN_ACCESS);
   }
 
-  /* Monta o menu lateral e o inferior com as telas liberadas para o perfil. */
-  function renderNav() {
+  /* Telas agrupadas por setor. A mesma divisão serve o menu da barra superior
+     (tela cheia) e a gaveta lateral (celular) — antes o menu lateral fixo era
+     a única fonte e a gaveta copiava o HTML dele. */
+  function navPorSetor() {
     const itens = NAV();
     const setores = SETORES();
     const porSetor = new Map(setores.map((setor) => [setor.code, []]));
     const setorPadrao = porSetor.get("noc") || porSetor.values().next().value || [];
     itens.forEach((n) => (porSetor.get(n.sector) || setorPadrao).push(n));
+    return { itens, setores, porSetor };
+  }
+
+  /* Acordeão por setor, usado na gaveta lateral: a lista rola inteira e cada
+     setor abre no lugar. */
+  function navAcordeaoHtml() {
+    const { setores, porSetor } = navPorSetor();
     const item = (n) => `
       <a class="nav-item" data-nav="${esc(n.code)}" data-code="${esc(n.code)}" href="${esc(n.href)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
         ${icon(n.icon)}<span>${esc(n.label)}</span>
       </a>`;
     const setor = (s) => {
       const menus = porSetor.get(s.code) || [];
-      const contemTelaAtual = menus.some((n) => ehAtual(n.href));
-      const aberto = s.code === "noc" || contemTelaAtual;
+      const aberto = s.code === "noc" || menus.some((n) => ehAtual(n.href));
       return `
-        <details class="nav-sector" data-sector="${s.code}" style="--sector-color:${esc(s.color || "var(--cyan-400)")}" ${aberto ? "open" : ""}>
+        <details class="nav-sector" data-sector="${esc(s.code)}" style="--sector-color:${esc(s.color || "var(--cyan-400)")}" ${aberto ? "open" : ""}>
           <summary class="nav-sector-trigger">
             ${icon(s.icon)}<span>${esc(s.label)}</span>${icon("chevronDown", "icon nav-sector-chevron")}
           </summary>
@@ -354,18 +356,71 @@ window.UI = (() => {
           </div>
         </details>`;
     };
+    return `<nav class="nav" aria-label="Navegação completa">${setores.map(setor).join("")}</nav>`;
+  }
 
-    const side = $("[data-sidebar]");
-    if (side) {
-      side.className = "sidebar";
-      side.innerHTML = `
-        <nav class="nav" aria-label="Navegação principal">
-          ${setores.map(setor).join("")}
-        </nav>
-        <div class="sidebar-foot stack" style="gap:var(--s-3)">
-          <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
-        </div>`;
-      $$("[data-shortcuts]", side).forEach((b) => (b.onclick = openShortcuts));
+  /* Fecha os menus de setor abertos na barra. Consulta o DOM na hora porque a
+     barra é remontada a cada renderNav (login concluído, acesso liberado). */
+  function fecharMenusAppbar(menos = null) {
+    $$(".appbar-nav-group").forEach((g) => {
+      if (g === menos) return;
+      const menu = $(".appbar-nav-menu", g);
+      if (menu) menu.hidden = true;
+      const btn = $(".appbar-nav-trigger", g);
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    });
+  }
+
+  let menusAppbarLigados = false;
+  function wireAppbarNav(root) {
+    $$(".appbar-nav-group", root).forEach((g) => {
+      const btn = $(".appbar-nav-trigger", g);
+      const menu = $(".appbar-nav-menu", g);
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const abrir = menu.hidden;
+        fecharMenusAppbar(g);
+        menu.hidden = !abrir;
+        btn.setAttribute("aria-expanded", String(abrir));
+      };
+    });
+    if (menusAppbarLigados) return;
+    menusAppbarLigados = true;
+    document.addEventListener("click", (e) => {
+      if (!(e.target instanceof Element) || !e.target.closest(".appbar-nav-group")) fecharMenusAppbar();
+    }, true);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharMenusAppbar(); });
+  }
+
+  /* Monta o menu da barra superior e o inferior do celular com as telas
+     liberadas para o perfil. */
+  function renderNav() {
+    const { itens, setores, porSetor } = navPorSetor();
+
+    /* Menu em tela cheia: cada setor é um botão da própria barra e abre a
+       lista de telas logo abaixo. Setor sem tela fica de fora — na barra o
+       espaço é o recurso escasso e um botão que abre lista vazia só ocupa
+       lugar; na gaveta, onde sobra altura, ele continua aparecendo. */
+    const barNav = $("[data-appbar-nav]");
+    if (barNav) {
+      barNav.innerHTML = setores.map((s) => {
+        const menus = porSetor.get(s.code) || [];
+        if (!menus.length) return "";
+        const contemTelaAtual = menus.some((n) => ehAtual(n.href));
+        return `
+          <div class="appbar-nav-group" data-sector="${esc(s.code)}" style="--sector-color:${esc(s.color || "var(--cyan-400)")}">
+            <button class="appbar-nav-trigger" type="button" aria-haspopup="true" aria-expanded="false" ${contemTelaAtual ? 'aria-current="true"' : ""}>
+              ${icon(s.icon)}<span>${esc(s.label)}</span>${icon("chevronDown", "icon appbar-nav-chevron")}
+            </button>
+            <div class="menu appbar-nav-menu" hidden>
+              ${menus.map((n) => `
+                <a class="menu-item" data-nav="${esc(n.code)}" data-code="${esc(n.code)}" href="${esc(n.href)}" ${ehAtual(n.href) ? 'aria-current="page"' : ""}>
+                  ${icon(n.icon)}<span class="grow"><b>${esc(n.label)}</b>${n.desc ? `<small class="dim">${esc(n.desc)}</small>` : ""}</span>
+                </a>`).join("")}
+            </div>
+          </div>`;
+      }).join("");
+      wireAppbarNav(barNav);
     }
 
     /* Barra inferior do celular: quatro telas e o botão do menu completo.
@@ -418,25 +473,41 @@ window.UI = (() => {
     });
   }
 
-  /* Gaveta com a navegação completa: os mesmos setores e telas do menu lateral,
-     que no celular fica oculto. Sem ela, as telas fora das quatro primeiras não
-     teriam caminho de navegação nenhum no telefone. */
+  /* Gaveta lateral com a navegação completa: todos os setores, inclusive os que
+     não cabem na barra superior. É o menu do celular (botão da barra e da
+     navegação inferior) e o destino do Ctrl+B em qualquer largura. */
+  let navSheetAberta = false;
   function openNavSheet() {
-    const nav = $("[data-sidebar] .nav");
-    return drawer({
+    if (navSheetAberta) return null;
+    navSheetAberta = true;
+    fecharMenusAppbar();
+    const { host } = drawer({
+      side: "left",
       labelledBy: "navSheetTitle",
       html: `
         <div class="drawer-head row-between">
           <h2 id="navSheetTitle" style="font-size:var(--fs-16)">Navegação</h2>
           <button class="btn btn-ghost btn-icon btn-sm" data-close type="button" aria-label="Fechar navegação">${icon("close")}</button>
         </div>
-        <div class="drawer-body nav-sheet">${nav ? nav.outerHTML : ""}</div>`,
+        <div class="drawer-body nav-sheet">${navAcordeaoHtml()}</div>
+        <div class="drawer-foot">
+          <button class="btn btn-sm btn-block" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
+        </div>`,
       onMount(host, close) {
+        // O HTML é montado agora, então o RBAC precisa ser reaplicado: sem isto
+        // a gaveta mostraria telas que o perfil não enxerga na barra.
+        applyAccess(window.UPDOWN_ACCESS);
         // Fecha ao escolher uma tela: sem isto a gaveta fica por cima durante
         // o carregamento da página seguinte.
         $$(".nav-item", host).forEach((a) => a.addEventListener("click", close));
+        $$("[data-shortcuts]", host).forEach((b) => (b.onclick = () => { close(); openShortcuts(); }));
       },
     });
+    const observer = new MutationObserver(() => {
+      if (!document.body.contains(host)) { navSheetAberta = false; observer.disconnect(); }
+    });
+    observer.observe(document.body, { childList: true });
+    return host;
   }
 
   /* O RBAC continua mandando: tela sem acesso some do menu. */
@@ -672,6 +743,82 @@ window.UI = (() => {
     };
   }
 
+  /* ---------------- busca da barra superior ---------------- */
+  /* A barra não tem mais um campo permanente: o ícone abre o campo ali mesmo e
+     os resultados caem logo abaixo dele. O campo fixo comia 460px da barra —
+     largura que agora é do menu — e no celular sobrava dele um retângulo de
+     60px onde ninguém digitava. Ctrl+K continua abrindo a paleta inteira. */
+  function wireAppbarSearch(root) {
+    const caixa = $("[data-appbar-search]", root);
+    if (!caixa) return;
+    const botao = $("[data-search-toggle]", caixa);
+    const campo = $("#globalSearch", caixa);
+    const lista = $(".appbar-search-results", caixa);
+    let resultados = [], atual = 0;
+
+    const limpar = () => { lista.hidden = true; lista.innerHTML = ""; resultados = []; atual = 0; };
+    const fechar = () => {
+      caixa.classList.remove("is-open");
+      botao.setAttribute("aria-expanded", "false");
+      campo.value = "";
+      campo.tabIndex = -1;
+      limpar();
+    };
+    const abrir = () => {
+      caixa.classList.add("is-open");
+      botao.setAttribute("aria-expanded", "true");
+      campo.tabIndex = 0;
+      campo.focus();
+    };
+    const marcar = () => {
+      $$(".palette-item", lista).forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.i === atual)));
+      const sel = $('.palette-item[aria-selected="true"]', lista);
+      if (sel) sel.scrollIntoView({ block: "nearest" });
+    };
+    const buscar = () => {
+      const termo = campo.value.trim().toLowerCase();
+      if (!termo) return limpar();
+      resultados = paletteCommands()
+        .filter((c) => `${c.label} ${c.hint || ""} ${c.group}`.toLowerCase().includes(termo))
+        .slice(0, 8);
+      atual = 0;
+      lista.hidden = false;
+      lista.innerHTML = resultados.length
+        ? resultados.map((c, i) => `
+            <button class="palette-item" type="button" role="option" data-i="${i}" aria-selected="${i === 0}">
+              ${icon(c.icon)}<span class="grow"><span>${esc(c.label)}</span><small>${esc(c.hint || "")}</small></span>${icon("arrowRight")}
+            </button>`).join("")
+        : `<p class="appbar-search-empty">Nada encontrado para “${esc(campo.value.trim())}”.<br><span class="dim">Enter abre a busca completa.</span></p>`;
+      $$(".palette-item", lista).forEach((b) => {
+        b.onmousemove = () => { atual = +b.dataset.i; marcar(); };
+        b.onclick = () => { const c = resultados[+b.dataset.i]; fechar(); c.run(); };
+      });
+    };
+
+    botao.onclick = () => (caixa.classList.contains("is-open") ? fechar() : abrir());
+    campo.addEventListener("input", buscar);
+    campo.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); fechar(); botao.focus(); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); atual = Math.min(atual + 1, resultados.length - 1); marcar(); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); atual = Math.max(atual - 1, 0); marcar(); return; }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const escolhido = resultados[atual];
+        const termo = campo.value;
+        fechar();
+        if (escolhido) escolhido.run();
+        else openPalette(termo);
+      }
+    });
+    // Clique fora recolhe: aberta e vazia, a busca é só um campo ocupando a barra.
+    document.addEventListener("click", (e) => {
+      if (!(e.target instanceof Node) || caixa.contains(e.target)) return;
+      if (caixa.classList.contains("is-open")) fechar();
+    }, true);
+
+    abrirBuscaAppbar = abrir;
+  }
+
   /* ---------------- paleta de comandos ---------------- */
   function paletteCommands() {
     const cmds = NAV().map((n) => ({ group: "Ir para", label: n.label, hint: n.desc, icon: n.icon, run: () => navegar(n.href) }));
@@ -752,8 +899,8 @@ window.UI = (() => {
   /* ---------------- atalhos ---------------- */
   const SHORTCUTS = [
     ["Ctrl / ⌘ + K", "Abrir a paleta de comandos e a busca global"],
-    ["/", "Focar a busca sem sair do teclado"],
-    ["Ctrl / ⌘ + B", "Recolher ou expandir o menu lateral"],
+    ["/", "Abrir a busca da barra superior"],
+    ["Ctrl / ⌘ + B", "Abrir a navegação completa em gaveta"],
     ["T", "Alternar tema claro e escuro"],
     ["G depois H", "Ir para a Home"],
     ["G depois T", "Ir para a Topologia"],
@@ -791,9 +938,9 @@ window.UI = (() => {
     document.addEventListener("keydown", (e) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); $("[data-sidebar-toggle]")?.click(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); openNavSheet(); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === "/") { e.preventDefault(); openPalette(); return; }
+      if (e.key === "/") { e.preventDefault(); if (abrirBuscaAppbar) abrirBuscaAppbar(); else openPalette(); return; }
       if (e.key === "?") { e.preventDefault(); openShortcuts(); return; }
       if (e.key.toLowerCase() === "t") { toggleTheme(); return; }
       if (e.key.toLowerCase() === "g") { gPressed = true; setTimeout(() => (gPressed = false), 1200); return; }
