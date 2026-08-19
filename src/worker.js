@@ -480,10 +480,10 @@ const NAV_SECTORS = [
 // [code, name, description, route, active, icon, sort, nav]
 const SCREENS = [
   ["home", "Home", "Painel de abertura: clientes, tráfego da rede e alertas ainda não vistos", "/", 1, "home", 5, 1],
-  ["network", "Topologia BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/topologia.html", 1, "topology", 10, 1],
-  ["gpon", "Topologia GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
+  ["network", "BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/topologia.html", 1, "topology", 10, 1],
+  ["gpon", "GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
   ["gpon-mapa", "Mapas GPON", "Mapa operacional somente leitura de clientes, caixas, POPs, drops e caminho ponta a ponta", "/gpon-mapa.html", 1, "pops", 16, 1],
-  //["isp", "Topologia ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
+  ["isp", "ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
   ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 1, "pops", 20, 1],
