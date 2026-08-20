@@ -2882,14 +2882,15 @@
 
         return `
           <div class="olt-slot" data-slot="${slot}">
-            <div class="olt-slot-header">
+            <div class="olt-slot-header" data-slot="${slot}">
               <span class="slot-numero">Slot ${slot}</span>
               <span class="slot-tipo">${esc(slotData.tipoPlaca)}</span>
               <span class="slot-tecnologia">${esc(slotData.tecnologia)}</span>
               <span class="slot-qtd">${slotData.portas.length} portas</span>
               <div class="slot-actions">
                 <button class="btn btn-ghost btn-sm btn-icon" data-add-port="${slot}" title="Adicionar porta" aria-label="Adicionar porta">${icon("plus")}</button>
-                <button class="btn btn-ghost btn-sm btn-icon" data-remove-slot="${slot}" title="Remover slot" aria-label="Remover slot" ${slotData.portas.length > 0 ? "" : "disabled"}>${icon("trash")}</button>
+                <button class="btn btn-ghost btn-sm btn-icon" data-edit-slot="${slot}" title="Editar slot" aria-label="Editar slot">${icon("edit")}</button>
+                <button class="btn btn-ghost btn-sm btn-icon" data-remove-slot="${slot}" title="Remover slot" aria-label="Remover slot" ${slotData.portas.length === 0 ? "disabled" : ""}>${icon("trash")}</button>
               </div>
             </div>
             <div class="olt-slot-portas">${portaHtml}</div>
@@ -2946,6 +2947,14 @@
               }
             },
           });
+        };
+      });
+
+      $$("[data-edit-slot]", container).forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const slot = Number(btn.dataset.editSlot);
+          editarSlotOLT(equipamento, slot);
         };
       });
     }
@@ -3165,6 +3174,69 @@
           if (capEl) capEl.textContent = capInput.value;
           if (tipoEl) tipoEl.textContent = tipoInput.value;
           if (statusEl) statusEl.textContent = statusInput.value === "livre" ? "Livre" : statusInput.value;
+
+          close();
+        };
+      },
+    });
+  }
+
+  /* ---------- OLT: Edição de slot ---------- */
+  function editarSlotOLT(equipamento, slot) {
+    const slotData = porSlot[slot];
+    if (!slotData) return;
+
+    modal({
+      labelledBy: "oltSlotEditarTitulo",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("port")} Slot OLT</span>
+            <h2 id="oltSlotEditarTitulo" style="margin-top:6px">${esc(equipamento.nome)} — Slot ${slot}</h2>
+            <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${slotData.portas.length} portas</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body">
+          <form class="stack" id="formOltSlot">
+            <div class="row" style="gap:var(--s-3)">
+              <div class="field grow"><label for="oltSlotNome">Nome do Slot</label>
+                <input class="input" id="oltSlotNome" value="${esc(slotData.tipoPlaca || "")}" placeholder="Ex.: Linha, Gerência, Uplink"></div>
+              <div class="field grow"><label for="oltSlotTecnologia">Tecnologia</label>
+                <input class="input" id="oltSlotTecnologia" value="${esc(slotData.tecnologia || "")}" placeholder="Ex.: GBIC/GPON, Óptica, 10G"></div>
+            </div>
+            <div class="field"><label for="oltSlotObs">Observação</label>
+              <textarea class="textarea" id="oltSlotObs" rows="3" placeholder="Observações sobre este slot...">${esc(slotData.observacao || "")}</textarea></div>
+          </form>
+        </div>
+        <div class="modal-foot">
+          <span class="row">
+            <button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="button" id="oltSlotSalvar">Salvar</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        $("#oltSlotSalvar", host).onclick = () => {
+          const nomeInput = $("#oltSlotNome", host);
+          const techInput = $("#oltSlotTecnologia", host);
+          const obsInput = $("#oltSlotObs", host);
+
+          slotData.tipoPlaca = nomeInput.value.trim();
+          slotData.tecnologia = techInput.value.trim();
+          slotData.observacao = obsInput.value.trim();
+
+          // Atualizar header do slot na grid
+          const slotHeader = host.closest(".modal")?.querySelector(`.olt-slot-header[data-slot="${slot}"]`);
+          if (slotHeader) {
+            const tipoEl = slotHeader.querySelector(".slot-tipo");
+            const techEl = slotHeader.querySelector(".slot-tecnologia");
+            if (tipoEl) tipoEl.textContent = slotData.tipoPlaca;
+            if (techEl) techEl.textContent = slotData.tecnologia;
+          }
+
+          // Atualizar também as portas do slot (herdam tipoPlaca/tecnologia)
+          slotData.portas.forEach(p => {
+            p.tipoPlaca = slotData.tipoPlaca;
+            p.tecnologia = slotData.tecnologia;
+          });
 
           close();
         };

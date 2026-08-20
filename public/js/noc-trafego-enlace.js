@@ -32,7 +32,7 @@ window.TRAF = (() => {
     { min: 80, rotulo: "80%", cor: "#dc4a3d" },
     { min: 90, rotulo: "90%", cor: "#b3161c" },
   ];
-  const OFFLINE = { rotulo: "Offline", cor: "#8b939c" };
+  const OFFLINE = { rotulo: "Offline", cor: "#ff5f74" };
   /* Enlace sem interface monitorada não entra na escala: pintá-lo com a cor de
      0% afirmaria "sem uso" sobre algo que ninguém mediu. */
   const SEM_DADO = { rotulo: "Sem dado", cor: "#4d5560" };

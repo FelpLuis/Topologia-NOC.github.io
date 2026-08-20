@@ -65,6 +65,7 @@ window.UI = (() => {
     sort: '<path d="M12 5v14M7.5 15L12 19.5 16.5 15"/>',
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     trafego: '<path d="M7 20V10M7 10L4 13M7 10l3 3"/><path d="M17 4v10M17 14l3-3M17 14l-3-3"/>',
+    pulse: '<path d="M2.5 12h4l2.2-7 3.2 14 2.4-9.5 1.6 4.5h5.6"/>',
   };
   const icon = (name, cls = "icon") =>
     `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${PATHS[name] || PATHS.circle}</svg>`;
@@ -818,6 +819,11 @@ window.UI = (() => {
       campo.tabIndex = -1;
       limpar();
       ajustarTransbordoMenu();
+      /* O campo tem transição CSS de 200ms (largura, opacidade, margem).
+         O ajuste imediato pode calcular com a largura residual da busca
+         ainda sendo pintada. Um RAF duplo espera o layout finalizar
+         e recalcula com o espaço real que sobrou. */
+      requestAnimationFrame(() => requestAnimationFrame(() => ajustarTransbordoMenu()));
     };
     const abrir = () => {
       caixa.classList.add("is-open");

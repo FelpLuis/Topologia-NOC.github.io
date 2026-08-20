@@ -15,7 +15,7 @@
    ============================================================ */
 (() => {
   "use strict";
-  const { $, $$, esc, icon, toast } = UI;
+  const { $, $$, esc, icon, toast, modal } = UI;
 
   const LIST_CHUNK = 60;      // clientes por página da lista lateral
   const POINT_CHUNK = 40;     // caixas/POPs por página da lista lateral
@@ -460,6 +460,7 @@
     if ($("#detailIcon")) $("#detailIcon").innerHTML = icon("topology");
     $("#refreshMap").innerHTML = `${icon("refresh")} Atualizar`;
     if ($("#dashRefresh")) $("#dashRefresh").innerHTML = `${icon("refresh")} Atualizar`;
+    if ($("#radiusLogBtn")) $("#radiusLogBtn").innerHTML = `${icon("pulse")} Log RADIUS`;
     $("#mapZoomOut").innerHTML = icon("zoomOut");
     $("#mapZoomIn").innerHTML = icon("zoomIn");
     $("#mapFit").innerHTML = icon("fit");
@@ -472,6 +473,7 @@
 
     $("#refreshMap").onclick = () => load(true);
     if ($("#dashRefresh")) $("#dashRefresh").onclick = () => load(true);
+    if ($("#radiusLogBtn")) $("#radiusLogBtn").onclick = () => abrirLogRadius();
     $("#mapZoomIn").onclick = () => zoom(2);
     $("#mapZoomOut").onclick = () => zoom(.5);
     $("#mapFit").onclick = () => { state.fitted = false; fit(); };
@@ -1381,18 +1383,32 @@
     scheduleMap();
   }
 
+  /* Carga da conexão documentada entre dois saltos do caminho ponta a ponta.
+     É o que pinta a linha de ligação com a mesma escala dos enlaces do mapa.
+     Sem id numa das pontas — cliente, caixa, ou hop importado sem referência —
+     não há enlace para medir e a linha segue na cor neutra. */
+  const linkCarga = (a, b) => {
+    if (!a?.id || !b?.id) return null;
+    for (const cx of state.topology.conexoes || []) {
+      if ((cx.origem === a.id && cx.destino === b.id) || (cx.origem === b.id && cx.destino === a.id)) return TRAF.doEnlace(cx);
+    }
+    return null;
+  };
+
   function derivedPath(c) {
     const hops = [];
-    const add = (kind, name, detail) => hops.push({ kind, name, detail });
-    add("client", c.name, `${c.username || c.serial || "ONU"}${c.ip ? ` • ${c.ip}` : ""}`);
-    const box = boxById(c.box_id); if (box) add("box", box.name, `${box.type}${box.address ? ` • ${box.address}` : ""}`);
+    const add = (kind, name, detail, id) => hops.push({ kind, name, detail, id });
+    add("client", c.name, `${c.username || c.serial || "ONU"}${c.ip ? ` • ${c.ip}` : ""}`, String(c.id || ""));
+    const box = boxById(c.box_id);
+    if (box) add("box", box.name, `${box.type}${box.address ? ` • ${box.address}` : ""}`, String(box.id));
     const olt = deviceById(c.olt_id);
-    if (olt) add("olt", olt.nome, `${c.pon || "PON não informada"} • ${olt.modelo || olt.categoria || "OLT"}`);
-    else if (c.olt_id) add("olt", c.olt_id, c.pon || "PON não informada");
+    if (olt) add("olt", olt.nome, `${c.pon || "PON não informada"} • ${olt.modelo || olt.categoria || "OLT"}`, String(olt.id));
+    else if (c.olt_id) add("olt", c.olt_id, c.pon || "PON não informada", String(c.olt_id));
 
     if (Array.isArray(c.path) && c.path.length) {
-      c.path.forEach((h) => typeof h === "string" ? add("network", h, "")
-        : add(h.type || h.tipo || "network", h.name || h.nome || h.id || "Elemento de rede", h.detail || h.detalhe || h.port || h.porta || ""));
+      c.path.forEach((h) => typeof h === "string" ? add("network", h, "", null)
+        : add(h.type || h.tipo || "network", h.name || h.nome || h.id || "Elemento de rede",
+          h.detail || h.detalhe || h.port || h.porta || "", String(h.id || h.name || h.nome || "")));
       return hops;
     }
     if (!olt) return hops;
@@ -1411,7 +1427,7 @@
     found.forEach(({ id, cx }) => {
       const e = deviceById(id);
       const port = cx.origem === id ? cx.portaOrigem : cx.portaDestino;
-      add("network", e?.nome || id, `${e?.categoria || "Rede"}${port ? ` • porta ${port}` : ""}`);
+      add("network", e?.nome || id, `${e?.categoria || "Rede"}${port ? ` • porta ${port}` : ""}`, String(id));
     });
     return hops;
   }
@@ -1511,6 +1527,24 @@
       const c = r.c;
       const historicoAtual = manterHistorico ? $("#gponHistory")?.innerHTML : null;
       const path = derivedPath(c);
+      /* A ligação entre os saltos é a linha de tráfego da conexão: a cor é a
+         utilização do enlace que une as duas pontas, na mesma escala dos
+         enlaces do mapa. Enlace fora do ar — ou o próprio drop com a ONU
+         offline — pinta a linha de vermelho. */
+      const pathHtml = path.map((h, i) => {
+        const next = path[i + 1];
+        let m = null;
+        if (next) {
+          m = linkCarga(h, next);
+          if (!m && h.kind === "client" && next.kind === "box" && r.off) {
+            m = { estado: "offline", entrada: 0, saida: 0, capacidade: 0, pct: null, pontas: 1, caidas: 1, medido: false, enlaces: 1, parcial: false };
+          }
+        }
+        const cor = m ? TRAF.cor(m) : "";
+        const titulo = m ? TRAF.dica(m, `${h.name} ↔ ${next.name}`, "Conexão ponta a ponta") : "";
+        return `<div class="gpon-hop"${cor ? ` style="--conn:${cor}"` : ""}${titulo ? ` title="${esc(titulo)}"` : ""}>
+          <i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`;
+      }).join("");
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       const cadastro = c.cadastro;
       host.innerHTML = `<div class="gpon-detail-head"><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span><h2>${esc(c.name)}</h2><p class="muted">${esc(c.address || "Localização textual não informada")}</p>
@@ -1526,7 +1560,7 @@
         </div>
         ${cadastro && (cadastro.aparelhos?.length || cadastro.ont_serial) ? `<b style="font-size:var(--fs-12)">Aparelhos / ONU</b><div class="gpon-path">${(cadastro.aparelhos || []).map((a) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(a.nome)}</b><small>${esc([a.tipo, a.serial].filter(Boolean).join(" • "))}</small></div></div>`).join("")}${cadastro.ont_serial ? `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>ONU cadastrada</b><small class="mono">${esc(cadastro.ont_serial)}${cadastro.ont_modelo ? ` • ${esc(cadastro.ont_modelo)}` : ""}</small></div></div>` : ""}</div>` : ""}
         <b style="font-size:var(--fs-12)">Conexão ponta a ponta</b>
-        <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>
+        <div class="gpon-path">${pathHtml}</div>
         <b style="font-size:var(--fs-12)">Histórico do estado</b>
         <div class="gpon-history" id="gponHistory">${historicoAtual ?? '<p class="muted">Carregando histórico…</p>'}</div>`;
       if (historicoAtual === null || historicoAtual === undefined) carregarHistorico(c.id);
@@ -1554,6 +1588,125 @@
         <div class="gpon-detail-grid"><div><span>Estado</span><b>${esc(NOC.popStatus(p.id))}</b></div><div><span>Equipamentos</span><b>${nb(list.length)}</b></div><div><span>Clientes GPON</span><b>${nb(state.rows.filter((r) => popOfClient(r.c)?.id === p.id).length)}</b></div><div><span>Coordenadas</span><b class="mono">${esc(GEO.label(p.lat, p.lon) || "—")}</b></div></div>
         <b style="font-size:var(--fs-12)">SW, OLT e demais aparelhos</b><div class="gpon-path">${list.map((e) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(e.nome)}</b><small>${esc(`${e.categoria || "Equipamento"} • ${NOC.statusInfo(e).label}`)}</small></div></div>`).join("") || '<p class="muted">Nenhum equipamento vinculado a este POP.</p>'}</div>`;
     }
+  }
+
+  /* ---------------- log RADIUS (monitoramento da autenticação PPPoE) ----------------
+
+     Botão do cabeçalho: abre um monitor das transições que o coletor grava em
+     radius_logs (GET /api/radius/logs, permissão radius.view). O status é
+     filtrado no servidor — só existem "online"/"offline" e um índice cobre
+     exatamente esse campo; cliente, usuário, serial e OLT são filtrados no
+     navegador sobre o lote já carregado, como o resto da tela faz na lista
+     lateral. Atualiza sozinho a cada 10 s, o mesmo ritmo do ciclo de coleta,
+     enquanto a janela estiver aberta — é para acompanhar autenticação ao
+     vivo, não uma consulta pontual. */
+  const radiusBadge = (status) => {
+    const s = String(status || "").toLowerCase();
+    return s === "online" ? "badge-ok" : s === "offline" ? "badge-danger" : "";
+  };
+
+  function linhaRadiusLog(ev) {
+    const quando = new Date(String(ev.created_at || "").replace(" ", "T"));
+    const horario = Number.isFinite(quando.getTime()) ? quando.toLocaleString("pt-BR") : String(ev.created_at || "—");
+    const transicao = ev.status_before ? `${esc(ev.status_before)} → ${esc(ev.status_after)}` : esc(ev.status_after || "—");
+    return `<tr>
+      <td class="mono dim">${esc(horario)}</td>
+      <td><b>${esc(ev.client_name || ev.client_id || "—")}</b>${ev.serial ? `<br><small class="dim mono">${esc(ev.serial)}</small>` : ""}</td>
+      <td class="mono">${esc(ev.username || "—")}</td>
+      <td><span class="badge ${radiusBadge(ev.status_after)}">${transicao}</span></td>
+      <td>${esc(ev.detail || "—")}</td>
+      <td class="mono dim">${esc([ev.olt_id, ev.onu_index].filter(Boolean).join(" / ") || "—")}</td>
+    </tr>`;
+  }
+
+  function abrirLogRadius() {
+    const rl = { query: "", status: "all", events: [], limit: 200, loading: false, auto: true, checkedAt: null, timer: 0 };
+
+    function render(host) {
+      const body = $("#radiusLogBody", host);
+      const q = rl.query.trim().toLowerCase();
+      const rows = q ? rl.events.filter((ev) => [ev.username, ev.client_name, ev.client_id, ev.serial, ev.olt_id, ev.detail]
+        .some((v) => String(v || "").toLowerCase().includes(q))) : rl.events;
+      body.innerHTML = rows.length ? rows.map(linhaRadiusLog).join("") : '<tr><td colspan="6" class="dim">Nenhum evento encontrado.</td></tr>';
+      $("#radiusLogCount", host).textContent = rl.events.length
+        ? `${nb(rows.length)} de ${nb(rl.events.length)} eventos • atualizado ${relativo(rl.checkedAt)}` : "Sem eventos no período.";
+      $("#radiusLogMore", host).hidden = rl.events.length < rl.limit || rl.limit >= 500;
+    }
+
+    async function carregar(host, silencioso) {
+      if (rl.loading) return;
+      rl.loading = true;
+      try {
+        const params = new URLSearchParams({ limit: String(rl.limit) });
+        if (rl.status !== "all") params.set("status", rl.status);
+        const data = await NOC.api(`/api/radius/logs?${params.toString()}`);
+        rl.events = Array.isArray(data?.events) ? data.events : [];
+        rl.checkedAt = new Date().toISOString();
+        render(host);
+      } catch (err) {
+        if (!silencioso) toast("Não foi possível carregar o log RADIUS", { text: err.message, type: "danger", timeout: 6000 });
+        $("#radiusLogBody", host).innerHTML = `<tr><td colspan="6" class="dim">Falha ao carregar: ${esc(err.message)}</td></tr>`;
+      } finally {
+        rl.loading = false;
+      }
+    }
+
+    modal({
+      wide: true,
+      labelledBy: "radiusLogTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">MONITORAMENTO</span><h2 id="radiusLogTitle">Log RADIUS</h2><p class="dim" style="margin-top:4px">Autenticação PPPoE dos clientes GPON, direto do servidor RADIUS.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack" style="gap:var(--s-4)">
+          <div class="row wrap" style="gap:var(--s-3);align-items:center">
+            <div class="input-affix" style="min-width:240px;flex:1 1 240px">
+              <span class="affix-icon">${icon("search")}</span>
+              <input class="input" id="radiusLogSearch" type="search" placeholder="Cliente, usuário, serial ou OLT…" aria-label="Filtrar eventos do log RADIUS">
+            </div>
+            <div class="gpon-filters" role="group" aria-label="Estado da autenticação">
+              <button class="chip" type="button" data-rstatus="all" aria-pressed="true">Todos</button>
+              <button class="chip" type="button" data-rstatus="online" aria-pressed="false">Online</button>
+              <button class="chip" type="button" data-rstatus="offline" aria-pressed="false">Offline</button>
+            </div>
+            <label class="row" style="gap:var(--s-2);align-items:center;font-size:var(--fs-12);white-space:nowrap">
+              <input type="checkbox" id="radiusLogAuto" checked> Atualizar a cada 10s
+            </label>
+            <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Atualizar agora">${icon("refresh")}</button>
+          </div>
+          <div class="table-wrap">
+            <table class="table" aria-label="Eventos de autenticação RADIUS">
+              <thead><tr><th>Horário</th><th>Cliente</th><th>Usuário PPPoE</th><th>Transição</th><th>Detalhe</th><th>OLT / PON</th></tr></thead>
+              <tbody id="radiusLogBody"><tr><td colspan="6" class="dim">Carregando…</td></tr></tbody>
+            </table>
+          </div>
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <span class="dim mono" id="radiusLogCount" style="font-size:var(--fs-11)">—</span>
+            <button class="btn btn-sm" id="radiusLogMore" type="button" hidden>Carregar mais</button>
+          </div>
+        </div>
+        <div class="modal-foot"><span class="dim" style="font-size:var(--fs-11)">Fonte: coletor GPON → RADIUS do IXC.</span><span class="row"><button class="btn btn-primary" data-close type="button">Fechar</button></span></div>`,
+      onMount: (mountedHost) => {
+        carregar(mountedHost);
+        $("#radiusLogSearch", mountedHost).oninput = (e) => { rl.query = e.target.value; render(mountedHost); };
+        $$("[data-rstatus]", mountedHost).forEach((btn) => {
+          btn.onclick = () => {
+            $$("[data-rstatus]", mountedHost).forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+            rl.status = btn.dataset.rstatus;
+            rl.limit = 200;
+            carregar(mountedHost);
+          };
+        });
+        $("#radiusLogRefresh", mountedHost).onclick = () => carregar(mountedHost);
+        $("#radiusLogMore", mountedHost).onclick = () => { rl.limit = Math.min(500, rl.limit + 200); carregar(mountedHost); };
+        $("#radiusLogAuto", mountedHost).onchange = (e) => { rl.auto = e.target.checked; };
+        rl.timer = setInterval(() => {
+          if (!document.contains(mountedHost)) { clearInterval(rl.timer); return; }
+          if (rl.auto && !rl.loading) carregar(mountedHost, true);
+        }, 10000);
+      },
+    });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount); else mount();
