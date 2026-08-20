@@ -141,6 +141,53 @@
     return portas;
   }
 
+  /* ---------- OLT: dados reais de ONU/PON, lidos do mesmo feed do Mapa GPON ----------
+     Uma porta PON não liga a um único destino (é ponto-multiponto por splitter),
+     então "em uso", "nome" e "sinal" não podem vir do enlace ponto-a-ponto genérico.
+     Buscamos o feed já usado por noc-gpon-map.js e casamos cada cliente pelo
+     olt_id (== id do equipamento) e pelo texto livre do campo `pon`. */
+  let gponClientsCache = null;
+  let gponClientsLoading = null;
+  async function ensureGponClients(force) {
+    if (force) gponClientsCache = null;
+    if (gponClientsCache) return gponClientsCache;
+    if (!gponClientsLoading) {
+      gponClientsLoading = NOC.api("/api/gpon/clients")
+        .then((r) => { gponClientsCache = r?.clients || (Array.isArray(r) ? r : []); return gponClientsCache; })
+        .catch(() => (gponClientsCache = []))
+        .finally(() => { gponClientsLoading = null; });
+    }
+    return gponClientsLoading;
+  }
+  /* O coletor manda o PON como texto livre (varia por fabricante/versão, ex.
+     "0/3/7" ou "GPON0/3/7"). Os dois últimos números costumam ser slot/porta —
+     os mesmos campos que o operador já documenta manualmente no gerenciador de
+     OLT (p.slot/p.subslot). */
+  const numerosDoPon = (pon) => (String(pon || "").match(/\d+/g) || []).map(Number);
+  const ponCasaComPorta = (pon, porta) => {
+    const n = numerosDoPon(pon);
+    if (n.length < 2) return false;
+    const [slot, subslot] = n.slice(-2);
+    return slot === Number(porta.slot) && subslot === Number(porta.subslot);
+  };
+  const onusDaPorta = (equipamento, porta) =>
+    (gponClientsCache || []).filter((c) => String(c.olt_id) === String(equipamento.id) && ponCasaComPorta(c.pon, porta));
+  /* Mesmas regras do Mapa GPON (noc-gpon-map.js), para o critério de "online" e
+     de "sinal crítico" não divergir de uma tela para a outra. */
+  const onuOnline = (c) => !/offline|down|los|inativo|critical|critico|falha/i.test(String(c.status || "online"));
+  const SINAL_CRITICO_DBM = -27;
+  const sinalCritico = (c) => Number.isFinite(Number(c.rx_power)) && Number(c.rx_power) <= SINAL_CRITICO_DBM;
+
+  /* Ocupação "para exibição" na Topologia: soma o enlace formal (NOC.portaEmUso,
+     usado por todo o resto do app) com o que só existe aqui — nome digitado numa
+     porta comum, ou clientes reais numa porta PON de OLT. Não mexe na verdade
+     global (dashboards, tráfego, status degradado continuam só no enlace formal). */
+  function portaOcupadaView(e, p) {
+    if (NOC.portaEmUso(e.id, p.numero)) return true;
+    if (isOLT(e) && p.tecnologia === "GBIC/GPON") return onusDaPorta(e, p).length > 0;
+    return !!(p.nome && p.nome.trim());
+  }
+
   const device = (id) => (NOC.data()?.equipamentos || []).find((e) => e.id === id);
   const sites = () => [
     ...NOC.pops().map((p) => ({
@@ -1910,12 +1957,13 @@
   /* Uma porta some botão: mesma peça usada solta (equipamento comum) e dentro
      de cada grupo de placa (OLT). */
   function portaBotaoHtml(e, p) {
-    const on = NOC.portaEmUso(e.id, p.numero);
+    const on = portaOcupadaView(e, p);
     /* Portas vindas do Zabbix trazem o nome real da interface (p.nome) e a
        descrição do enlace. Vão no title/aria-label: é o identificador que
        o operador usa no equipamento, e o número é só o índice do cadastro. */
+    const onus = isOLT(e) && p.tecnologia === "GBIC/GPON" ? onusDaPorta(e, p) : [];
     const identidade = [p.nome, p.capacidade, p.descricao].filter(Boolean).join(" • ");
-    const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${identidade ? `, ${identidade}` : ""}`;
+    const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${onus.length ? `, ${onus.length} ONU(s)` : ""}${identidade ? `, ${identidade}` : ""}`;
     /* Cor por utilização, na mesma escala dos enlaces: a borda da porta
        acompanha o tráfego lido do Zabbix. Porta sem interface monitorada
        mantém a aparência de sempre — nenhuma cor é inventada. */
@@ -1964,13 +2012,14 @@
   }
 
   function portsTab(e) {
-    const emUso = NOC.usedPorts(e);
+    const emUso = (e.portas || []).filter((p) => portaOcupadaView(e, p)).length;
+    const ocupPct = e.portas.length ? Math.round((emUso / e.portas.length) * 100) : 0;
     return `
       <div class="kv" style="margin-bottom:var(--s-5)">
         <div><label>Em uso</label><strong>${emUso}<span class="unit"> / ${e.portas.length}</span></strong></div>
         <div><label>Livres</label><strong>${e.portas.length - emUso}</strong></div>
         <div><label>Enlaces</label><strong>${NOC.connectionsOf(e.id).length}</strong></div>
-        <div><label>Ocupação</label><strong>${NOC.occupancy(e)}<span class="unit">%</span></strong></div>
+        <div><label>Ocupação</label><strong>${ocupPct}<span class="unit">%</span></strong></div>
       </div>
 
       <div class="row-between wrap" style="margin-bottom:var(--s-3);gap:var(--s-3)">
@@ -2005,41 +2054,60 @@
 
   function wirePorts(e, root) {
     let filter = "todas";
+    const oltGpon = isOLT(e);
     const rows = () => {
       const list = e.portas.filter((p) => {
-        const on = NOC.portaEmUso(e.id, p.numero);
+        const on = portaOcupadaView(e, p);
         return filter === "todas" ? true : filter === "uso" ? on : !on;
       });
       $("#portRows", root).innerHTML = list.length ? list.map((p) => {
         const c = NOC.portConnection(e.id, p.numero);
         const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
         const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
+        const onus = oltGpon && p.tecnologia === "GBIC/GPON" ? onusDaPorta(e, p) : [];
+        const on = !!c || onus.length > 0;
         const m = TRAF.medidaDePorta(e.id, p.numero);
         const trafCell = m && m.estado !== "sem-dado"
           ? `<span class="port-traf" style="--port-traf:${TRAF.cor(m)}"
                 title="${esc(TRAF.linhasDica(m, `Porta ${p.numero}`).join(" — "))}">${esc(TRAF.rotulo(m))}</span>`
           : '<span class="dim">—</span>';
+        const conexaoCell = remoto
+          ? `<button class="btn btn-ghost btn-sm" data-goto="${esc(remoto.id)}">${esc(remoto.nome)} • porta ${remotaPorta}</button>`
+          : onus.length
+            ? `<span class="dim">${onus.length} ONU${onus.length > 1 ? "s" : ""} (GPON)</span>`
+            : '<span class="dim">—</span>';
         return `<tr>
           <td class="mono"><b>${String(p.numero).padStart(2, "0")}</b></td>
           <td>${esc(p.capacidade || "A confirmar")}</td>
           <td class="dim">${esc(p.tipo || "—")}</td>
-          <td>${c ? '<span class="badge badge-ok"><i class="dot dot-ok"></i>Em uso</span>' : '<span class="badge">Livre</span>'}</td>
+          <td>${on ? '<span class="badge badge-ok"><i class="dot dot-ok"></i>Em uso</span>' : '<span class="badge">Livre</span>'}</td>
           <td>${trafCell}</td>
-          <td>${remoto ? `<button class="btn btn-ghost btn-sm" data-goto="${esc(remoto.id)}">${esc(remoto.nome)} • porta ${remotaPorta}</button>` : '<span class="dim">—</span>'}</td>
+          <td>${conexaoCell}</td>
           <td><button class="btn btn-ghost btn-sm btn-icon" data-editport="${p.numero}" type="button"
                 aria-label="Editar a porta ${p.numero}" title="Editar porta e conexão"
                 ${podeEditarPorta() ? "" : "disabled"}>${icon("edit")}</button></td>
         </tr>`;
       }).join("") : `<tr><td colspan="7"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
       $$("#portRows [data-goto]", root).forEach((b) => (b.onclick = () => openDevice(b.dataset.goto)));
-      $$("#portRows [data-editport]", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.editport, { edit: true })));
+      $$("#portRows [data-editport]", root).forEach((b) => (b.onclick = () => {
+        const porta = e.portas.find((x) => +x.numero === +b.dataset.editport);
+        if (oltGpon && porta?.tecnologia === "GBIC/GPON") return openOltPortsManager(e);
+        openPort(e, +b.dataset.editport, { edit: true });
+      }));
     };
     $$("[data-pf]", root).forEach((b) => (b.onclick = () => {
       filter = b.dataset.pf;
       $$("[data-pf]", root).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
       rows();
     }));
-    $$("#portGrid .port", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.port)));
+    $$("#portGrid .port", root).forEach((b) => (b.onclick = () => {
+      const porta = e.portas.find((x) => +x.numero === +b.dataset.port);
+      /* Porta PON não liga ponto-a-ponto a um único destino — quem manda
+         nela é o gerenciador de OLT, que já mostra slot/subslot reais e,
+         agora, os clientes GPON que estão de fato usando a porta. */
+      if (oltGpon && porta?.tecnologia === "GBIC/GPON") return openOltPortsManager(e);
+      openPort(e, +b.dataset.port);
+    }));
     const gerenciar = $("[data-managerports]", root);
     if (gerenciar) gerenciar.onclick = () => openPortsManager(e);
     rows();
