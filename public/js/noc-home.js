@@ -204,7 +204,7 @@
      pessoa na visão geral dele. */
   const GUIAS_TRAFEGO = new Set(["visao", "enlaces", "interfaces", "grafico", "equipamentos", "alertas"]);
   const destinoDe = (a) => {
-    if (a.alvo_tipo !== "trafego") return "/gpon-mapa.html";
+    if (a.alvo_tipo !== "trafego") return "/gpon.html";
     const guia = GUIAS_TRAFEGO.has(a.alvo_chave) ? a.alvo_chave : "alertas";
     return `/trafego.html#${guia}`;
   };

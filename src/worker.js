@@ -685,7 +685,6 @@ const SCREENS = [
   ["home", "Home", "Painel de abertura: clientes, tráfego da rede e alertas ainda não vistos", "/", 1, "home", 5, 1],
   ["network", "BACKBONE", "Mapa por localidade, equipamentos, portas e enlaces", "/topologia.html", 1, "topology", 10, 1],
   ["gpon", "GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
-  ["gpon-mapa", "Mapas GPON", "Mapa operacional somente leitura de clientes, caixas, POPs, drops e caminho ponta a ponta", "/gpon-mapa.html", 1, "pops", 16, 1],
   ["isp", "ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
@@ -841,11 +840,11 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes"],
-  analista: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
-  atendimento: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes"],
-  tecnico: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
-  logistica: ["home","network","gpon","gpon-mapa","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes"]
+  gerente: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes"],
+  analista: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
+  atendimento: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes"],
+  tecnico: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
+  logistica: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes"]
 };
 
 /* Telas que aparecem no menu de todos os setores, e não só no setor ao qual
@@ -1416,13 +1415,14 @@ async function ensureDatabaseImpl(env) {
     await runGrants(comRede.map(roleId => grantScreen(roleId, "gpon")));
   });
 
-  // O mapa operacional acompanha, uma única vez, os perfis que já enxergam a
-  // GPON. Depois disso o acesso volta a ser administrado pela Plataforma.
-  await seedOnce(db, "seed.gpon_map_screen.v1", async () => {
-    const comGpon = ((await db.prepare(`
-      SELECT rs.role_id FROM role_screens rs JOIN screens s ON s.id=rs.screen_id WHERE s.code='gpon'
-    `).all()).results || []).map(x => x.role_id);
-    await runGrants(comGpon.map(roleId => grantScreen(roleId, "gpon-mapa")));
+  // A tela "Mapas GPON" saiu: o mapa operacional já vive dentro da própria
+  // GPON, e manter duas rotas para o mesmo conteúdo só dividia o menu. O
+  // upsert do catálogo não apaga linhas, então a remoção é feita aqui uma vez.
+  await seedOnce(db, "seed.gpon_map_screen_removido.v1", async () => {
+    await db.prepare(`
+      DELETE FROM role_screens WHERE screen_id IN (SELECT id FROM screens WHERE code='gpon-mapa')
+    `).run();
+    await db.prepare(`DELETE FROM screens WHERE code='gpon-mapa'`).run();
   });
 
   // A home é a tela de abertura de todo mundo: qualquer perfil que já tenha

@@ -80,9 +80,8 @@ test("botão Atualizar força sincronização e o painel mostraEditar cadastro",
   assert.match(gponMap, /NOC\.api\("\/api\/gpon\/refresh", .*method: "POST"*/);
   assert.match(gponMap, /data-editar-cadastro/);
   assert.match(gponMap, /window\.NOC_CLIENTES/);
-  // As páginas do mapa carregam o runtime de cadastro.
+  // A tela do mapa carrega o runtime de cadastro.
   assert.match(fs.readFileSync(new URL("../public/gpon.html", import.meta.url), "utf8"), /noc-clientes\.js/);
-  assert.match(fs.readFileSync(new URL("../public/gpon-mapa.html", import.meta.url), "utf8"), /noc-clientes\.js/);
 });
 
 test("Cadastro de Cliente tem os campos solicitados", () => {

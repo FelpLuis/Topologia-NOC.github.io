@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const html = fs.readFileSync(new URL("../public/gpon.html", import.meta.url), "utf8");
-const htmlMapa = fs.readFileSync(new URL("../public/gpon-mapa.html", import.meta.url), "utf8");
 const runtime = fs.readFileSync(new URL("../public/js/noc-gpon-map.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../public/css/noc/gpon-map.css", import.meta.url), "utf8");
 
@@ -19,18 +18,16 @@ test("Topologia GPON alterna mapa e lista usando o feed operacional", () => {
   assert.match(runtime, /data-client-map/);
 });
 
-test("as duas telas do mapa compartilham o mesmo painel lateral", () => {
-  for (const pagina of [html, htmlMapa]) {
-    assert.match(pagina, /id="gponFocus"/);
-    assert.match(pagina, /id="mapSearchClear"/);
-    assert.match(pagina, /data-status="offline"/);
-    assert.match(pagina, /data-layer="drops"/);
-    assert.match(pagina, /data-side-tab="alerts"/);
-    assert.match(pagina, /id="sideToggle"/);
-    assert.match(pagina, /id="mapCount"/);
-    // As camadas deixaram de ser caixas de seleção de 13 px.
-    assert.doesNotMatch(pagina, /<input type="checkbox" data-layer/);
-  }
+test("o mapa da GPON traz o painel lateral completo", () => {
+  assert.match(html, /id="gponFocus"/);
+  assert.match(html, /id="mapSearchClear"/);
+  assert.match(html, /data-status="offline"/);
+  assert.match(html, /data-layer="drops"/);
+  assert.match(html, /data-side-tab="alerts"/);
+  assert.match(html, /id="sideToggle"/);
+  assert.match(html, /id="mapCount"/);
+  // As camadas deixaram de ser caixas de seleção de 13 px.
+  assert.doesNotMatch(html, /<input type="checkbox" data-layer/);
 });
 
 test("coordenada 0,0 não conta como localização", () => {
