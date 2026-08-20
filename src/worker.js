@@ -6478,12 +6478,18 @@ async function handleRadiusLogs(env, request, url) {
   const desdeData = desdeBruto ? new Date(desdeBruto) : null;
   const desde = desdeData && !Number.isNaN(desdeData.getTime()) ? carimboSqlGpon(desdeData) : "";
   const status = textoGpon(url.searchParams.get("status") || "", 20);
+  /* Cursor de paginação: a tela pede o log inteiro (sem prazo de retenção,
+     ao contrário do histórico GPON) em lotes de até 500, cada um pedindo o
+     que vem antes do menor id já recebido. Sem isso, "completo" parava no
+     teto de uma página só. */
+  const beforeId = Number(url.searchParams.get("before_id"));
 
   const condicoes = [], valores = [];
   if (clientId) { condicoes.push("client_id=?"); valores.push(clientId); }
   if (username) { condicoes.push("username=?"); valores.push(username); }
   if (desde) { condicoes.push("created_at>=?"); valores.push(desde); }
   if (status) { condicoes.push("status_after=?"); valores.push(status.toLowerCase()); }
+  if (Number.isFinite(beforeId) && beforeId > 0) { condicoes.push("id<?"); valores.push(beforeId); }
   const onde = condicoes.length ? `WHERE ${condicoes.join(" AND ")}` : "";
 
   const { results } = await db.prepare(`

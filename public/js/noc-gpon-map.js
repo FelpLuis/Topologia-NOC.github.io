@@ -1593,13 +1593,21 @@
   /* ---------------- log RADIUS (monitoramento da autenticação PPPoE) ----------------
 
      Botão do cabeçalho: abre um monitor das transições que o coletor grava em
-     radius_logs (GET /api/radius/logs, permissão radius.view). O status é
-     filtrado no servidor — só existem "online"/"offline" e um índice cobre
-     exatamente esse campo; cliente, usuário, serial e OLT são filtrados no
-     navegador sobre o lote já carregado, como o resto da tela faz na lista
-     lateral. Atualiza sozinho a cada 10 s, o mesmo ritmo do ciclo de coleta,
-     enquanto a janela estiver aberta — é para acompanhar autenticação ao
-     vivo, não uma consulta pontual. */
+     radius_logs (GET /api/radius/logs, permissão radius.view). Essa tabela
+     não tem prazo de retenção — ao contrário do histórico GPON —, então "log
+     completo" pede paginação de verdade: a abertura varre a tabela inteira,
+     do mais novo ao mais antigo, em lotes de 500 (o teto por requisição do
+     servidor) usando before_id como cursor. Só depois de completar essa
+     varredura a tela entra em modo de acompanhamento ao vivo, buscando a
+     cada 2 s (o ritmo pedido) só o que é mais novo que o último id visto —
+     reler a tabela inteira nesse ritmo sobrecarregaria o banco à toa.
+     Cliente, usuário, serial e OLT são filtrados no navegador sobre o que já
+     foi carregado; status vai para o servidor porque troca de filtro refaz a
+     varredura completa. */
+  const RADIUS_POLL_MS = 2000;
+  const RADIUS_PAGE = 500;
+  const RADIUS_PAGE_CAP = 400; // 400 × 500 = 200 mil eventos: só para nunca travar o navegador
+
   const radiusBadge = (status) => {
     const s = String(status || "").toLowerCase();
     return s === "online" ? "badge-ok" : s === "offline" ? "badge-danger" : "";
@@ -1620,35 +1628,87 @@
   }
 
   function abrirLogRadius() {
-    const rl = { query: "", status: "all", events: [], limit: 200, loading: false, auto: true, checkedAt: null, timer: 0 };
+    const rl = {
+      query: "", status: "all", map: new Map(), events: [],
+      loading: false, full: false, auto: true, checkedAt: null,
+      minId: null, maxId: 0, timer: 0,
+    };
+
+    function reconstruir() { rl.events = [...rl.map.values()].sort((a, b) => Number(b.id) - Number(a.id)); }
+
+    function acrescentar(lote) {
+      let novos = 0;
+      for (const ev of lote) {
+        const id = Number(ev.id);
+        if (!Number.isFinite(id) || rl.map.has(id)) continue;
+        rl.map.set(id, ev);
+        rl.maxId = Math.max(rl.maxId, id);
+        rl.minId = rl.minId === null ? id : Math.min(rl.minId, id);
+        novos++;
+      }
+      if (novos) reconstruir();
+      return novos;
+    }
 
     function render(host) {
       const body = $("#radiusLogBody", host);
       const q = rl.query.trim().toLowerCase();
       const rows = q ? rl.events.filter((ev) => [ev.username, ev.client_name, ev.client_id, ev.serial, ev.olt_id, ev.detail]
         .some((v) => String(v || "").toLowerCase().includes(q))) : rl.events;
-      body.innerHTML = rows.length ? rows.map(linhaRadiusLog).join("") : '<tr><td colspan="6" class="dim">Nenhum evento encontrado.</td></tr>';
-      $("#radiusLogCount", host).textContent = rl.events.length
-        ? `${nb(rows.length)} de ${nb(rl.events.length)} eventos • atualizado ${relativo(rl.checkedAt)}` : "Sem eventos no período.";
-      $("#radiusLogMore", host).hidden = rl.events.length < rl.limit || rl.limit >= 500;
+      body.innerHTML = rows.length ? rows.map(linhaRadiusLog).join("")
+        : `<tr><td colspan="6" class="dim">${rl.full ? "Nenhum evento encontrado." : "Carregando histórico completo…"}</td></tr>`;
+      $("#radiusLogCount", host).textContent = rl.full
+        ? `${nb(rows.length)} de ${nb(rl.events.length)} eventos • log completo de todas as OLTs • atualizado ${relativo(rl.checkedAt)}`
+        : `Carregando histórico completo… ${nb(rl.events.length)} eventos até agora`;
     }
 
-    async function carregar(host, silencioso) {
-      if (rl.loading) return;
-      rl.loading = true;
+    async function pedir(extra) {
+      const p = new URLSearchParams({ limit: String(RADIUS_PAGE), ...extra });
+      if (rl.status !== "all") p.set("status", rl.status);
+      const data = await NOC.api(`/api/radius/logs?${p.toString()}`);
+      return Array.isArray(data?.events) ? data.events : [];
+    }
+
+    async function carregarCompleto(host) {
+      rl.loading = true; rl.full = false;
+      rl.map = new Map(); rl.events = []; rl.minId = null; rl.maxId = 0;
+      render(host);
       try {
-        const params = new URLSearchParams({ limit: String(rl.limit) });
-        if (rl.status !== "all") params.set("status", rl.status);
-        const data = await NOC.api(`/api/radius/logs?${params.toString()}`);
-        rl.events = Array.isArray(data?.events) ? data.events : [];
+        let cursor = null, pagina = 0;
+        for (;;) {
+          const lote = await pedir(cursor ? { before_id: String(cursor) } : {});
+          acrescentar(lote);
+          render(host);
+          pagina++;
+          if (lote.length < RADIUS_PAGE || pagina >= RADIUS_PAGE_CAP) break;
+          cursor = Math.min(...lote.map((ev) => Number(ev.id)));
+        }
+        rl.full = true;
         rl.checkedAt = new Date().toISOString();
         render(host);
       } catch (err) {
-        if (!silencioso) toast("Não foi possível carregar o log RADIUS", { text: err.message, type: "danger", timeout: 6000 });
+        toast("Não foi possível carregar o log RADIUS", { text: err.message, type: "danger", timeout: 6000 });
         $("#radiusLogBody", host).innerHTML = `<tr><td colspan="6" class="dim">Falha ao carregar: ${esc(err.message)}</td></tr>`;
       } finally {
         rl.loading = false;
       }
+    }
+
+    /* Acompanhamento ao vivo: só pede o que é mais novo que o último id
+       conhecido. Uma folga de 2 s no `since` evita perder um evento gravado
+       no mesmo segundo do corte; o dedupe por id absorve a sobreposição. */
+    async function buscarNovos(host) {
+      if (rl.loading || !rl.full) return;
+      rl.loading = true;
+      try {
+        const ultimo = rl.map.get(rl.maxId);
+        const marca = ultimo?.created_at ? Date.parse(`${String(ultimo.created_at).replace(" ", "T")}Z`) : NaN;
+        const extra = Number.isFinite(marca) ? { since: new Date(marca - 2000).toISOString() } : {};
+        const lote = await pedir(extra);
+        if (acrescentar(lote)) render(host);
+        rl.checkedAt = new Date().toISOString();
+      } catch { /* silencioso: a próxima rodada de 2 s tenta de novo */ }
+      finally { rl.loading = false; }
     }
 
     modal({
@@ -1656,7 +1716,7 @@
       labelledBy: "radiusLogTitle",
       html: `
         <div class="modal-head">
-          <div><span class="kicker">MONITORAMENTO</span><h2 id="radiusLogTitle">Log RADIUS</h2><p class="dim" style="margin-top:4px">Autenticação PPPoE dos clientes GPON, direto do servidor RADIUS.</p></div>
+          <div><span class="kicker">MONITORAMENTO</span><h2 id="radiusLogTitle">Log RADIUS</h2><p class="dim" style="margin-top:4px">Histórico completo de autenticação PPPoE dos clientes GPON, direto do servidor RADIUS.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack" style="gap:var(--s-4)">
@@ -1671,40 +1731,38 @@
               <button class="chip" type="button" data-rstatus="offline" aria-pressed="false">Offline</button>
             </div>
             <label class="row" style="gap:var(--s-2);align-items:center;font-size:var(--fs-12);white-space:nowrap">
-              <input type="checkbox" id="radiusLogAuto" checked> Atualizar a cada 10s
+              <input type="checkbox" id="radiusLogAuto" checked> Atualizar a cada 2s
             </label>
-            <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Atualizar agora">${icon("refresh")}</button>
+            <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Recarregar histórico completo">${icon("refresh")}</button>
           </div>
           <div class="table-wrap">
             <table class="table" aria-label="Eventos de autenticação RADIUS">
               <thead><tr><th>Horário</th><th>Cliente</th><th>Usuário PPPoE</th><th>Transição</th><th>Detalhe</th><th>OLT / PON</th></tr></thead>
-              <tbody id="radiusLogBody"><tr><td colspan="6" class="dim">Carregando…</td></tr></tbody>
+              <tbody id="radiusLogBody"><tr><td colspan="6" class="dim">Carregando histórico completo…</td></tr></tbody>
             </table>
           </div>
-          <div class="row" style="justify-content:space-between;align-items:center">
+          <div class="row" style="justify-content:flex-end">
             <span class="dim mono" id="radiusLogCount" style="font-size:var(--fs-11)">—</span>
-            <button class="btn btn-sm" id="radiusLogMore" type="button" hidden>Carregar mais</button>
           </div>
         </div>
         <div class="modal-foot"><span class="dim" style="font-size:var(--fs-11)">Fonte: coletor GPON → RADIUS do IXC.</span><span class="row"><button class="btn btn-primary" data-close type="button">Fechar</button></span></div>`,
       onMount: (mountedHost) => {
-        carregar(mountedHost);
+        carregarCompleto(mountedHost);
         $("#radiusLogSearch", mountedHost).oninput = (e) => { rl.query = e.target.value; render(mountedHost); };
         $$("[data-rstatus]", mountedHost).forEach((btn) => {
           btn.onclick = () => {
+            if (rl.loading) return;
             $$("[data-rstatus]", mountedHost).forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
             rl.status = btn.dataset.rstatus;
-            rl.limit = 200;
-            carregar(mountedHost);
+            carregarCompleto(mountedHost);
           };
         });
-        $("#radiusLogRefresh", mountedHost).onclick = () => carregar(mountedHost);
-        $("#radiusLogMore", mountedHost).onclick = () => { rl.limit = Math.min(500, rl.limit + 200); carregar(mountedHost); };
+        $("#radiusLogRefresh", mountedHost).onclick = () => { if (!rl.loading) carregarCompleto(mountedHost); };
         $("#radiusLogAuto", mountedHost).onchange = (e) => { rl.auto = e.target.checked; };
         rl.timer = setInterval(() => {
           if (!document.contains(mountedHost)) { clearInterval(rl.timer); return; }
-          if (rl.auto && !rl.loading) carregar(mountedHost, true);
-        }, 10000);
+          if (rl.auto) buscarNovos(mountedHost);
+        }, RADIUS_POLL_MS);
       },
     });
   }

@@ -2944,13 +2944,17 @@
       $$("[data-remove-slot]", container).forEach(btn => {
         btn.onclick = () => {
           const slot = Number(btn.dataset.removeSlot);
+          const slotData = porSlot[slot];
+          const emUso = !!slotData?.portas.some(p => NOC.portaEmUso(equipamento.id, p.numero));
           askConfirm({
             title: `Remover Slot ${slot}?`,
-            text: `Todas as ${porSlot[slot]?.portas.length || 0} portas deste slot serão removidas.`,
-            confirmLabel: "Remover slot",
+            text: emUso
+              ? `Todas as ${slotData?.portas.length || 0} portas deste slot serão removidas, inclusive as com enlaces documentados — esses enlaces também serão apagados.`
+              : `Todas as ${slotData?.portas.length || 0} portas deste slot serão removidas.`,
+            confirmLabel: emUso ? "Remover slot e enlaces" : "Remover slot",
             danger: true,
             onConfirm: () => {
-              if (removeSlot(slot)) {
+              if (removeSlot(slot, emUso)) {
                 renderPortasOLT();
                 updateToolbar();
               }
