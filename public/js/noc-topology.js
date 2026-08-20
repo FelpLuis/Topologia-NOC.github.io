@@ -2973,14 +2973,14 @@
     }
 
     function updateToolbar() {
-      const filtroSlot = $("#oltFiltroSlot", host);
+      const filtroSlot = $("#oltFiltroSlot");
       if (filtroSlot) {
         filtroSlot.innerHTML = `<option value="">Todos os slots</option>` +
           slotsOrdenados.map(s => `<option value="${s}">Slot ${s} — ${esc(porSlot[s].tipoPlaca)}</option>`).join("");
       }
       const totalPortas = portas.length;
       const totalSlots = slotsOrdenados.length;
-      const infoEl = host.querySelector(".olt-info-count");
+      const infoEl = $(".olt-info-count");
       if (infoEl) infoEl.textContent = `${totalPortas} portas em ${totalSlots} slots`;
     }
 
