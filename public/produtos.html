@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Cadastro de Produtos</title>
+<meta name="description" content="Cadastro único de produtos (equipamentos) e o local onde cada um está instalado.">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+
+<div class="shell">
+  <aside data-sidebar></aside>
+
+  <main class="content" id="main">
+    <div class="page-head">
+      <div>
+        <span class="kicker">CADASTRO</span>
+        <h1 class="page-title">Cadastro de Produtos</h1>
+        <p class="page-sub">Cadastro único de produto (equipamento), com o local onde está instalado. É a mesma tabela que os mapas de topologia usam; portas e enlaces continuam sendo editados por lá.</p>
+      </div>
+      <div class="row wrap" style="gap:var(--s-2)">
+        <a class="btn btn-sm" href="/topologia.html">Mapa BACKBONE</a>
+        <button class="btn btn-sm btn-primary" id="btnNovoProduto" type="button"
+                data-action="produtos.create">Novo produto</button>
+      </div>
+    </div>
+
+    <section class="stack" style="gap:var(--s-4)">
+      <div class="card">
+        <div class="card-body row wrap" style="gap:var(--s-3);align-items:center">
+          <div class="input-affix grow" style="min-width:220px">
+            <span class="affix-icon" id="produtoSearchIcon"></span>
+            <input class="input" id="produtoBusca" type="search" placeholder="Buscar por nome, modelo ou serial…"
+                   aria-label="Buscar produto">
+          </div>
+          <span class="row" style="gap:var(--s-3);margin-left:auto">
+            <span class="dim" id="produtoCount" style="font-size:var(--fs-11)">—</span>
+            <button class="btn btn-ghost btn-sm" id="produtoLimpar" type="button">Limpar</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table class="table" aria-label="Produtos cadastrados">
+            <thead>
+              <tr>
+                <th>Produto</th><th>Fabricante / Modelo</th><th>Categoria</th><th>Local</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="produtoListBody">
+              <tr><td colspan="5" class="dim" style="padding:var(--s-5)">Carregando cadastros…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<nav data-mobile-nav aria-label="Navegação"></nav>
+
+<script src="/js/noc-ui.js?v=20260819-9"></script>
+<script src="/js/noc-api.js"></script>
+<script src="/js/noc-produtos.js"></script>
+</body>
+</html>

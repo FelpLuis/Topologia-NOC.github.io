@@ -15,7 +15,9 @@
   "use strict";
   const { $, $$, esc, icon, toast, modal, confirm: askConfirm } = UI;
 
-  const TIPOS = ["Cliente ISP", "POP", "Parceiro", "Operadora", "Cliente corporativo"];
+  /* O cadastro de local agora é único (tabela "locais", compartilhada com o
+     mapa BACKBONE) e restringe o tipo a estes três valores no banco. */
+  const TIPOS = ["POP", "Data Center", "ISP"];
 
   const state = { busca: "", tipo: "", foco: null };
 
@@ -36,7 +38,7 @@
   const semVinculo = () => equipamentos().filter((e) => !NOC.effectivePop(e));
 
   const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const tipoDe = (p) => p.tipo || "Cliente ISP";
+  const tipoDe = (p) => p.tipo || "POP";
 
   function visiveis() {
     const q = semAcento(state.busca);
@@ -294,7 +296,7 @@
   function formIsp(alvo) {
     const novo = !alvo;
     if (!novo && !alvo) return;
-    const p = alvo || { nome: "", tipo: "Cliente ISP", endereco: "", observacao: "", rotas: [] };
+    const p = alvo || { nome: "", tipo: "POP", endereco: "", observacao: "", rotas: [] };
     const c = novo ? null : NOC.popCoords(p);
     const permitido = novo ? podeCriar() : podeEditar();
 

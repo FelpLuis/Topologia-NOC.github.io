@@ -654,6 +654,60 @@ CREATE TABLE IF NOT EXISTS cliente_cadastro (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cliente_cadastro_ixc ON cliente_cadastro(ixc_id);
+
+/* Cadastro único de locais (POP, Data Center, ISP) e de produtos
+   (equipamentos). Substituem os arrays "pops" e "equipamentos" que viviam
+   soltos dentro do JSON de cada recorte de topologia — agora essas tabelas
+   são a fonte de dados que o mapa lê e grava; o blob por recorte guarda só
+   conexões, config, fibras e caixas. */
+CREATE TABLE IF NOT EXISTS locais (
+  id TEXT PRIMARY KEY,
+  nome TEXT NOT NULL DEFAULT '',
+  tipo TEXT NOT NULL DEFAULT 'POP' CHECK (tipo IN ('POP','Data Center','ISP')),
+  endereco TEXT NOT NULL DEFAULT '',
+  lat REAL,
+  lon REAL,
+  observacao TEXT NOT NULL DEFAULT '',
+  origem TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS produtos (
+  id TEXT PRIMARY KEY,
+  nome TEXT NOT NULL DEFAULT '',
+  fabricante TEXT NOT NULL DEFAULT '',
+  modelo TEXT NOT NULL DEFAULT '',
+  categoria TEXT NOT NULL DEFAULT '',
+  serial TEXT NOT NULL DEFAULT '',
+  local_id TEXT REFERENCES locais(id) ON DELETE SET NULL,
+  escopo TEXT NOT NULL DEFAULT 'noc' CHECK (escopo IN ('noc','isp')),
+  observacao TEXT NOT NULL DEFAULT '',
+  portas_json TEXT NOT NULL DEFAULT '[]',
+  imagem TEXT NOT NULL DEFAULT '',
+  imagem_alt TEXT NOT NULL DEFAULT '',
+  hotspots_json TEXT NOT NULL DEFAULT '',
+  layout_portas TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_produtos_local ON produtos(local_id);
+CREATE INDEX IF NOT EXISTS idx_produtos_escopo ON produtos(escopo);
+
+/* Posição no anel e rotas desenhadas são específicas de cada recorte de
+   topologia: o mesmo local físico pode aparecer em posições e traçados
+   diferentes no mapa NOC e no mapa ISP. Por isso ficam ligadas por
+   (scope,local_id), fora de "locais", que guarda só o dado cadastral. */
+CREATE TABLE IF NOT EXISTS topology_local_links (
+  scope TEXT NOT NULL,
+  local_id TEXT NOT NULL REFERENCES locais(id) ON DELETE CASCADE,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  rotas_json TEXT NOT NULL DEFAULT '[]',
+  legado_equipamentos_json TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (scope, local_id)
+);
 `;
 
 
@@ -689,6 +743,8 @@ const SCREENS = [
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
   ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
   ["clientes", "Cadastro de Cliente", "Dados, endereço, faturamento, aparelhos, ONT/ONU e acessos dos clientes", "/clientes.html", 1, "users", 19, 1],
+  ["locais", "Cadastro de Locais", "POPs, Data Centers e locais ISP — cadastro único usado pelos mapas", "/locais.html", 1, "pops", 19, 1],
+  ["produtos", "Cadastro de Produtos", "Equipamentos cadastrados e o local onde cada um está instalado", "/produtos.html", 1, "topology", 19, 1],
   ["pops", "Cadastro de POPs Backbone", "Inventário por POP, rotas ópticas e sequência do anel", "/pops.html", 0, "pops", 20, 0],
   ["dashboard", "Dashboard NOC", "Painel operacional para TV/NOC", "/dashboard.html", 1, "dashboard", 30, 1],
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
@@ -769,6 +825,16 @@ const ACTIONS = [
   ["clientes.edit", "Editar cadastro de cliente", "Alterar dados, endereço, faturamento e acessos do cliente", "clientes", "Cadastro de cliente", 30],
   ["clientes.delete", "Excluir cadastro de cliente", "Remover o cadastro de um cliente", "clientes", "Cadastro de cliente", 40],
 
+  ["locais.view", "Consultar cadastro de locais", "Ver POPs, Data Centers e locais ISP cadastrados", "locais", "Cadastro de local", 10],
+  ["locais.create", "Cadastrar local", "Criar um POP, Data Center ou local ISP", "locais", "Cadastro de local", 20],
+  ["locais.edit", "Editar cadastro de local", "Alterar dados de um local cadastrado", "locais", "Cadastro de local", 30],
+  ["locais.delete", "Excluir cadastro de local", "Remover um local cadastrado", "locais", "Cadastro de local", 40],
+
+  ["produtos.view", "Consultar cadastro de produtos", "Ver os equipamentos cadastrados e o local de cada um", "produtos", "Cadastro de produto", 10],
+  ["produtos.create", "Cadastrar produto", "Criar o cadastro de um equipamento", "produtos", "Cadastro de produto", 20],
+  ["produtos.edit", "Editar cadastro de produto", "Alterar dados e o local vinculado de um equipamento", "produtos", "Cadastro de produto", 30],
+  ["produtos.delete", "Excluir cadastro de produto", "Remover o cadastro de um equipamento", "produtos", "Cadastro de produto", 40],
+
   ["radius.view", "Consultar log RADIUS", "Ver eventos de autenticação PPPoE (login offline/online) dos clientes GPON", "gpon", "Rede", 40]
 ];
 
@@ -810,6 +876,8 @@ const ROLE_PERMISSIONS = {
     "crm.view","crm.create","crm.edit","crm.interact","crm.delete",
     "whatsapp.view","whatsapp.chat","whatsapp.supervise","whatsapp.manage",
     "clientes.view","clientes.create","clientes.edit","clientes.delete",
+    "locais.view","locais.create","locais.edit","locais.delete",
+    "produtos.view","produtos.create","produtos.edit","produtos.delete",
     "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
   ],
   analista: [
@@ -819,32 +887,38 @@ const ROLE_PERMISSIONS = {
     "pops.create","pops.edit","pops.delete","pops.order","pops.routes","pops.ring.layout",
     "fibra.edit","fibra.delete","agenda.view","agenda.create","agenda.edit","agenda.delete","audit.view",
     "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
-    "clientes.view","clientes.create","clientes.edit","radius.view"
+    "clientes.view","clientes.create","clientes.edit","radius.view",
+    "locais.view","locais.create","locais.edit","locais.delete",
+    "produtos.view","produtos.create","produtos.edit","produtos.delete"
   ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit","radius.view"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit","radius.view","locais.view","produtos.view"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
     "zabbix.view","zabbix.sync","zabbix.link","trafego.settings",
     "pops.edit","pops.order","pops.routes","pops.ring.layout","fibra.edit",
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat",
-    "clientes.view","clientes.create","clientes.edit","radius.view"
+    "clientes.view","clientes.create","clientes.edit","radius.view",
+    "locais.view","locais.create","locais.edit",
+    "produtos.view","produtos.create","produtos.edit"
   ],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
-    "clientes.view","clientes.edit","radius.view"
+    "clientes.view","clientes.edit","radius.view",
+    "locais.view","locais.create","locais.edit",
+    "produtos.view","produtos.create","produtos.edit"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes"],
-  analista: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
-  atendimento: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes"],
-  tecnico: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes"],
-  logistica: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes"]
+  gerente: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes","locais","produtos"],
+  analista: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos"],
+  atendimento: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes","locais","produtos"],
+  tecnico: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos"],
+  logistica: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes","locais","produtos"]
 };
 
 /* Telas que aparecem no menu de todos os setores, e não só no setor ao qual
@@ -1591,6 +1665,36 @@ async function ensureDatabaseImpl(env) {
     await runGrants(perfis.map(roleId => grantPermission(roleId, "trafego.settings")));
   });
 
+  // O cadastro de locais e de produtos substitui os arrays soltos dentro da
+  // topologia. Quem já podia editar a topologia (equipamentos/POPs) ganha as
+  // duas telas e o CRUD completo; os demais perfis operacionais ganham só
+  // consulta e edição, seguindo a mesma régua do cadastro de cliente.
+  await seedOnce(db, "seed.locais_produtos.v1", async () => {
+    const grants = [];
+    const comEdicaoTopologia = ((await db.prepare(`
+      SELECT role_id FROM role_permissions WHERE permission_id=?
+    `).bind(permMap["topology.edit"]).all()).results || []).map(x => x.role_id);
+    for (const roleId of comEdicaoTopologia) {
+      grants.push(
+        grantScreen(roleId, "locais"), grantScreen(roleId, "produtos"),
+        grantPermission(roleId, "locais.view"), grantPermission(roleId, "locais.create"),
+        grantPermission(roleId, "locais.edit"), grantPermission(roleId, "locais.delete"),
+        grantPermission(roleId, "produtos.view"), grantPermission(roleId, "produtos.create"),
+        grantPermission(roleId, "produtos.edit"), grantPermission(roleId, "produtos.delete")
+      );
+    }
+    const comVisaoTopologia = ((await db.prepare(`
+      SELECT role_id FROM role_permissions WHERE permission_id=?
+    `).bind(permMap["topology.view"]).all()).results || []).map(x => x.role_id);
+    for (const roleId of comVisaoTopologia) {
+      grants.push(
+        grantScreen(roleId, "locais"), grantScreen(roleId, "produtos"),
+        grantPermission(roleId, "locais.view"), grantPermission(roleId, "produtos.view")
+      );
+    }
+    await runGrants(grants);
+  });
+
   // O administrador nunca fica sem acesso: é a garantia de reabrir o sistema.
   if (roleMap.administrador) {
     await runGrants([
@@ -1652,49 +1756,163 @@ const scopeOf = (url) => {
    NOC continua com um documento de topologia sem esses campos. */
 const scopeTemFibra = (scope) => Boolean(TOPOLOGY_SCOPES[scope]?.seed.fibras);
 
-async function loadInitialTopology(env, request, scope = DEFAULT_SCOPE) {
+const LOCAL_TIPOS = new Set(["POP", "Data Center", "ISP"]);
+
+/* Semeadura única de locais/produtos a partir dos JSONs estáticos, na
+   primeira vez que o sistema é aberto num banco novo. Depois disso, quem
+   manda é o D1: os arquivos de /data continuam servindo só de carga inicial,
+   igual ao que loadInitialTopology fazia com o blob antes desta tabela
+   existir. */
+async function ensureLocaisProdutosSeed(env, request) {
+  const db = getDB(env);
+  const jaTemLocal = await db.prepare(`SELECT id FROM locais LIMIT 1`).first();
+  if (jaTemLocal) return;
+
+  const read = async (name) => {
+    const url = new URL(request.url);
+    url.pathname = `/data/${name}`;
+    url.search = "";
+    const r = await env.ASSETS.fetch(new Request(url.toString(), { method: "GET" }));
+    return r.ok ? r.json() : [];
+  };
+  const pops = await read("pops.json");
+  const equipamentosPorEscopo = [["noc", await read("equipamentos.json")], ["isp", await read("isp-equipamentos.json")]];
+
+  const statements = [];
+  pops.forEach((pop, indice) => {
+    if (!pop?.id) return;
+    statements.push(db.prepare(`
+      INSERT OR IGNORE INTO locais(id,nome,tipo,endereco,lat,lon,observacao,origem)
+      VALUES (?,?,?,?,?,?,?,'seed')
+    `).bind(String(pop.id), String(pop.nome || ""), LOCAL_TIPOS.has(pop.tipo) ? pop.tipo : "POP",
+      String(pop.endereco || ""), Number.isFinite(pop.lat) ? pop.lat : null,
+      Number.isFinite(pop.lon) ? pop.lon : null, String(pop.observacao || "")));
+    // Ambos os recortes nascem do mesmo pops.json (ver TOPOLOGY_SCOPES): a
+    // ordem e as rotas iniciais valem para os dois até serem editadas.
+    for (const scope of Object.keys(TOPOLOGY_SCOPES)) {
+      statements.push(db.prepare(`
+        INSERT OR IGNORE INTO topology_local_links(scope,local_id,ordem,rotas_json,legado_equipamentos_json)
+        VALUES (?,?,?,?,?)
+      `).bind(scope, String(pop.id), indice, JSON.stringify(pop.rotas || []), JSON.stringify(pop.equipamentos || [])));
+    }
+  });
+  for (const [escopo, lista] of equipamentosPorEscopo) {
+    for (const eq of lista) {
+      if (!eq?.id) continue;
+      statements.push(db.prepare(`
+        INSERT OR IGNORE INTO produtos(id,nome,fabricante,modelo,categoria,serial,local_id,escopo,observacao,
+          portas_json,imagem,imagem_alt,hotspots_json,layout_portas)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).bind(String(eq.id), String(eq.nome || ""), String(eq.fabricante || ""), String(eq.modelo || ""),
+        String(eq.categoria || ""), String(eq.serial || ""), eq.popId ? String(eq.popId) : null, escopo,
+        String(eq.observacao || ""), JSON.stringify(eq.portas || []), String(eq.imagem || ""),
+        String(eq.imagemAlt || ""), eq.hotspots ? JSON.stringify(eq.hotspots) : "", String(eq.layoutPortas || "")));
+    }
+  }
+  if (statements.length) await db.batch(statements);
+}
+
+function popRowParaLocal(row) {
+  return {
+    id: row.id, nome: row.nome, tipo: row.tipo, endereco: row.endereco,
+    lat: row.lat, lon: row.lon, observacao: row.observacao,
+    rotas: JSON.parse(row.rotas_json || "[]"),
+    equipamentos: JSON.parse(row.legado_equipamentos_json || "[]")
+  };
+}
+
+function produtoRowParaEquipamento(row, nomeLocalPorId) {
+  const eq = {
+    id: row.id, nome: row.nome, fabricante: row.fabricante, modelo: row.modelo,
+    categoria: row.categoria, serial: row.serial,
+    local: row.local_id ? (nomeLocalPorId.get(row.local_id) || "") : "",
+    popId: row.local_id || null, observacao: row.observacao,
+    portas: JSON.parse(row.portas_json || "[]")
+  };
+  if (row.imagem) eq.imagem = row.imagem;
+  if (row.imagem_alt) eq.imagemAlt = row.imagem_alt;
+  if (row.hotspots_json) eq.hotspots = JSON.parse(row.hotspots_json);
+  if (row.layout_portas) eq.layoutPortas = row.layout_portas;
+  return eq;
+}
+
+/* Locais são uma tabela só, compartilhada pelos dois recortes: a ordem no
+   anel e as rotas desenhadas é que são específicas de cada mapa. */
+async function montarPops(db, scope) {
+  const rows = (await db.prepare(`
+    SELECT l.*, t.ordem, t.rotas_json, t.legado_equipamentos_json
+    FROM topology_local_links t JOIN locais l ON l.id = t.local_id
+    WHERE t.scope=? ORDER BY t.ordem
+  `).bind(scope).all()).results || [];
+  return rows.map(popRowParaLocal);
+}
+
+/* O recorte ISP mostra, além dos próprios equipamentos, os equipamentos de
+   backbone (dono "noc") vinculados a um POP compartilhado — contexto visual,
+   calculado na hora em vez de duplicado numa segunda linha, já que agora só
+   existe uma linha por id na tabela produtos. */
+async function montarEquipamentos(db, scope) {
+  const proprios = (await db.prepare(`SELECT * FROM produtos WHERE escopo=?`).bind(scope).all()).results || [];
+  let linhas = proprios;
+  if (scope === "isp") {
+    const emprestados = (await db.prepare(`
+      SELECT * FROM produtos WHERE escopo='noc' AND (
+        categoria='POP' OR local_id IN (SELECT local_id FROM topology_local_links WHERE scope='isp')
+      )
+    `).all()).results || [];
+    linhas = [...emprestados, ...proprios];
+  }
+  const locaisRows = (await db.prepare(`SELECT id,nome FROM locais`).all()).results || [];
+  const nomePorId = new Map(locaisRows.map(l => [l.id, l.nome]));
+  return linhas.map(row => produtoRowParaEquipamento(row, nomePorId));
+}
+
+/* Carrega só o que ainda vive no blob por recorte: conexões, config, fibras
+   e caixas. POPs e equipamentos vêm de locais/produtos (ver montarPops e
+   montarEquipamentos), já semeadas por ensureLocaisProdutosSeed. */
+async function loadInitialTopologyBlob(env, request, scope = DEFAULT_SCOPE) {
   const recorte = TOPOLOGY_SCOPES[scope] || TOPOLOGY_SCOPES[DEFAULT_SCOPE];
   const read = async (name) => {
     const url = new URL(request.url);
     url.pathname = `/data/${name}`;
     url.search = "";
-    const r = await env.ASSETS.fetch(new Request(url.toString(), {method:"GET"}));
+    const r = await env.ASSETS.fetch(new Request(url.toString(), { method: "GET" }));
     if (!r.ok) throw new Error(`Não foi possível carregar /data/${name}`);
     return r.json();
   };
-  const inicial = {config:{...DEFAULT_TOPOLOGY_CONFIG, ...recorte.config}};
-  for (const [campo, arquivo] of Object.entries(recorte.seed)) inicial[campo] = await read(arquivo);
+  const inicial = { config: { ...DEFAULT_TOPOLOGY_CONFIG, ...recorte.config } };
+  inicial.conexoes = await read(recorte.seed.conexoes);
+  if (recorte.seed.fibras) inicial.fibras = await read(recorte.seed.fibras);
+  if (recorte.seed.caixas) inicial.caixas = await read(recorte.seed.caixas);
 
-  /* O recorte ISP também deve conter os equipamentos de backbone vinculados aos POPs
-     compartilhados, para que a topologia ISP mostre a estrutura completa (POPs + equipamentos). */
+  /* O recorte ISP também mostra os enlaces entre os equipamentos de backbone
+     vinculados aos POPs compartilhados — mesma ideia de montarEquipamentos,
+     mas aqui é só a carga inicial: depois de criado, o documento do ISP vive
+     por conta própria, como sempre foi. */
   if (scope === "isp") {
-    const nocEquipamentos = await read("equipamentos.json");
+    const db = getDB(env);
+    const nocPopEquipIds = new Set(((await db.prepare(`
+      SELECT id FROM produtos WHERE escopo='noc' AND (
+        categoria='POP' OR local_id IN (SELECT local_id FROM topology_local_links WHERE scope='isp')
+      )
+    `).all()).results || []).map(r => r.id));
     const nocConexoes = await read("conexoes.json");
-    const popIds = new Set(inicial.pops.map(p => p.id));
-    const popNames = new Set(inicial.pops.map(p => p.nome.toLowerCase()));
-    const nocPopEquipamentos = nocEquipamentos.filter(e => {
-      if (e.categoria === "POP") return true;
-      if (e.local && (popIds.has(e.local) || popNames.has(String(e.local).toLowerCase()))) return true;
-      return false;
-    });
-    const nocPopEquipIds = new Set(nocPopEquipamentos.map(e => e.id));
     const nocPopConexoes = nocConexoes.filter(c => nocPopEquipIds.has(c.origem) || nocPopEquipIds.has(c.destino));
-    inicial.equipamentos = [...nocPopEquipamentos, ...inicial.equipamentos];
     inicial.conexoes = [...nocPopConexoes, ...inicial.conexoes];
   }
-
   return inicial;
 }
 
 async function ensureTopologyState(env, request, scope = DEFAULT_SCOPE) {
   const db = getDB(env);
+  await ensureLocaisProdutosSeed(env, request);
   // A rede principal continua na tabela de sempre, com a linha única id=1.
   const ler = scope === DEFAULT_SCOPE
     ? () => db.prepare(`SELECT * FROM topology_state WHERE id=1`).first()
     : () => db.prepare(`SELECT * FROM topology_scopes WHERE scope=?`).bind(scope).first();
   const row = await ler();
   if (row) return row;
-  const initial = await loadInitialTopology(env, request, scope);
+  const initial = await loadInitialTopologyBlob(env, request, scope);
   await (scope === DEFAULT_SCOPE
     ? db.prepare(`
         INSERT INTO topology_state(id,data_json,version,updated_at,updated_by)
@@ -4972,6 +5190,102 @@ function requiredTopologyActions(before, after) {
   return need;
 }
 
+/* Grava em locais/topology_local_links a diferença de pops entre before/after.
+   O local só some da tabela quando nenhum recorte mais o referencia no anel
+   e nenhum produto está instalado nele — remover de um mapa não pode apagar
+   o cadastro que o outro mapa ainda usa. */
+async function persistPops(db, scope, before, after, userId) {
+  const antesPorId = new Map((before.pops || []).map(p => [String(p.id), p]));
+  const depoisPorId = new Map((after.pops || []).map(p => [String(p.id), p]));
+  const statements = [];
+  after.pops.forEach((pop, indice) => {
+    if (!pop?.id) return;
+    const id = String(pop.id);
+    const tipo = LOCAL_TIPOS.has(pop.tipo) ? pop.tipo : "POP";
+    statements.push(db.prepare(`
+      INSERT INTO locais(id,nome,tipo,endereco,lat,lon,observacao,origem,updated_by)
+      VALUES (?,?,?,?,?,?,?,'topologia',?)
+      ON CONFLICT(id) DO UPDATE SET
+        nome=excluded.nome, tipo=excluded.tipo, endereco=excluded.endereco,
+        lat=excluded.lat, lon=excluded.lon, observacao=excluded.observacao,
+        updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP
+    `).bind(id, String(pop.nome || ""), tipo, String(pop.endereco || ""),
+      Number.isFinite(pop.lat) ? pop.lat : null, Number.isFinite(pop.lon) ? pop.lon : null,
+      String(pop.observacao || ""), userId));
+    statements.push(db.prepare(`
+      INSERT INTO topology_local_links(scope,local_id,ordem,rotas_json,legado_equipamentos_json)
+      VALUES (?,?,?,?,?)
+      ON CONFLICT(scope,local_id) DO UPDATE SET
+        ordem=excluded.ordem, rotas_json=excluded.rotas_json, legado_equipamentos_json=excluded.legado_equipamentos_json
+    `).bind(scope, id, indice, JSON.stringify(pop.rotas || []), JSON.stringify(pop.equipamentos || [])));
+  });
+  const removidos = [...antesPorId.keys()].filter(id => !depoisPorId.has(id));
+  for (const id of removidos) statements.push(db.prepare(`DELETE FROM topology_local_links WHERE scope=? AND local_id=?`).bind(scope, id));
+  if (statements.length) await db.batch(statements);
+  for (const id of removidos) {
+    const aindaLigado = await db.prepare(`SELECT 1 FROM topology_local_links WHERE local_id=? LIMIT 1`).bind(id).first();
+    const aindaInstalado = !aindaLigado && await db.prepare(`SELECT 1 FROM produtos WHERE local_id=? LIMIT 1`).bind(id).first();
+    if (!aindaLigado && !aindaInstalado) await db.prepare(`DELETE FROM locais WHERE id=?`).bind(id).run();
+  }
+}
+
+/* Grava em produtos a diferença de equipamentos entre before/after. Um
+   equipamento cujo dono (escopo) é o outro recorte é "emprestado" — mostrado
+   como contexto (ver montarEquipamentos) mas só a tela dona pode alterá-lo
+   ou apagá-lo; uma gravação vinda do outro recorte ignora essas linhas em
+   silêncio, para uma tela não corromper o cadastro real da outra. */
+async function persistEquipamentos(db, scope, before, after, userId) {
+  const antesPorId = new Map((before.equipamentos || []).map(e => [String(e.id), e]));
+  const depoisPorId = new Map((after.equipamentos || []).map(e => [String(e.id), e]));
+  const idsExistentes = [...new Set([...antesPorId.keys(), ...depoisPorId.keys()])];
+  const donoPorId = new Map();
+  if (idsExistentes.length) {
+    const placeholders = idsExistentes.map(() => "?").join(",");
+    const rows = (await db.prepare(`SELECT id,escopo FROM produtos WHERE id IN (${placeholders})`).bind(...idsExistentes).all()).results || [];
+    for (const r of rows) donoPorId.set(r.id, r.escopo);
+  }
+  const statements = [];
+  for (const [id, eq] of depoisPorId) {
+    const dono = donoPorId.get(id);
+    if (dono && dono !== scope) continue;
+    const antes = antesPorId.get(id);
+    if (antes && JSON.stringify(antes) === JSON.stringify(eq)) continue;
+    statements.push(db.prepare(`
+      INSERT INTO produtos(id,nome,fabricante,modelo,categoria,serial,local_id,escopo,observacao,
+        portas_json,imagem,imagem_alt,hotspots_json,layout_portas,updated_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        nome=excluded.nome, fabricante=excluded.fabricante, modelo=excluded.modelo, categoria=excluded.categoria,
+        serial=excluded.serial, local_id=excluded.local_id, observacao=excluded.observacao,
+        portas_json=excluded.portas_json, imagem=excluded.imagem, imagem_alt=excluded.imagem_alt,
+        hotspots_json=excluded.hotspots_json, layout_portas=excluded.layout_portas,
+        updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP
+    `).bind(id, String(eq.nome || ""), String(eq.fabricante || ""), String(eq.modelo || ""), String(eq.categoria || ""),
+      String(eq.serial || ""), eq.popId ? String(eq.popId) : null, scope, String(eq.observacao || ""),
+      JSON.stringify(Array.isArray(eq.portas) ? eq.portas : []), String(eq.imagem || ""), String(eq.imagemAlt || ""),
+      eq.hotspots ? JSON.stringify(eq.hotspots) : "", String(eq.layoutPortas || ""), userId));
+  }
+  const removidos = [];
+  for (const id of antesPorId.keys()) {
+    if (depoisPorId.has(id)) continue;
+    const dono = donoPorId.get(id);
+    if (dono && dono !== scope) continue;
+    removidos.push(id);
+  }
+  for (const id of removidos) {
+    statements.push(
+      db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_target_provisioning WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+      db.prepare(`DELETE FROM device_connection_targets WHERE device_id=?`).bind(id),
+      db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
+      db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id),
+      db.prepare(`DELETE FROM produtos WHERE id=?`).bind(id)
+    );
+  }
+  if (statements.length) await db.batch(statements);
+}
+
 async function handleTopology(env,request) {
   const method=request.method;
   const scope=scopeOf(new URL(request.url));
@@ -4986,7 +5300,12 @@ async function handleTopology(env,request) {
   if(!permissoes.has(acaoBase))return json({error:"FORBIDDEN",permission:acaoBase},403);
   const db=getDB(env);
   const row=await ensureTopologyState(env,request,scope);
-  const before=JSON.parse(row.data_json);
+  // pops/equipamentos vêm de locais/produtos; o blob guarda só o resto.
+  const before={
+    ...JSON.parse(row.data_json),
+    pops: await montarPops(db, scope),
+    equipamentos: await montarEquipamentos(db, scope)
+  };
   if(method==="GET"){
     return json({...before,scope,version:row.version,updated_at:row.updated_at,updated_by:row.updated_by});
   }
@@ -5028,26 +5347,22 @@ async function handleTopology(env,request) {
     return json({error:"FORBIDDEN",permission:faltando[0],permissions:faltando},403);
   }
   const nextVersion=Number(row.version||0)+1;
-  // A atualização e a limpeza das credenciais órfãs formam uma única operação
-  // atômica no D1: ou tudo é gravado, ou nada é alterado.
-  const topologyWrites = [
-    scope===DEFAULT_SCOPE
-      ? db.prepare(`
-          UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1
-        `).bind(JSON.stringify(after),nextVersion,user.id)
-      : db.prepare(`
-          UPDATE topology_scopes SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE scope=?
-        `).bind(JSON.stringify(after),nextVersion,user.id,scope),
-    ...diff.equipamentos.removed.flatMap(id => [
-      db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
-      db.prepare(`DELETE FROM device_target_provisioning WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
-      db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
-      db.prepare(`DELETE FROM device_connection_targets WHERE device_id=?`).bind(id),
-      db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
-      db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id)
-    ])
-  ];
-  await db.batch(topologyWrites);
+  // O blob guarda só conexões/config/fibras/caixas; pops e equipamentos vão
+  // para locais/produtos por baixo, respeitando quem é dono de cada um.
+  const blobAfter={
+    conexoes:after.conexoes,
+    config:after.config,
+    ...(after.fibras!==undefined?{fibras:after.fibras}:{}),
+    ...(after.caixas!==undefined?{caixas:after.caixas}:{})
+  };
+  await persistEquipamentos(db, scope, before, after, user.id);
+  await persistPops(db, scope, before, after, user.id);
+  await (scope===DEFAULT_SCOPE
+    ? db.prepare(`UPDATE topology_state SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE id=1`)
+        .bind(JSON.stringify(blobAfter),nextVersion,user.id)
+    : db.prepare(`UPDATE topology_scopes SET data_json=?,version=?,updated_at=CURRENT_TIMESTAMP,updated_by=? WHERE scope=?`)
+        .bind(JSON.stringify(blobAfter),nextVersion,user.id,scope)
+  ).run();
   await audit(env,request,user,"TOPOLOGY_UPDATE","topology",scope,before,after,{
     scope,version_before:row.version,version_after:nextVersion,diff,
     before_summary:topologySummary(before),after_summary:topologySummary(after)
@@ -6032,6 +6347,233 @@ async function handleClientesDelete(env, request, clientId) {
   return json({ ok: true });
 }
 
+/* ---- Cadastro de locais (POP / Data Center / ISP) ----
+   Fonte única de dados de local: o mapa de topologia lê e grava aqui por
+   baixo do mesmo contrato de /api/topology (ver handleTopology). Esta rota
+   é o CRUD direto, para quem administra o cadastro sem passar pelo mapa.
+   LOCAL_TIPOS está definida mais acima, junto da semeadura da topologia. */
+
+function normalizarLocalBody(body) {
+  const numOuNulo = (v) => {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    nome: String(body?.nome ?? "").trim().slice(0, 200),
+    tipo: LOCAL_TIPOS.has(body?.tipo) ? body.tipo : "POP",
+    endereco: String(body?.endereco ?? "").trim().slice(0, 200),
+    lat: numOuNulo(body?.lat),
+    lon: numOuNulo(body?.lon),
+    observacao: String(body?.observacao ?? "").trim().slice(0, 2000)
+  };
+}
+
+async function handleLocaisList(env, request, url) {
+  const gate = await requirePermission(env, request, "locais.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const q = String(url.searchParams.get("q") || "").trim().slice(0, 80).toLowerCase();
+  const tipo = LOCAL_TIPOS.has(url.searchParams.get("tipo")) ? url.searchParams.get("tipo") : null;
+  const condicoes = [], valores = [];
+  if (q) { condicoes.push(`(lower(nome) LIKE ? OR lower(endereco) LIKE ?)`); valores.push(`%${q}%`, `%${q}%`); }
+  if (tipo) { condicoes.push(`tipo=?`); valores.push(tipo); }
+  const where = condicoes.length ? `WHERE ${condicoes.join(" AND ")}` : "";
+  const rows = (await db.prepare(`SELECT * FROM locais ${where} ORDER BY nome`).bind(...valores).all()).results || [];
+  return json({ registros: rows, total: rows.length });
+}
+
+async function handleLocaisCreate(env, request) {
+  const gate = await requirePermission(env, request, "locais.create");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body = {};
+  try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const dados = normalizarLocalBody(body);
+  if (!dados.nome) return json({ error: "NOME_OBRIGATORIO" }, 400);
+  const id = String(body.id || "").trim().slice(0, 120) || `local-${Date.now()}`;
+  const existe = await db.prepare(`SELECT id FROM locais WHERE id=?`).bind(id).first();
+  if (existe) return json({ error: "LOCAL_JA_CADASTRADO" }, 409);
+  await db.prepare(`
+    INSERT INTO locais(id,nome,tipo,endereco,lat,lon,observacao,origem,updated_by)
+    VALUES (?,?,?,?,?,?,?,'manual',?)
+  `).bind(id, dados.nome, dados.tipo, dados.endereco, dados.lat, dados.lon, dados.observacao, gate.user.id).run();
+  const depois = await db.prepare(`SELECT * FROM locais WHERE id=?`).bind(id).first();
+  await audit(env, request, gate.user, "LOCAL_CREATE", "locais", id, null, depois);
+  return json({ ok: true, local: depois }, 201);
+}
+
+async function handleLocaisGet(env, request, id) {
+  const gate = await requirePermission(env, request, "locais.view");
+  if (gate.response) return gate.response;
+  const row = await getDB(env).prepare(`SELECT * FROM locais WHERE id=?`).bind(id).first();
+  if (!row) return json({ error: "LOCAL_NAO_ENCONTRADO" }, 404);
+  return json(row);
+}
+
+async function handleLocaisUpdate(env, request, id) {
+  const gate = await requirePermission(env, request, "locais.edit");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM locais WHERE id=?`).bind(id).first();
+  if (!antes) return json({ error: "LOCAL_NAO_ENCONTRADO" }, 404);
+  let body = {};
+  try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const dados = normalizarLocalBody(body);
+  if (!dados.nome) return json({ error: "NOME_OBRIGATORIO" }, 400);
+  await db.prepare(`
+    UPDATE locais SET nome=?,tipo=?,endereco=?,lat=?,lon=?,observacao=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(dados.nome, dados.tipo, dados.endereco, dados.lat, dados.lon, dados.observacao, gate.user.id, id).run();
+  const depois = await db.prepare(`SELECT * FROM locais WHERE id=?`).bind(id).first();
+  await audit(env, request, gate.user, "LOCAL_UPDATE", "locais", id, antes, depois);
+  return json({ ok: true, local: depois });
+}
+
+async function handleLocaisDelete(env, request, id) {
+  const gate = await requirePermission(env, request, "locais.delete");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM locais WHERE id=?`).bind(id).first();
+  if (!antes) return json({ error: "LOCAL_NAO_ENCONTRADO" }, 404);
+  await db.prepare(`DELETE FROM locais WHERE id=?`).bind(id).run();
+  await audit(env, request, gate.user, "LOCAL_DELETE", "locais", id, antes, null);
+  return json({ ok: true });
+}
+
+/* ---- Cadastro de produtos (equipamentos) ----
+   Item físico único, vinculável a um local. Mesma ideia do cadastro de
+   locais: é a fonte de dados que o mapa de topologia usa por baixo do
+   contrato de /api/topology, e também um CRUD direto para administração. */
+const PRODUTO_ESCOPOS = new Set(["noc", "isp"]);
+
+function normalizarProdutoBody(body) {
+  const portas = (Array.isArray(body?.portas) ? body.portas : []).slice(0, 200).map((p, i) => ({
+    numero: Number.isFinite(Number(p?.numero)) ? Number(p.numero) : i + 1,
+    capacidade: String(p?.capacidade ?? "").trim().slice(0, 60),
+    tipo: String(p?.tipo ?? "").trim().slice(0, 60),
+    status: String(p?.status ?? "livre").trim().slice(0, 30),
+    ...(p?.nome !== undefined ? { nome: String(p.nome).trim().slice(0, 80) } : {}),
+    ...(p?.descricao !== undefined ? { descricao: String(p.descricao).trim().slice(0, 200) } : {}),
+    ...(p?.observacao !== undefined ? { observacao: String(p.observacao).trim().slice(0, 200) } : {}),
+    ...(p?.slot !== undefined ? { slot: Number(p.slot) } : {}),
+    ...(p?.subslot !== undefined ? { subslot: Number(p.subslot) } : {}),
+    ...(p?.tipoPlaca !== undefined ? { tipoPlaca: String(p.tipoPlaca).trim().slice(0, 40) } : {}),
+    ...(p?.tecnologia !== undefined ? { tecnologia: String(p.tecnologia).trim().slice(0, 40) } : {})
+  }));
+  return {
+    nome: String(body?.nome ?? "").trim().slice(0, 200),
+    fabricante: String(body?.fabricante ?? "").trim().slice(0, 120),
+    modelo: String(body?.modelo ?? "").trim().slice(0, 200),
+    categoria: String(body?.categoria ?? "").trim().slice(0, 120),
+    serial: String(body?.serial ?? "").trim().slice(0, 120),
+    local_id: body?.local_id ? String(body.local_id).trim().slice(0, 120) : null,
+    escopo: PRODUTO_ESCOPOS.has(body?.escopo) ? body.escopo : "noc",
+    observacao: String(body?.observacao ?? "").trim().slice(0, 2000),
+    portas_json: JSON.stringify(portas),
+    imagem: String(body?.imagem ?? "").trim().slice(0, 300),
+    imagem_alt: String(body?.imagemAlt ?? "").trim().slice(0, 300),
+    hotspots_json: body?.hotspots ? JSON.stringify(body.hotspots).slice(0, 2000) : "",
+    layout_portas: String(body?.layoutPortas ?? "").trim().slice(0, 60)
+  };
+}
+
+async function validarLocalId(db, localId) {
+  if (!localId) return true;
+  return !!(await db.prepare(`SELECT id FROM locais WHERE id=?`).bind(localId).first());
+}
+
+async function handleProdutosList(env, request, url) {
+  const gate = await requirePermission(env, request, "produtos.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const q = String(url.searchParams.get("q") || "").trim().slice(0, 80).toLowerCase();
+  const localId = url.searchParams.get("local_id");
+  const condicoes = [], valores = [];
+  if (q) {
+    condicoes.push(`(lower(nome) LIKE ? OR lower(modelo) LIKE ? OR lower(serial) LIKE ?)`);
+    valores.push(`%${q}%`, `%${q}%`, `%${q}%`);
+  }
+  if (localId) { condicoes.push(`local_id=?`); valores.push(localId); }
+  const where = condicoes.length ? `WHERE ${condicoes.join(" AND ")}` : "";
+  const rows = (await db.prepare(`SELECT * FROM produtos ${where} ORDER BY nome`).bind(...valores).all()).results || [];
+  return json({ registros: rows, total: rows.length });
+}
+
+async function handleProdutosCreate(env, request) {
+  const gate = await requirePermission(env, request, "produtos.create");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body = {};
+  try { body = await readJson(request, 32768); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const dados = normalizarProdutoBody(body);
+  if (!dados.nome) return json({ error: "NOME_OBRIGATORIO" }, 400);
+  if (!(await validarLocalId(db, dados.local_id))) return json({ error: "LOCAL_NAO_ENCONTRADO" }, 400);
+  const id = String(body.id || "").trim().slice(0, 120) || `produto-${Date.now()}`;
+  const existe = await db.prepare(`SELECT id FROM produtos WHERE id=?`).bind(id).first();
+  if (existe) return json({ error: "PRODUTO_JA_CADASTRADO" }, 409);
+  await db.prepare(`
+    INSERT INTO produtos(id,nome,fabricante,modelo,categoria,serial,local_id,escopo,observacao,
+      portas_json,imagem,imagem_alt,hotspots_json,layout_portas,updated_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(id, dados.nome, dados.fabricante, dados.modelo, dados.categoria, dados.serial, dados.local_id,
+    dados.escopo, dados.observacao, dados.portas_json, dados.imagem, dados.imagem_alt,
+    dados.hotspots_json, dados.layout_portas, gate.user.id).run();
+  const depois = await db.prepare(`SELECT * FROM produtos WHERE id=?`).bind(id).first();
+  await audit(env, request, gate.user, "PRODUTO_CREATE", "produtos", id, null, depois);
+  return json({ ok: true, produto: depois }, 201);
+}
+
+async function handleProdutosGet(env, request, id) {
+  const gate = await requirePermission(env, request, "produtos.view");
+  if (gate.response) return gate.response;
+  const row = await getDB(env).prepare(`SELECT * FROM produtos WHERE id=?`).bind(id).first();
+  if (!row) return json({ error: "PRODUTO_NAO_ENCONTRADO" }, 404);
+  return json(row);
+}
+
+async function handleProdutosUpdate(env, request, id) {
+  const gate = await requirePermission(env, request, "produtos.edit");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM produtos WHERE id=?`).bind(id).first();
+  if (!antes) return json({ error: "PRODUTO_NAO_ENCONTRADO" }, 404);
+  let body = {};
+  try { body = await readJson(request, 32768); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const dados = normalizarProdutoBody(body);
+  if (!dados.nome) return json({ error: "NOME_OBRIGATORIO" }, 400);
+  if (!(await validarLocalId(db, dados.local_id))) return json({ error: "LOCAL_NAO_ENCONTRADO" }, 400);
+  await db.prepare(`
+    UPDATE produtos SET nome=?,fabricante=?,modelo=?,categoria=?,serial=?,local_id=?,observacao=?,
+      portas_json=?,imagem=?,imagem_alt=?,hotspots_json=?,layout_portas=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
+    WHERE id=?
+  `).bind(dados.nome, dados.fabricante, dados.modelo, dados.categoria, dados.serial, dados.local_id,
+    dados.observacao, dados.portas_json, dados.imagem, dados.imagem_alt, dados.hotspots_json,
+    dados.layout_portas, gate.user.id, id).run();
+  const depois = await db.prepare(`SELECT * FROM produtos WHERE id=?`).bind(id).first();
+  await audit(env, request, gate.user, "PRODUTO_UPDATE", "produtos", id, antes, depois);
+  return json({ ok: true, produto: depois });
+}
+
+async function handleProdutosDelete(env, request, id) {
+  const gate = await requirePermission(env, request, "produtos.delete");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const antes = await db.prepare(`SELECT * FROM produtos WHERE id=?`).bind(id).first();
+  if (!antes) return json({ error: "PRODUTO_NAO_ENCONTRADO" }, 404);
+  await db.batch([
+    db.prepare(`DELETE FROM device_target_credentials WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+    db.prepare(`DELETE FROM device_target_provisioning WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+    db.prepare(`DELETE FROM device_connection_acl WHERE target_id IN (SELECT id FROM device_connection_targets WHERE device_id=?)`).bind(id),
+    db.prepare(`DELETE FROM device_connection_targets WHERE device_id=?`).bind(id),
+    db.prepare(`DELETE FROM device_credentials WHERE device_id=?`).bind(id),
+    db.prepare(`DELETE FROM device_connections WHERE device_id=?`).bind(id),
+    db.prepare(`DELETE FROM produtos WHERE id=?`).bind(id)
+  ]);
+  await audit(env, request, gate.user, "PRODUTO_DELETE", "produtos", id, antes, null);
+  return json({ ok: true });
+}
+
 async function loadGponSnapshot(env) {
   const db = getDB(env);
   const meta = await db.prepare(`SELECT version,chunk_count FROM gpon_snapshot_state WHERE id=1`).first();
@@ -6825,6 +7367,32 @@ export default {
           if (request.method === "GET") return await handleClientesGet(env, request, clientId);
           if (request.method === "PUT") return await handleClientesUpdate(env, request, clientId);
           if (request.method === "DELETE") return await handleClientesDelete(env, request, clientId);
+        }
+
+        if (url.pathname === "/api/locais" && request.method === "GET")
+          return await handleLocaisList(env, request, url);
+        if (url.pathname === "/api/locais" && request.method === "POST")
+          return await handleLocaisCreate(env, request);
+
+        const localMatch = url.pathname.match(/^\/api\/locais\/([^/]+)$/);
+        if (localMatch) {
+          const localId = decodeURIComponent(localMatch[1]);
+          if (request.method === "GET") return await handleLocaisGet(env, request, localId);
+          if (request.method === "PUT") return await handleLocaisUpdate(env, request, localId);
+          if (request.method === "DELETE") return await handleLocaisDelete(env, request, localId);
+        }
+
+        if (url.pathname === "/api/produtos" && request.method === "GET")
+          return await handleProdutosList(env, request, url);
+        if (url.pathname === "/api/produtos" && request.method === "POST")
+          return await handleProdutosCreate(env, request);
+
+        const produtoMatch = url.pathname.match(/^\/api\/produtos\/([^/]+)$/);
+        if (produtoMatch) {
+          const produtoId = decodeURIComponent(produtoMatch[1]);
+          if (request.method === "GET") return await handleProdutosGet(env, request, produtoId);
+          if (request.method === "PUT") return await handleProdutosUpdate(env, request, produtoId);
+          if (request.method === "DELETE") return await handleProdutosDelete(env, request, produtoId);
         }
 
         if (url.pathname === "/api/trafego/settings" && (request.method === "GET" || request.method === "PUT"))
