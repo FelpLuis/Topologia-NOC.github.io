@@ -1681,7 +1681,7 @@
           render(host);
           pagina++;
           if (lote.length < RADIUS_PAGE || pagina >= RADIUS_PAGE_CAP) break;
-          cursor = Math.min(...lote.map((ev) => Number(ev.id)));
+          cursor = lote.reduce((menor, ev) => Math.min(menor, Number(ev.id)), Infinity);
         }
         rl.full = true;
         rl.checkedAt = new Date().toISOString();

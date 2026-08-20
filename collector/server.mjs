@@ -130,6 +130,37 @@ const radiusStatus = (value) => {
 const radiusOnline = (entry) => radiusStatus(entry && typeof entry === "object" ? entry.online : entry);
 const radiusDados = (entry) => (entry && typeof entry === "object" ? conexaoNoCliente(entry) : null);
 
+/* Compara a leitura nova do Radius com a anterior, login a login, e devolve
+   só quem mudou de fato — é o que vira linha em radius_logs. `enviarRadiusLogs`
+   já existia pronta para receber esses eventos; faltava só quem os gerasse: a
+   função nunca era chamada, então o log ficava sempre vazio mesmo com o
+   Radius respondendo normalmente. O primeiro ciclo não gera avalanche de
+   eventos porque `state.radius` já chega semeado pelo cadastro (syncFull),
+   então "anterior" nunca é um mapa vazio de verdade. */
+function radiusTransicoes(anterior, atual) {
+  const eventos = [];
+  for (const [login, entrada] of atual) {
+    const depois = radiusOnline(entrada);
+    if (!depois) continue; // leitura sem "S"/"N" reconhecível: nada para comparar
+    const antes = radiusOnline(anterior?.get(login));
+    if (antes === depois) continue;
+    const cliente = state.clients.find((c) => String(c.ixc_login_id || "") === login);
+    eventos.push({
+      client_id: cliente?.id || `ixc-${login}`,
+      ixc_login_id: login,
+      username: entrada?.username || cliente?.username || "",
+      status_before: antes || "",
+      status_after: depois,
+      detail: depois === "online" ? "Autenticação PPPoE aceita" : "PPPoE desconectado",
+      olt_id: cliente?.olt_id || "",
+      onu_index: cliente?.onu_index || "",
+      serial: cliente?.serial || "",
+      client_name: cliente?.name || "",
+    });
+  }
+  return eventos;
+}
+
 /* ---- ingestão de logs RADIUS no Worker ----
 
    Cada ciclo rápido do Radius compara o status anterior com o novo: quando
@@ -298,10 +329,16 @@ async function syncRadius() {
   if (state.radiusSyncing || state.syncing || !state.clients.length || !state.hasSnapshot) return state.radiusSyncing;
   const inicio = Date.now();
   state.radiusSyncing = (async () => {
+    const anterior = state.radius;
     state.radius = await collectIxcLoginStatuses(config.ixc);
     state.radiusCycleMs = Date.now() - inicio;
     state.radiusSyncedAt = new Date().toISOString();
+    const eventos = radiusTransicoes(anterior, state.radius);
     await aplicarEstado("ixc");
+    if (eventos.length) {
+      try { await enviarRadiusLogs(eventos); limparErro("RADIUS log"); }
+      catch (error) { registrarErro("RADIUS log", error?.message || String(error)); }
+    }
     limparErro("IXC Radius");
   })().catch((error) => {
     registrarErro("IXC Radius", error?.message || String(error));
