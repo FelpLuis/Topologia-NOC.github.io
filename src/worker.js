@@ -741,7 +741,7 @@ const SCREENS = [
   ["gpon", "GPON", "Mapa da topologia da rede GPON", "/gpon.html", 1, "topology", 15, 1],
   ["isp", "ISP", "Mapa por cliente ISP, equipamentos, portas e enlaces", "/isp.html", 1, "topology", 16, 1],
   ["isp-mapa", "Mapa de fibra ISP", "Clientes ISP e caminhos de fibra sobre o mapa geográfico", "/isp-mapa.html", 1, "pops", 17, 1],
-  ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 1, "users", 18, 1],
+  ["isp-cadastro", "Cadastro de POPs ISP", "Cadastrar, editar e excluir clientes ISP e os equipamentos deles", "/isp-cadastro.html", 0, "users", 18, 0],
   ["clientes", "Cadastro de Cliente", "Dados, endereço, faturamento, aparelhos, ONT/ONU e acessos dos clientes", "/clientes.html", 1, "users", 19, 1],
   ["locais", "Cadastro de Locais", "POPs, Data Centers e locais ISP — cadastro único usado pelos mapas", "/locais.html", 1, "pops", 19, 1],
   ["produtos", "Cadastro de Produtos", "Equipamentos cadastrados e o local onde cada um está instalado", "/produtos.html", 1, "topology", 19, 1],
@@ -1596,6 +1596,13 @@ async function ensureDatabaseImpl(env) {
   // catálogo não grava `active`, então a desativação é feita aqui uma vez.
   await seedOnce(db, "seed.pops_screen_hidden.v1", async () => {
     await db.prepare(`UPDATE screens SET active=0, nav=0 WHERE code='pops'`).run();
+  });
+
+  // O Cadastro de ISP standalone virou duplicata da aba "Lista" da Topologia
+  // ISP (mesmo noc-isp-cadastro.js, embutido em isp.html). O upsert do
+  // catálogo não grava `active`, então a desativação é feita aqui uma vez.
+  await seedOnce(db, "seed.isp_cadastro_screen_hidden.v1", async () => {
+    await db.prepare(`UPDATE screens SET active=0, nav=0 WHERE code='isp-cadastro'`).run();
   });
 
   // Acesso remoto foi adicionado depois do catálogo inicial. Replica uma vez

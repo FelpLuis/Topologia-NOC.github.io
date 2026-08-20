@@ -31,9 +31,9 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/data/equipamentos.json`: cadastro dos equipamentos e portas.
 - `public/data/conexoes.json`: ligações entre equipamentos.
 - `public/data/pops.json`: cadastro dos POPs.
-- `public/isp.html`, `public/isp-mapa.html`, `public/isp-cadastro.html`: as três telas da **PARTE ISP**.
+- `public/isp.html`, `public/isp-mapa.html`: as duas telas ativas da **PARTE ISP** (`public/isp-cadastro.html` existe no repositório, mas a tela foi desativada por duplicar a aba "Lista" de `isp.html`).
 - `public/js/noc-fibra.js`: camada de caminhos de fibra do mapa ISP.
-- `public/js/noc-isp-cadastro.js`: cadastro de ISPs e dos equipamentos deles.
+- `public/js/noc-isp-cadastro.js`: cadastro de ISPs e dos equipamentos deles, usado pela aba "Lista" de `isp.html`.
 - `public/data/isp-*.json`: sementes da PARTE ISP, geradas do KMZ do backbone.
 - `backend/scripts/kmz-import.mjs`: importador do KMZ para essas sementes.
 - `src/worker.js`: API do sistema e intermediária entre a página e o Zabbix.
@@ -632,9 +632,8 @@ tem um grupo só dela, com duas telas:
 
 | Tela | Rota | O que faz |
 | --- | --- | --- |
-| **Topologia ISP** | `/isp.html` | igual à topologia do NOC — Esquema, Mapa OSM e Lista, equipamentos, portas e enlaces, só que sobre os clientes ISP |
+| **Topologia ISP** | `/isp.html` | igual à topologia do NOC — Esquema, Mapa OSM e Lista, equipamentos, portas e enlaces, só que sobre os clientes ISP. A aba **Lista** é o cadastro: criar, editar e **excluir** o cliente e os equipamentos dele, em um lugar só |
 | **Mapa de fibra ISP** | `/isp-mapa.html` | o mesmo mapa geográfico, mais os caminhos de fibra e as caixas ópticas |
-| **Cadastro de ISP** | `/isp-cadastro.html` | criar, editar e **excluir** o cliente e os equipamentos dele, em um lugar só |
 
 ### O recorte no servidor
 
