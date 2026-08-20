@@ -849,26 +849,34 @@ table.table { width: 100%; border-collapse: collapse; }
    Busca da barra: um ícone que se abre em campo
    O campo permanente de 460px tomava a largura que o menu agora usa e, no
    celular, sobrava dele um retângulo de 60px onde ninguém digitava.
-   --------------------------------------------------------- */
+   O campo aberto flutua por cima da barra (`position: absolute`) em vez de
+   empurrar a largura da caixa de busca: preso ao fluxo, ele encolhia o menu
+   na hora de abrir e tirava setores inteiros (ex.: SAC) para a gaveta, só
+   para devolvê-los ao fechar — o menu piscava a cada busca. */
 .appbar-search { position: relative; display: flex; align-items: center; flex: none; }
 .appbar-search-input {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 5;
   width: 0;
   height: 38px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: var(--r-full);
-  background: rgba(7, 7, 66, .32);
+  background: rgba(7, 7, 66, .92);
+  box-shadow: var(--shadow-2);
   color: #fff;
   font: inherit;
   font-size: var(--fs-13);
   opacity: 0;
   pointer-events: none;
   transition: width var(--dur-2) var(--ease), opacity var(--dur-2) var(--ease),
-              padding var(--dur-2) var(--ease), margin var(--dur-2) var(--ease);
+              padding var(--dur-2) var(--ease);
 }
 .appbar-search.is-open .appbar-search-input {
   width: min(320px, 52vw);
-  margin-left: var(--s-2);
   padding: 0 var(--s-4);
   border-color: rgba(106, 223, 255, .28);
   opacity: 1;
