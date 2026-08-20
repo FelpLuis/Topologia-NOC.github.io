@@ -1941,6 +1941,10 @@
           paint();
         };
         paint();
+        /* OLT: os dados de ONU/PON (nome, status, sinal) vêm do mesmo feed do
+           Mapa GPON, não da topologia. A primeira pintura usa o que já estiver
+           em cache (às vezes nada) e repinta sozinha quando o fetch volta. */
+        if (isOLT(e)) ensureGponClients().then(() => { if (document.body.contains(body)) repaintDevice?.(); });
         /* Tráfego ao vivo: enquanto a gaveta está aberta, a leitura sai do
            Zabbix em tempo real (realtime=1) e a gaveta repinta as portas a
            cada leitura. O inscrito se remove sozinho quando o host — e com ele
@@ -2137,7 +2141,7 @@
   const portasDisponiveis = async (destId, manter) => {
     const d = await findDeviceCrossScope(destId);
     if (!d) return [];
-    return (d.portas || []).filter((x) => !NOC.portaEmUso(destId, x.numero) || Number(x.numero) === Number(manter));
+    return (d.portas || []).filter((x) => !portaOcupadaView(d, x) || Number(x.numero) === Number(manter));
   };
 
   const STATUS_PORTA = [["livre", "Livre"], ["conectada", "Conectada"], ["reservada", "Reservada"], ["manutencao", "Manutenção"]];
@@ -2204,9 +2208,13 @@
                   </div>
                 </div>` : ""}
               <div class="kv">
-                <div><label>Status</label><strong style="font-size:var(--fs-14)">${esc(p.status || (c ? "conectada" : "livre"))}</strong></div>
+                <div><label>Status</label><strong style="font-size:var(--fs-14)">${esc(
+                  p.status === "reservada" ? "Reservada"
+                  : p.status === "manutencao" ? "Em manutenção"
+                  : portaOcupadaView(e, p) ? "Em uso" : "Livre"
+                )}</strong></div>
                 <div><label>Capacidade</label><strong style="font-size:var(--fs-14)">${esc(p.capacidade || "A confirmar")}</strong></div>
-                ${p.nome ? `<div><label>Interface</label><strong class="mono" style="font-size:var(--fs-13)">${esc(p.nome)}</strong></div>` : ""}
+                ${p.nome ? `<div><label>Nome / onde vai</label><strong class="mono" style="font-size:var(--fs-13)">${esc(p.nome)}</strong></div>` : ""}
               </div>
               ${p.descricao ? `<p class="muted mono" style="font-size:var(--fs-12)">
                 Descrição no equipamento: ${esc(p.descricao)}</p>` : ""}
@@ -2253,6 +2261,8 @@
                     ${STATUS_PORTA.map(([v, l]) => `<option value="${v}" ${(p.status || "livre") === v ? "selected" : ""}>${l}</option>`).join("")}
                   </select></div>
               </div>
+              <div class="field"><label for="pNome">Nome da porta (de onde vem, para onde vai)</label>
+                <input class="input" id="pNome" value="${esc(p.nome || "")}" placeholder="Ex.: Cliente XPTO, Uplink Provedor Y, Backup ISP…"></div>
               <div class="field"><label for="pObs">Observação da porta</label>
                 <input class="input" id="pObs" value="${esc(p.observacao || "")}" placeholder="Cliente, circuito, ordem de serviço…"></div>
 
@@ -2294,6 +2304,15 @@
           const form = $("#portForm", body);
           const selDest = $("#pDest", form);
           const selPorta = $("#pDestPorta", form);
+          const inputNome = $("#pNome", form);
+          const selStatus = $("#pStatus", form);
+          /* Digitar um nome já documenta a porta como ocupada — sem isso o
+             operador precisaria também trocar o status manualmente toda vez.
+             Só mexe quando o status ainda está "livre": não sobrescreve uma
+             escolha deliberada de reservada/manutenção. */
+          inputNome.addEventListener("input", () => {
+            if (inputNome.value.trim() && selStatus.value === "livre") selStatus.value = "conectada";
+          });
 
           const pintarPortas = async (selecionada) => {
             // a porta do enlace atual só continua ofertada no próprio equipamento remoto
@@ -2360,10 +2379,16 @@
 
             p.capacidade = $("#pCap", form).value.trim();
             p.tipo = $("#pTipo", form).value.trim();
+            p.nome = $("#pNome", form).value.trim();
             p.observacao = $("#pObs", form).value.trim();
             const escolhido = $("#pStatus", form).value;
             const temEnlace = !!NOC.portConnection(e.id, numero);
-            p.status = temEnlace ? "conectada" : (escolhido === "conectada" ? "livre" : escolhido);
+            /* "Conectada" sem enlace formal só é aceita quando a porta tem nome
+               documentado (cliente, circuito etc.) — sem isso, viraria um status
+               fantasma que nada mais na tela sabe explicar, e por isso volta
+               para "livre". */
+            p.status = temEnlace ? "conectada"
+              : (escolhido === "conectada" && !p.nome ? "livre" : escolhido);
 
             const ok = await persist(
               remover ? "TOPOLOGY_DELETE_CONEXAO" : "TOPOLOGY_UPDATE_PORTA",
@@ -2402,7 +2427,7 @@
 
   function connTab(e) {
     const list = NOC.connectionsOf(e.id);
-    const livres = (e.portas || []).filter((p) => !NOC.portaEmUso(e.id, p.numero));
+    const livres = (e.portas || []).filter((p) => !portaOcupadaView(e, p));
     const cabeca = `
       <div class="row-between wrap" style="gap:var(--s-3);margin-bottom:var(--s-4)">
         <div><span class="kicker">Vínculos deste equipamento</span>
@@ -2447,7 +2472,7 @@
     if (novo) novo.onclick = () => {
       /* Documentar um enlace é preencher uma porta livre: a primeira delas já
          abre em modo de edição, com o seletor do outro lado pronto. */
-      const livre = (e.portas || []).find((p) => !NOC.portaEmUso(e.id, p.numero));
+      const livre = (e.portas || []).find((p) => !portaOcupadaView(e, p));
       if (!livre) return toast("Sem porta livre", { text: "Cadastre ou libere uma porta antes de documentar o enlace.", type: "warn" });
       openPort(e, Number(livre.numero), { edit: true });
     };
@@ -2934,8 +2959,8 @@
       const idx = portas.findIndex(p => p.slot === slot && p.subslot === subslot);
       if (idx === -1) return false;
       const porta = portas[idx];
-      if (NOC.portaEmUso(equipamento.id, porta.numero)) {
-        toast("Porta em uso", { text: "Não é possível remover uma porta com enlace documentado.", type: "warn" });
+      if (portaOcupadaView(equipamento, porta)) {
+        toast("Porta em uso", { text: "Não é possível remover uma porta com enlace documentado ou com clientes GPON ativos.", type: "warn" });
         return false;
       }
       portas.splice(idx, 1);
@@ -2954,7 +2979,7 @@
     function removeSlot(slot, force = false) {
       const slotData = porSlot[slot];
       if (!slotData) return false;
-      const emUso = slotData.portas.some(p => NOC.portaEmUso(equipamento.id, p.numero));
+      const emUso = slotData.portas.some(p => portaOcupadaView(equipamento, p));
       if (emUso && !force) {
         toast("Slot em uso", { text: "Este slot tem portas com enlaces documentados. Use 'Forçar remoção' para apagar mesmo assim.", type: "warn" });
         return false;
@@ -2981,14 +3006,15 @@
       container.innerHTML = slotsOrdenados.map(slot => {
         const slotData = porSlot[slot];
         const portaHtml = slotData.portas.map(p => {
-          const emUso = NOC.portaEmUso(equipamento.id, p.numero);
+          const onus = p.tecnologia === "GBIC/GPON" ? onusDaPorta(equipamento, p) : [];
+          const emUso = NOC.portaEmUso(equipamento.id, p.numero) || onus.length > 0;
           const statusClass = emUso ? "status-em-uso" : (p.status === "livre" ? "status-livre" : "status-" + (p.status || "livre"));
           return `
             <div class="olt-porta ${statusClass}" data-numero="${p.numero}" data-slot="${slot}" data-subslot="${p.subslot}">
               <span class="porta-numero">P${p.subslot}</span>
               <span class="porta-tipo">${p.tipo}</span>
               <span class="porta-capacidade">${p.capacidade}</span>
-              <span class="porta-status">${emUso ? "Em uso" : (p.status || "livre")}</span>
+              <span class="porta-status">${emUso ? "Em uso" : (p.status || "livre")}${onus.length ? ` · ${onus.length} ONU${onus.length > 1 ? "s" : ""}` : ""}</span>
               ${!emUso ? `<button class="btn btn-ghost btn-icon btn-xs porta-remove" data-slot="${slot}" data-subslot="${p.subslot}" title="Remover porta" aria-label="Remover porta">${icon("trash")}</button>` : ""}
               <input type="hidden" name="porta_${p.numero}_capacidade" value="${esc(p.capacidade)}">
               <input type="hidden" name="porta_${p.numero}_tipo" value="${esc(p.tipo)}">
@@ -3053,11 +3079,11 @@
         btn.onclick = () => {
           const slot = Number(btn.dataset.removeSlot);
           const slotData = porSlot[slot];
-          const emUso = !!slotData?.portas.some(p => NOC.portaEmUso(equipamento.id, p.numero));
+          const emUso = !!slotData?.portas.some(p => portaOcupadaView(equipamento, p));
           askConfirm({
             title: `Remover Slot ${slot}?`,
             text: emUso
-              ? `Todas as ${slotData?.portas.length || 0} portas deste slot serão removidas, inclusive as com enlaces documentados — esses enlaces também serão apagados.`
+              ? `Todas as ${slotData?.portas.length || 0} portas deste slot serão removidas, inclusive as com enlaces documentados ou clientes GPON ativos — os enlaces documentados também serão apagados (os clientes GPON continuam existindo na OLT; só a documentação some).`
               : `Todas as ${slotData?.portas.length || 0} portas deste slot serão removidas.`,
             confirmLabel: emUso ? "Remover slot e enlaces" : "Remover slot",
             danger: true,
@@ -3118,6 +3144,7 @@
                 <option value="livre">Livre</option>
                 <option value="em_uso">Em uso</option>
               </select>
+              <button class="btn btn-sm btn-ghost" type="button" id="oltAtualizarGpon" title="Reler os dados de ONU/PON">${icon("refresh")} Dados do GPON</button>
             </div>
             <div class="row wrap" style="gap:var(--s-2);margin-top:var(--s-2)">
               <button class="btn btn-sm" type="button" id="oltAddSlotLinha">${icon("plus")} Slot Linha (GBIC/GPON)</button>
@@ -3131,6 +3158,7 @@
               <span class="legenda-item"><i class="dot" style="background:var(--yellow-400)"></i>Em uso</span>
             </div>
           </div>
+          <div id="oltPonBanner"></div>
           <div class="olt-portas-grid" id="oltPortasContainer"></div>
         </div>
         <div class="modal-foot">
@@ -3164,7 +3192,7 @@
             }
             if (mostrar && slotSel) mostrar = String(porta.slot) === slotSel;
             if (mostrar && statusSel) {
-              const emUso = NOC.portaEmUso(equipamento.id, porta.numero);
+              const emUso = portaOcupadaView(equipamento, porta);
               if (statusSel === "livre") mostrar = !emUso;
               if (statusSel === "em_uso") mostrar = emUso;
             }
@@ -3176,6 +3204,36 @@
             slotEl.style.display = visiveis > 0 ? "" : "none";
           });
         }
+
+        /* Aponta PONs que o coletor está vendo na OLT (clientes reais) mas que
+           ainda não têm slot/porta cadastrados aqui — sinal de que o desenho
+           manual dos slots ficou desatualizado em relação ao hardware. */
+        function renderPonBanner() {
+          const banner = $("#oltPonBanner", host);
+          if (!banner) return;
+          const clientesOlt = (gponClientsCache || []).filter(c => String(c.olt_id) === String(equipamento.id));
+          if (!clientesOlt.length) { banner.innerHTML = ""; return; }
+          const semCorrespondencia = new Map();
+          for (const c of clientesOlt) {
+            if (portas.some(p => ponCasaComPorta(c.pon, p))) continue;
+            const chave = c.pon || "(PON não informada)";
+            semCorrespondencia.set(chave, (semCorrespondencia.get(chave) || 0) + 1);
+          }
+          if (!semCorrespondencia.size) { banner.innerHTML = ""; return; }
+          const exemplos = [...semCorrespondencia.entries()].slice(0, 6)
+            .map(([pon, n]) => `<span class="badge mono">${esc(pon)} · ${n}</span>`).join(" ");
+          banner.innerHTML = `
+            <div class="alert alert-warn" style="animation:none;margin-bottom:var(--s-3)">${icon("alert")}
+              <span>${semCorrespondencia.size} PON(s) com clientes reais no GPON sem porta cadastrada aqui. Adicione o slot/porta correspondente para ver nome e sinal dessas ONUs: ${exemplos}</span></div>`;
+        }
+        renderPonBanner();
+        ensureGponClients().then(() => { renderPortasOLT(); renderPonBanner(); });
+        $("#oltAtualizarGpon", host).onclick = async () => {
+          await ensureGponClients(true);
+          renderPortasOLT();
+          renderPonBanner();
+          toast("Dados do GPON atualizados", { type: "ok" });
+        };
 
         busca.addEventListener("input", aplicarFiltros);
         filtroSlot.addEventListener("change", aplicarFiltros);
@@ -3228,11 +3286,55 @@
     const porta = equipamento.portas.find(p => p.numero === numeroPorta);
     if (!porta) return;
 
-    const emUso = NOC.portaEmUso(equipamento.id, numeroPorta);
+    const isGponLinha = porta.tecnologia === "GBIC/GPON";
+    const onus = () => (isGponLinha ? onusDaPorta(equipamento, porta) : []);
+    const emUso = () => NOC.portaEmUso(equipamento.id, numeroPorta) || onus().length > 0;
 
     const hiddenCap = elemento.querySelector(`input[name="porta_${numeroPorta}_capacidade"]`);
     const hiddenTipo = elemento.querySelector(`input[name="porta_${numeroPorta}_tipo"]`);
     const hiddenStatus = elemento.querySelector(`input[name="porta_${numeroPorta}_status"]`);
+
+    /* Tabela de clientes GPON: só existe para portas de linha GPON, é somente
+       leitura (o dado vem do coletor, não da topologia) e usa as mesmas regras
+       de "online" e "sinal crítico" do Mapa GPON para não divergir de tela
+       para tela. */
+    function onusSectionHtml() {
+      if (!isGponLinha) return "";
+      const lista = onus();
+      if (!lista.length) {
+        return `<div class="alert alert-info" style="margin-top:var(--s-3);animation:none">${icon("info")}
+          <span>Nenhum cliente localizado nesta PON nos dados do GPON.</span></div>`;
+      }
+      const rx = lista.map((c) => Number(c.rx_power)).filter(Number.isFinite);
+      const resumoSinal = rx.length
+        ? `<p class="dim mono" style="font-size:var(--fs-11);margin:var(--s-2) 0 0">
+             RX mínimo ${Math.min(...rx)} dBm • médio ${(rx.reduce((a, b) => a + b, 0) / rx.length).toFixed(1)} dBm • máximo ${Math.max(...rx)} dBm</p>`
+        : "";
+      return `
+        <hr>
+        <div class="row-between" style="align-items:center">
+          <h3 style="font-size:var(--fs-13)">${icon("link")} Clientes nesta porta (dados do GPON)</h3>
+          <span class="badge badge-ok">${lista.length} ONU${lista.length > 1 ? "s" : ""}</span>
+        </div>
+        <div class="table-wrap" style="max-height:220px;margin-top:var(--s-2)">
+          <table class="table">
+            <thead><tr><th>Cliente</th><th>Serial</th><th>Status</th><th>RX óptico</th></tr></thead>
+            <tbody>
+              ${lista.map((c) => `<tr>
+                <td>${esc(c.name || "Cliente sem nome")}</td>
+                <td class="mono dim">${esc(c.serial || c.onu_index || "—")}</td>
+                <td>${onuOnline(c)
+                  ? '<span class="badge badge-ok"><i class="dot dot-ok"></i>Online</span>'
+                  : '<span class="badge badge-danger"><i class="dot dot-danger"></i>Offline</span>'}</td>
+                <td class="mono" style="${sinalCritico(c) ? "color:var(--danger-text)" : ""}">
+                  ${Number.isFinite(Number(c.rx_power)) ? `${esc(c.rx_power)} dBm` : "—"}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        ${resumoSinal}
+        <p style="margin-top:var(--s-2)"><a class="btn btn-ghost btn-sm" href="/gpon.html" target="_blank" rel="noopener">${icon("arrowRight")} Abrir Mapa GPON</a></p>`;
+    }
 
     modal({
       labelledBy: "oltPortaEditarTitulo",
@@ -3240,7 +3342,7 @@
         <div class="modal-head">
           <div><span class="kicker">${icon("port")} Porta OLT</span>
             <h2 id="oltPortaEditarTitulo" style="margin-top:6px">${esc(equipamento.nome)} — Slot ${porta.slot} / Porta ${porta.subslot} (Nº ${porta.numero})</h2>
-            ${emUso ? '<span class="badge badge-warn" style="margin-top:6px">Porta em uso — capacidade e tipo bloqueados</span>' : ""}</div>
+            <span id="oltPortaEmUsoBadge">${emUso() ? '<span class="badge badge-warn" style="margin-top:6px">Porta em uso — capacidade e tipo bloqueados</span>' : ""}</span></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body">
@@ -3253,9 +3355,9 @@
             </div>
             <div class="row" style="gap:var(--s-3)">
               <div class="field grow"><label for="oltPortaCapacidade">Capacidade</label>
-                <input class="input" id="oltPortaCapacidade" value="${esc(porta.capacidade)}" ${emUso ? "readonly" : ""}></div>
+                <input class="input" id="oltPortaCapacidade" value="${esc(porta.capacidade)}" ${emUso() ? "readonly" : ""}></div>
               <div class="field grow"><label for="oltPortaTipo">Tipo de conector</label>
-                <select class="select" id="oltPortaTipo" ${emUso ? "disabled" : ""}>
+                <select class="select" id="oltPortaTipo" ${emUso() ? "disabled" : ""}>
                   <option value="SFP" ${porta.tipo === "SFP" ? "selected" : ""}>SFP</option>
                   <option value="SFP+" ${porta.tipo === "SFP+" ? "selected" : ""}>SFP+</option>
                   <option value="QSFP28" ${porta.tipo === "QSFP28" ? "selected" : ""}>QSFP28</option>
@@ -3270,16 +3372,31 @@
                 <option value="manutencao" ${porta.status === "manutencao" ? "selected" : ""}>Em manutenção</option>
                 <option value="bloqueada" ${porta.status === "bloqueada" ? "selected" : ""}>Bloqueada</option>
               </select></div>
-            ${emUso ? '<div class="alert alert-info" style="margin-top:var(--s-2)"><small>Esta porta possui enlace documentado. Capacidade e tipo não podem ser alterados para preservar a integridade da topologia.</small></div>' : ""}
+            ${emUso() ? '<div class="alert alert-info" style="margin-top:var(--s-2)"><small>Esta porta possui enlace documentado ou clientes GPON ativos. Capacidade e tipo não podem ser alterados para preservar a integridade da topologia.</small></div>' : ""}
           </form>
+          <div id="oltPortaOnus">${onusSectionHtml()}</div>
         </div>
         <div class="modal-foot">
           <span class="row">
             <button class="btn" data-close type="button">Cancelar</button>
-            <button class="btn btn-primary" type="button" id="oltPortaSalvar" ${emUso ? "" : ""}>Salvar</button>
+            <button class="btn btn-primary" type="button" id="oltPortaSalvar">Salvar</button>
           </span>
         </div>`,
       onMount: (host, close) => {
+        /* A primeira pintura pode acontecer antes do feed do GPON voltar
+           (se o operador clicou na porta rápido demais); quando resolver,
+           a seção de ONUs e o aviso de "em uso" se atualizam sozinhos. */
+        ensureGponClients().then(() => {
+          if (!document.body.contains(host)) return;
+          $("#oltPortaOnus", host).innerHTML = onusSectionHtml();
+          $("#oltPortaEmUsoBadge", host).innerHTML = emUso()
+            ? '<span class="badge badge-warn" style="margin-top:6px">Porta em uso — capacidade e tipo bloqueados</span>' : "";
+          if (emUso()) {
+            $("#oltPortaCapacidade", host).readOnly = true;
+            $("#oltPortaTipo", host).disabled = true;
+          }
+        });
+
         $("#oltPortaSalvar", host).onclick = () => {
           const capInput = $("#oltPortaCapacidade", host);
           const tipoInput = $("#oltPortaTipo", host);
