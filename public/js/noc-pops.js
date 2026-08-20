@@ -31,6 +31,16 @@
     return [...map.values()];
   }
 
+  /* Enlaces documentados que atravessam dois POPs. A rota do anel sai do campo
+     `rotas` do cadastro e não conhece porta nenhuma, então o tráfego dela é a
+     soma dos enlaces entre os equipamentos das duas pontas. */
+  function conexoesEntrePops(a, b) {
+    const idsDe = (id) => new Set(NOC.devicesOfPop(id).map((e) => e.id));
+    const A = idsDe(a), B = idsDe(b);
+    return (NOC.data()?.conexoes || []).filter((c) =>
+      (A.has(c.origem) && B.has(c.destino)) || (B.has(c.origem) && A.has(c.destino)));
+  }
+
   /* ---------------- gravação com desfazer ---------------- */
   async function persist(reason, mensagem, undo) {
     try {
@@ -612,6 +622,7 @@
     const pos = {};
     pops.forEach((p, i) => (pos[p.id] = ringPos(p, i, pops.length)));
     const links = ringLinks();
+    const medidas = [];   // alimenta a legenda de utilização
 
     host.innerHTML = `
       <svg class="ring-svg ${state.editRing ? "is-editing" : ""}" viewBox="0 0 ${RING.w} ${RING.h}"
@@ -620,10 +631,20 @@
         ${links.map((l) => {
           const a = pos[l.a], b = pos[l.b];
           if (!a || !b) return "";
+          /* A cor passou a ser a utilização, na mesma escala dos outros mapas.
+             O tracejado continua dizendo se a rota é aérea ou subterrânea: são
+             duas informações diferentes e cada uma tem o seu canal. */
           const sub = l.tipos.has("Subterrânea");
-          return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
-            stroke="${sub ? "var(--purple-400)" : "var(--cyan-400)"}" stroke-width="1.6"
-            stroke-dasharray="${sub ? "6 5" : "0"}" opacity=".7"></line>`;
+          const carga = TRAF.doConjunto(conexoesEntrePops(l.a, l.b));
+          medidas.push(carga);
+          const nome = `${nomeExibicao(NOC.popById(l.a) || {})} ↔ ${nomeExibicao(NOC.popById(l.b) || {})}`;
+          const t = TRAF.atributos(carga, nome, `Rota ${[...l.tipos].join(" e ").toLowerCase()}`);
+          return `<line class="ring-link is-traf ${carga.estado === "offline" ? "is-down" : ""}"
+              x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+              stroke="${t.cor}" stroke-dasharray="${sub ? "6 5" : "0"}"
+              data-traf="${esc(t.dica)}"><title>${esc(t.title)}</title></line>
+            <line class="traf-alvo" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"
+              stroke-width="9" data-traf="${esc(t.dica)}"></line>`;
         }).join("")}
         ${pops.map((p) => {
           const q = pos[p.id];

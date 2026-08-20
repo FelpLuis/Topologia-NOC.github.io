@@ -3385,6 +3385,47 @@ async function handleZabbixLinks(env, request) {
   return json(buildLinksPayload(await loadInventoryFromDb(getDB(env))));
 }
 
+/**
+ * GET /api/zabbix/utilizacao — carga por interface, no recorte mínimo que os
+ * mapas precisam para pintar os enlaces.
+ *
+ * Os mapas releem isto de minuto em minuto enquanto estão abertos, então a
+ * resposta traz só as cinco colunas que viram cor e dica — nada de alias,
+ * nome de host ou erros, que os painéis já buscam em outro lugar. A chave é o
+ * par (hostid, if_index): é o mesmo par que a projeção do inventário grava em
+ * cada porta da topologia, e é por ele que a linha do mapa acha sua medida.
+ *
+ * A leitura é do espelho no D1, não do Zabbix: o cron reescreve o espelho a
+ * cada 5 minutos, e uma tela aberta não deve virar carga na API do Zabbix.
+ */
+async function handleZabbixUtilizacao(env, request) {
+  const gate = await requirePermission(env, request, "zabbix.view");
+  if (gate.response) return gate.response;
+
+  const db = getDB(env);
+  const [linhas, ultima] = await Promise.all([
+    db.prepare(`
+      SELECT hostid, if_index, oper_status, speed_bps, in_bps, out_bps
+      FROM zabbix_interfaces
+    `).all(),
+    db.prepare(`
+      SELECT finished_at FROM zabbix_sync_runs WHERE ok=1 ORDER BY id DESC LIMIT 1
+    `).first()
+  ]);
+
+  return json({
+    coletado_em: ultima?.finished_at || null,
+    interfaces: (linhas.results || []).map(i => ({
+      hostid: String(i.hostid),
+      if_index: Number(i.if_index),
+      oper_status: i.oper_status === null || i.oper_status === undefined ? null : Number(i.oper_status),
+      speed_bps: Number(i.speed_bps) || 0,
+      in_bps: Number(i.in_bps) || 0,
+      out_bps: Number(i.out_bps) || 0
+    }))
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Painel de tráfego
 // ---------------------------------------------------------------------------
@@ -3734,6 +3775,9 @@ async function handleZabbix(request, env, url) {
 
   if (url.pathname === "/api/zabbix/links" && request.method === "GET")
     return handleZabbixLinks(env, request);
+
+  if (url.pathname === "/api/zabbix/utilizacao" && request.method === "GET")
+    return handleZabbixUtilizacao(env, request);
 
   if (url.pathname === "/api/zabbix/topology/apply" && request.method === "POST")
     return handleZabbixApplyTopology(env, request);
@@ -5393,6 +5437,11 @@ const pontosGpon = (valor) => (Array.isArray(valor) ? valor : []).map(p => ({
    forma conforme o ciclo que chegou por último. Os nomes toleram as variações
    do IXC pelo mesmo motivo que o resto do normalizador — a coluna muda de nome
    entre versões da base. */
+/* Rótulo que a normalização usa quando nenhuma fonte informou o nome. É texto
+   de tela, não dado: gravá-lo no cadastro faria uma coleta sem nome apagar o
+   nome verdadeiro do cliente e substituí-lo por este rótulo. */
+const GPON_SEM_NOME = "Cliente sem nome";
+
 const CONEXAO_GPON = ["ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"];
 const conexaoGpon = (c) => ({
   ip: String(primeiroGpon(c?.ip, c?.ip_address, c?.endereco_ip, "")),
@@ -5410,7 +5459,7 @@ function normalizarClienteGpon(c, i) {
   const caminho = primeiroGpon(c?.path, c?.caminho, c?.end_to_end, []);
   return {
     id: String(primeiroGpon(c?.id, c?.client_id, c?.onu_id, c?.serial, c?.sn, `cliente-${i + 1}`)),
-    name: String(primeiroGpon(c?.name, c?.nome, c?.customer_name, c?.cliente, c?.username, "Cliente sem nome")),
+    name: String(primeiroGpon(c?.name, c?.nome, c?.customer_name, c?.cliente, c?.username, GPON_SEM_NOME)),
     username: String(primeiroGpon(c?.username, c?.login, c?.pppoe, "")),
     status: String(primeiroGpon(c?.status, c?.state, c?.estado, c?.online === false ? "offline" : "online")).toLowerCase(),
     serial: String(primeiroGpon(c?.serial, c?.sn, c?.onu_serial, "")),
@@ -5655,7 +5704,7 @@ export function candidatosCadastroGpon(clients) {
     porCodigo.set(codigo, {
       client_id: codigo.slice(0, 120),
       ixc_id: codigo.slice(0, 120),
-      nome: textoGpon(cliente.name, 200),
+      nome: textoGpon(cliente.name === GPON_SEM_NOME ? "" : cliente.name, 200),
       endereco: textoGpon(local.endereco, 200),
       bairro: textoGpon(local.bairro, 200),
       cidade: textoGpon(local.cidade, 200),
@@ -5670,12 +5719,39 @@ export function candidatosCadastroGpon(clients) {
   return [...porCodigo.values()];
 }
 
-async function importarCadastroGpon(db, clients) {
+/* Campos que pertencem ao IXC: são os que a coleta escreve e os que ela pode
+   reescrever quando o ERP muda. Todo o resto do cadastro — telefone, plano,
+   senhas, aparelhos, observação — nasce e vive só na plataforma, e nenhuma
+   coleta encosta neles. */
+const CLIENTE_CAMPOS_IXC = ["nome", "endereco", "bairro", "cidade", "lat", "lon",
+  "ont_serial", "ont_modelo", "ip_gerencia", "login_pppoe"];
+
+/* O cadastro é "espelho do IXC" enquanto nenhum humano o tiver corrigido.
+
+   `origem='ixc'` diz que a linha nasceu da coleta; `updated_by IS NULL` diz que
+   ninguém a editou desde então — a importação não preenche esse campo e a
+   edição manual sempre preenche. Só a combinação dos dois libera a
+   ressincronização: assim, corrigir a coordenada no ERP chega à tela sozinho,
+   e a correção que o operador digitou à mão continua ganhando da coleta. */
+const ESPELHA_IXC = `origem='ixc' AND updated_by IS NULL`;
+
+/* Uma coleta em que o IXC devolveu o campo vazio não pode apagar o que já
+   estava lá: ausência de dado não é ordem de apagar. Só valor preenchido
+   sobrescreve. */
+const mudouCampo = (novo, atual) => {
+  if (novo === null || novo === undefined || novo === "") return false;
+  if (typeof novo === "number") return Number(atual) !== novo;
+  return String(atual ?? "") !== String(novo);
+};
+
+export async function importarCadastroGpon(db, clients) {
   const candidatos = candidatosCadastroGpon(clients);
-  if (!candidatos.length) return { criados: 0, pendentes: 0 };
-  const jaCadastrados = new Set(((await db.prepare(`SELECT client_id FROM cliente_cadastro`).all()).results || [])
-    .map((row) => String(row.client_id)));
-  const novos = candidatos.filter((c) => !jaCadastrados.has(c.client_id));
+  if (!candidatos.length) return { criados: 0, pendentes: 0, atualizados: 0 };
+  const existentes = new Map(((await db.prepare(
+    `SELECT client_id,origem,updated_by,${CLIENTE_CAMPOS_IXC.join(",")} FROM cliente_cadastro`
+  ).all()).results || []).map((row) => [String(row.client_id), row]));
+
+  const novos = candidatos.filter((c) => !existentes.has(c.client_id));
   const lote = novos.slice(0, CLIENTE_IMPORT_MAX_PER_RUN);
   for (let i = 0; i < lote.length; i += CLIENTE_IMPORT_BATCH) {
     await db.batch(lote.slice(i, i + CLIENTE_IMPORT_BATCH).map((c) => db.prepare(`
@@ -5686,7 +5762,29 @@ async function importarCadastroGpon(db, clients) {
     `).bind(c.client_id, c.ixc_id, c.nome, c.endereco, c.bairro, c.cidade, c.lat, c.lon,
       c.ont_serial, c.ont_modelo, c.ip_gerencia, c.login_pppoe)));
   }
-  return { criados: lote.length, pendentes: novos.length - lote.length };
+
+  /* A comparação acontece em memória para que um parque estável custe zero
+     escrita: sem ela, cada ciclo completo reescreveria a base inteira a cada
+     dez minutos para não mudar nada. Só os campos que de fato mudaram entram
+     no SET — e como o `mudouCampo` já descartou o valor vazio, nada aqui apaga
+     dado bom. Os nomes de coluna vêm da lista fixa acima, nunca do dado. */
+  const alterados = [];
+  for (const c of candidatos) {
+    const atual = existentes.get(c.client_id);
+    if (!atual || atual.origem !== "ixc" || atual.updated_by !== null) continue;
+    const campos = CLIENTE_CAMPOS_IXC.filter((campo) => mudouCampo(c[campo], atual[campo]));
+    if (campos.length) alterados.push({ client_id: c.client_id, campos, valores: campos.map((campo) => c[campo]) });
+    if (alterados.length >= CLIENTE_IMPORT_MAX_PER_RUN) break;
+  }
+
+  for (let i = 0; i < alterados.length; i += CLIENTE_IMPORT_BATCH) {
+    await db.batch(alterados.slice(i, i + CLIENTE_IMPORT_BATCH).map((a) => db.prepare(`
+      UPDATE cliente_cadastro SET ${a.campos.map((campo) => `${campo}=?`).join(",")},updated_at=CURRENT_TIMESTAMP
+      WHERE client_id=? AND ${ESPELHA_IXC}
+    `).bind(...a.valores, a.client_id)));
+  }
+
+  return { criados: lote.length, pendentes: novos.length - lote.length, atualizados: alterados.length };
 }
 
 function normalizarCadastroBody(body) {
@@ -6101,7 +6199,7 @@ async function handleGponIngest(env, request) {
      inteira; é dela que o cadastro da plataforma nasce. Uma falha aqui não
      invalida a fotografia já gravada — o snapshot é o que a operação precisa
      agora, e a importação tenta de novo no ciclo seguinte. */
-  let cadastros = { criados: 0, pendentes: 0 };
+  let cadastros = { criados: 0, pendentes: 0, atualizados: 0 };
   try { cadastros = await importarCadastroGpon(db, clients); }
   catch (error) {
     console.error(JSON.stringify({ message: "Falha ao importar cadastro de clientes GPON", error: error?.message || String(error) }));
@@ -6117,7 +6215,8 @@ async function handleGponIngest(env, request) {
 
   return json({ ok: true, run_id: runId, clients: clients.length, boxes: boxes.length,
     alerts: alerts.length, transitions: transicoes.length, transitions_stored: gravadas,
-    cadastros_criados: cadastros.criados, cadastros_pendentes: cadastros.pendentes });
+    cadastros_criados: cadastros.criados, cadastros_pendentes: cadastros.pendentes,
+    cadastros_atualizados: cadastros.atualizados });
 }
 
 async function handleGponStatusIngest(env, request) {

@@ -454,6 +454,11 @@ window.NOC = (() => {
     /* Enlaces físicos derivados das descrições de interface. */
     links: () => api("/api/zabbix/links"),
 
+    /* Carga por interface no recorte que os mapas pintam: (hostid, ifIndex)
+       com oper_status, capacidade e bits/s. É o que window.TRAF relê enquanto
+       um mapa está aberto, e por isso vem sem alias, nome de host nem erros. */
+    utilizacao: () => api("/api/zabbix/utilizacao"),
+
     /* Tudo o que o painel de tráfego desenha na abertura, em uma requisição:
        ajustes, status, hosts, interfaces, enlaces e histórico. O servidor lê o
        inventário uma vez só para montar os dois recortes. */

@@ -1149,14 +1149,38 @@
     return { classe: "is-partial", titulo: `${caidos} de ${estados.length} enlaces fora do ar` };
   }
 
+  /* Enlaces documentados que ligam dois POPs. É o que dá tráfego à rota do
+     anel: a rota vem do campo `rotas` do cadastro e não conhece porta nenhuma,
+     então a carga dela é a soma dos enlaces que atravessam aquele par. */
+  function conexoesEntreSites(a, b) {
+    return (NOC.data()?.conexoes || []).filter((c) => {
+      const da = device(c.origem), db = device(c.destino);
+      if (!da || !db) return false;
+      const sa = siteOf(da), sb = siteOf(db);
+      return (sa === a && sb === b) || (sa === b && sb === a);
+    });
+  }
+
   function renderEdges() {
     const parts = [];
+    const medidas = [];   // alimenta a legenda de utilização
     const rings = ringLinks();
     rings.forEach((r, i) => {
       const a = boxCenter(r.a), b = boxCenter(r.b);
       if (!a || !b) return;
-      parts.push(`<path class="topo-edge is-ring" d="${curve(a, b)}" data-ring="${i}">
-        <title>Anel óptico — ${[...r.tipos].join(" e ")}</title></path>`);
+      const d = curve(a, b);
+      const carga = TRAF.doConjunto(conexoesEntreSites(r.a, r.b));
+      medidas.push(carga);
+      const nome = `${nomeDoSite(r.a)} ↔ ${nomeDoSite(r.b)}`;
+      const t = TRAF.atributos(carga, nome, `Anel óptico — ${[...r.tipos].join(" e ")}`);
+      /* A rota do anel é tracejada e mantém a espessura menor: ela é o caminho
+         físico, não o enlace. A cor, porém, é a mesma escala — senão o mapa
+         teria dois vocabulários de cor. */
+      parts.push(`
+        <path class="topo-edge is-ring is-traf" d="${d}" data-ring="${i}"
+              style="stroke:${t.cor};stroke-width:2;opacity:.85"
+              data-traf="${esc(t.dica)}"><title>${esc(t.title)}</title></path>
+        <path class="traf-alvo" d="${d}" data-ring="${i}" data-traf="${esc(t.dica)}"/>`);
     });
 
     const list = edgesToDraw();
@@ -1173,12 +1197,28 @@
       /* A linha só anima o fluxo quando o enlace está no ar: um enlace caído
          com tráfego correndo por cima seria a informação errada. */
       const fluxo = state.flow && !dim && est.classe !== "is-down";
+
+      /* Cor por utilização, na mesma escala da legenda. O status continua na
+         classe porque ele decide o tracejado e o texto da dica — só a cor
+         deixou de sair dele. */
+      const carga = TRAF.doConjunto(e.conns);
+      medidas.push(carga);
+      const t = TRAF.atributos(carga, nomeDoEnlace(e), `${label} — ${est.titulo}`);
+      const trafego = TRAF.rotulo(carga);
+      const alto = carga.estado === "up" ? 30 : 19;
+
       parts.push(`
-        <path class="topo-edge ${est.classe} ${active ? "is-active" : ""} ${dim ? "is-dim" : ""}" d="${d}" data-edge="${i}"><title>${esc(label)} — ${esc(est.titulo)}</title></path>
-        ${fluxo ? `<path class="topo-flow" d="${d}"/>` : ""}
-        <g data-edge="${i}" style="${dim ? "opacity:.22" : ""}">
-          <rect class="topo-edge-chip ${est.classe}" x="${mx - 44}" y="${my - 26}" width="88" height="19" rx="6"/>
-          <text class="topo-edge-label" x="${mx}" y="${my - 12}" text-anchor="middle">${esc(label)}</text>
+        <path class="topo-edge is-traf ${est.classe} ${active ? "is-active" : ""} ${dim ? "is-dim" : ""}"
+              d="${d}" data-edge="${i}" style="stroke:${t.cor}"
+              data-traf="${esc(t.dica)}"><title>${esc(t.title)}</title></path>
+        ${fluxo ? `<path class="topo-flow" d="${d}" style="stroke:${t.cor}"/>` : ""}
+        <path class="traf-alvo" d="${d}" data-edge="${i}" data-traf="${esc(t.dica)}"/>
+        <g data-edge="${i}" data-traf="${esc(t.dica)}" style="${dim ? "opacity:.22" : ""}">
+          <rect class="topo-edge-chip ${est.classe}" x="${mx - 46}" y="${my - 8 - alto}" width="92" height="${alto}" rx="6"/>
+          <text class="topo-edge-label" x="${mx}" y="${my - 12 - (alto - 19)}" text-anchor="middle">${esc(label)}</text>
+          ${carga.estado === "up"
+            ? `<text class="topo-edge-traf" x="${mx}" y="${my - 12}" text-anchor="middle" style="fill:${t.cor}">${esc(trafego)}</text>`
+            : ""}
         </g>`);
     });
 
@@ -1192,7 +1232,40 @@
       el.style.cursor = "pointer";
       el.addEventListener("click", () => openRing(rings[+el.dataset.ring]));
     });
+    renderTrafLegend(medidas);
   }
+
+  const nomeDoSite = (id) => (id === SEM_POP ? "Sem POP" : NOC.popById(id)?.nome || id);
+  const nomeDoEnlace = (e) => {
+    const nome = (k) => (k.startsWith("d:")
+      ? device(k.slice(2))?.nome || k.slice(2)
+      : nomeDoSite(k.slice(2)));
+    return `${nome(e.ka)} ↔ ${nome(e.kb)}`;
+  };
+
+  /* A legenda vive no mesmo painel da legenda de símbolos: são as duas coisas
+     que o operador consulta com o olho, e separá-las obrigaria a procurar em
+     dois cantos da tela. */
+  function renderTrafLegend(medidas) {
+    const host = $("#trafLegend");
+    if (!host) return;
+    const erro = TRAF.erro();
+    const quando = TRAF.coletadoEm();
+    host.innerHTML = `
+      <div class="traf-legenda-titulo">
+        <b>Utilização dos enlaces</b>
+        <span class="${erro ? "traf-legenda-aviso" : ""}">${erro
+          ? "sem leitura nova do Zabbix"
+          : quando ? `medido às ${esc(horaLegenda(quando))}` : "aguardando o Zabbix"}</span>
+      </div>
+      ${TRAF.legendaHTML(medidas)}`;
+  }
+
+  const horaLegenda = (iso) => {
+    const bruto = String(iso);
+    const d = new Date(bruto.includes("T") ? bruto : `${bruto.replace(" ", "T")}Z`);
+    return Number.isNaN(d.getTime()) ? bruto : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  };
 
   /* Estado operacional do POP, do jeito que a caixa e o alfinete precisam.
      POP com todos os equipamentos fora do ar pisca em vermelho: é a única
@@ -3457,6 +3530,12 @@
     renderAll();
     bindStage();
     requestAnimationFrame(fit);
+
+    /* A carga dos enlaces chega depois do primeiro desenho e volta de minuto
+       em minuto: cada leitura nova só repinta as linhas e a legenda, sem
+       refazer o layout nem perder o enquadramento do operador. */
+    TRAF.ligarDica(stage());
+    TRAF.acompanhar(renderEdges);
 
     /* Abre o primeiro POP com equipamentos, para o mapa não começar "vazio".
        No mapa geográfico não: lá o POP nasce como alfinete e o card é do

@@ -999,6 +999,40 @@ Duas decisões sustentam esses campos no ritmo de 10 s:
   senão a tela nunca voltaria para buscar o dado novo — daí o Worker contar as
   mudanças de conexão à parte das transições.
 
+### Cadastro do cliente: espelho do IXC até alguém corrigir
+
+Todo cliente que chega no snapshot com código do IXC vira uma linha em
+`cliente_cadastro`, para que a Lista do GPON e a tela de Cadastro falem da mesma
+base. A linha nasce com `origem='ixc'` e continua **acompanhando o ERP**: se a
+coordenada estava faltando e você preencher no IXC, a coleta seguinte traz para
+a plataforma sozinha, sem digitar nada aqui.
+
+Isso vale enquanto ninguém tiver corrigido o cliente por aqui. Dois sinais
+decidem, e os dois precisam valer:
+
+| Condição | Significado |
+| --- | --- |
+| `origem='ixc'` | a linha nasceu da coleta, não foi digitada |
+| `updated_by IS NULL` | nenhum operador a editou desde então |
+
+A importação não preenche `updated_by`; a edição na tela sempre preenche. Então
+o primeiro `Salvar` num cliente transforma a linha em cadastro da plataforma, e
+a partir dali a coleta **não encosta mais nele** — a coordenada que o técnico
+foi a campo conferir não é desfeita pelo ERP dez minutos depois.
+
+Três garantias que valem citar, porque cada uma corrige um jeito de perder dado:
+
+- **Só os campos do IXC** são ressincronizados (nome, endereço, bairro, cidade,
+  lat/lon, serial, modelo, IP, login). Telefone, plano, senhas, aparelhos e
+  observação nascem e vivem só na plataforma.
+- **Campo vazio não apaga.** Uma coleta em que o ERP devolveu o campo em branco
+  mantém o que já estava lá: ausência de dado não é ordem de apagar.
+- **Parque estável não gera escrita.** A comparação acontece em memória, então
+  um ciclo em que nada mudou no ERP não toca no banco.
+
+Se um cliente precisa voltar a seguir o IXC depois de editado à mão, basta
+limpar o `updated_by` daquela linha.
+
 ### O que fica no banco
 
 Duas tabelas novas (`migrations/0019_gpon_history.sql`), as duas append-only:

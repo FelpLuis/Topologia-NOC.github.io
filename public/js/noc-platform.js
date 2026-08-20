@@ -419,6 +419,7 @@
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
           <div class="row" style="gap:6px;justify-content:flex-end">
+            <button class="btn btn-sm" type="button" data-edit-user="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${icon("edit")} Editar</button>
             <button class="btn btn-sm" type="button" data-device-access="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${icon("lock")} Acessos SSH</button>
             <button class="btn btn-sm" type="button" data-email="${u.id}" ${can("manageUsers") ? "" : "disabled"}>E-mail OAuth</button>
             <button class="btn btn-sm" type="button" data-reset="${u.id}" ${can("resetPassword") ? "" : "disabled"}>Redefinir senha</button>
@@ -489,6 +490,7 @@
       openOAuthEmail(u);
     }));
     $$("[data-sectors]").forEach((b) => (b.onclick = () => openUserSectors(state.users.find((x) => x.id === +b.dataset.sectors))));
+    $$("[data-edit-user]").forEach((b) => (b.onclick = () => openUserEditor(state.users.find((x) => x.id === +b.dataset.editUser))));
   }
 
   function openUserSectors(u) {

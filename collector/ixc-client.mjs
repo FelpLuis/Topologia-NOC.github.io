@@ -6,9 +6,20 @@ const number = (value) => {
   const parsed = Number(String(value ?? "").replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
 };
+/* A cascata só aceita o registro que tem as **duas** coordenadas preenchidas.
+
+   `number("")` devolve 0, então um cadastro com latitude em branco e longitude
+   real passava como {lat: 0, lon: -46.33} — um ponto no Atlântico, na linha do
+   equador. Pior que o ponto errado era a cascata parar ali: o cliente que tinha
+   a coordenada certa no cadastro do contrato nunca chegava a ser consultado,
+   porque o registro da fibra já havia "respondido" com lixo. */
+const coordinate = (value) => {
+  if (String(value ?? "").trim() === "") return null;
+  return number(value);
+};
 const coordinates = (...records) => {
   for (const record of records) {
-    const lat = number(record?.latitude), lon = number(record?.longitude);
+    const lat = coordinate(record?.latitude), lon = coordinate(record?.longitude);
     if (lat !== null && lon !== null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && (lat !== 0 || lon !== 0)) return { lat, lon };
   }
   return {};

@@ -1158,3 +1158,161 @@ table.table { width: 100%; border-collapse: collapse; }
 .nav-sheet .nav { gap: var(--s-1); }
 .nav-sheet .nav-item { min-height: 48px; }
 .nav-sheet .nav-sector-trigger { min-height: 48px; }
+
+/* ---------------------------------------------------------
+   OLT Port Management — Gerenciamento modular de portas OLT
+   --------------------------------------------------------- */
+.olt-portas-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.olt-portas-legenda {
+  display: flex;
+  gap: var(--s-4);
+  font-size: var(--fs-11);
+  color: var(--text-2);
+}
+
+.olt-portas-legenda .legenda-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.olt-portas-grid {
+  display: grid;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+.olt-slot {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.olt-slot-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.slot-numero {
+  font-weight: 800;
+  font-size: var(--fs-12);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+}
+
+.slot-tipo {
+  font-weight: 700;
+  font-size: var(--fs-11);
+  color: var(--cyan-400);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.slot-tecnologia {
+  font-size: var(--fs-11);
+  color: var(--text-2);
+  background: var(--surface-2);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+}
+
+.slot-qtd {
+  font-size: var(--fs-11);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  margin-left: auto;
+}
+
+.olt-slot-portas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 2px;
+  padding: var(--s-3);
+}
+
+.olt-porta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-2);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--dur-1) var(--ease);
+  position: relative;
+}
+
+.olt-porta:hover {
+  border-color: var(--cyan-400);
+  box-shadow: var(--shadow-1);
+  transform: translateY(-1px);
+}
+
+.olt-porta.status-em-uso {
+  border-color: var(--yellow-400);
+  background: var(--warn-bg);
+}
+
+.olt-porta.status-em-uso:hover {
+  border-color: var(--yellow-400);
+}
+
+.olt-porta.status-livre {
+  border-color: var(--ok-line);
+}
+
+.olt-porta .porta-numero {
+  font-weight: 800;
+  font-size: var(--fs-12);
+  font-family: var(--font-mono);
+  color: var(--text-1);
+}
+
+.olt-porta .porta-tipo {
+  font-size: var(--fs-10);
+  color: var(--cyan-400);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.olt-porta .porta-capacidade {
+  font-size: var(--fs-10);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+.olt-porta .porta-status {
+  font-size: var(--fs-10);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+
+.olt-porta.status-em-uso .porta-status {
+  color: var(--warn-500);
+}
+
+.olt-porta.status-livre .porta-status {
+  color: var(--ok-500);
+}
+
+/* Modal de edição de porta OLT */
+#formOltPorta .field > label {
+  margin-bottom: -4px;
+}

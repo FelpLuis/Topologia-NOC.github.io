@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<link rel="stylesheet" href="/css/noc/trafego-enlace.css?v=20260820-1">
 <script src="/js/auth-guard.js"></script>
 </head>
 <!-- Mesmo recorte da Topologia ISP, aberto direto no mapa geográfico e
@@ -91,9 +92,12 @@
           </div>
 
           <div class="panel topo-legend" id="legend" data-views="geo">
-            <div class="row"><i class="fibra-amostra" style="background:var(--purple-400)"></i><span>Caixa óptica, reserva técnica ou poste</span></div>
-            <div class="row"><i class="fibra-amostra" style="background:var(--cyan-400)"></i><span>Caminho de fibra cadastrado</span></div>
-            <div class="row"><i class="dot dot-ok"></i><span>Cliente ISP no ponto cadastrado</span></div>
+            <div id="trafLegend"></div>
+            <div class="topo-legend-simbolos">
+              <div class="row"><i class="fibra-amostra" style="background:var(--purple-400)"></i><span>Caixa óptica, reserva técnica ou poste</span></div>
+              <div class="row"><i class="fibra-amostra" style="background:var(--cyan-400)"></i><span>Caminho de fibra cadastrado</span></div>
+              <div class="row"><i class="dot dot-ok"></i><span>Cliente ISP no ponto cadastrado</span></div>
+            </div>
           </div>
 
           <div class="panel topo-hud topo-missing" id="geoMissing" hidden></div>
@@ -159,6 +163,7 @@
 <script src="/js/noc-ui.js?v=20260819-9"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
+<script src="/js/noc-trafego-enlace.js?v=20260820-1"></script>
 <script src="/js/noc-topology.js?v=20260818-3"></script>
 <script src="/js/noc-fibra.js"></script>
 </body>

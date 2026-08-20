@@ -613,11 +613,98 @@
     });
   }
 
+  /* ---------- OLT: detecção e estrutura de portas ---------- */
+  function isOLT(equipamento) {
+    const cat = String(equipamento?.categoria || "").toLowerCase();
+    return cat.includes("olt") || cat === "olts" || cat === "gpon";
+  }
+
+  function gerarPortasOLT() {
+    const portas = [];
+    let numero = 1;
+
+    // 17 placas de tráfego GBIC/GPON com 16 portas cada (slots 1-17)
+    for (let slot = 1; slot <= 17; slot++) {
+      for (let porta = 1; porta <= 16; porta++) {
+        portas.push({
+          numero: numero++,
+          slot,
+          subslot: porta,
+          tipoPlaca: "Linha",
+          tecnologia: "GBIC/GPON",
+          capacidade: "1.25 / 2.5 Gbps",
+          tipo: "SFP",
+          status: "livre",
+        });
+      }
+    }
+
+    // 2 placas de gerência com 4 portas ópticas + 3 portas RJ45 cada (slots 18-19)
+    for (let slot = 18; slot <= 19; slot++) {
+      // 4 portas ópticas de gerência
+      for (let porta = 1; porta <= 4; porta++) {
+        portas.push({
+          numero: numero++,
+          slot,
+          subslot: porta,
+          tipoPlaca: "Gerência",
+          tecnologia: "Óptica",
+          capacidade: "1 Gbps",
+          tipo: "SFP",
+          status: "livre",
+        });
+      }
+      // 3 portas RJ45 de gerência
+      for (let porta = 5; porta <= 7; porta++) {
+        portas.push({
+          numero: numero++,
+          slot,
+          subslot: porta,
+          tipoPlaca: "Gerência",
+          tecnologia: "Elétrica",
+          capacidade: "1 Gbps",
+          tipo: "RJ45",
+          status: "livre",
+        });
+      }
+    }
+
+    // 1 placa uplink com 2 portas ópticas XG + 2 portas ópticas G2 (slot 20)
+    const slot = 20;
+    for (let porta = 1; porta <= 2; porta++) {
+      portas.push({
+        numero: numero++,
+        slot,
+        subslot: porta,
+        tipoPlaca: "Uplink",
+        tecnologia: "10G",
+        capacidade: "10 Gbps",
+        tipo: "SFP+",
+        status: "livre",
+      });
+    }
+    for (let porta = 3; porta <= 4; porta++) {
+      portas.push({
+        numero: numero++,
+        slot,
+        subslot: porta,
+        tipoPlaca: "Uplink",
+        tecnologia: "2.5G",
+        capacidade: "2.5 Gbps",
+        tipo: "SFP",
+        status: "livre",
+      });
+    }
+
+    return portas;
+  }
+
   function formEquipamento(deviceId, popId = null) {
     const e = deviceId ? equipamentos().find((x) => x.id === deviceId) : null;
     const novo = !e;
     const permitido = novo ? podeCriarEquip() : podeEditarEquip();
     const portasAtuais = e ? e.portas.length : 24;
+    const isOltEquip = e ? isOLT(e) : false;
 
     modal({
       labelledBy: "formEqTitulo",
@@ -638,15 +725,26 @@
             </div>
             <div class="row" style="gap:var(--s-3);align-items:flex-start">
               <div class="field grow"><label for="feCat">Categoria</label>
-                <input class="input" id="feCat" value="${esc(e?.categoria || "")}" placeholder="Ex.: Acesso" ${permitido ? "" : "disabled"}></div>
+                <input class="input" id="feCat" value="${esc(e?.categoria || "")}" placeholder="Ex.: Acesso, OLT" ${permitido ? "" : "disabled"}></div>
               <div class="field grow"><label for="feIsp">ISP vinculado</label>
                 <select class="select" id="feIsp" ${permitido ? "" : "disabled"}>${opcoesIsp(e ? NOC.effectivePop(e) : popId)}</select></div>
               <div class="field" style="width:130px"><label for="fePortas">Portas</label>
-                <input class="input" id="fePortas" type="number" min="1" max="96" value="${portasAtuais}" ${permitido ? "" : "disabled"}></div>
+                <input class="input" id="fePortas" type="number" min="1" max="512" value="${portasAtuais}" ${permitido ? "" : "disabled"}></div>
             </div>
             <div class="field"><label for="feObs">Observação</label>
               <textarea class="textarea" id="feObs" rows="3" ${permitido ? "" : "disabled"}>${esc(e?.observacao || "")}</textarea></div>
             ${novo ? '<span class="field-hint">As portas nascem livres, com capacidade “A confirmar”.</span>' : ""}
+            ${!novo && isOltEquip ? `
+              <div class="card" style="margin-top:var(--s-3);padding:var(--s-3)">
+                <div class="row-between" style="margin-bottom:var(--s-2)">
+                  <h3 style="font-size:var(--fs-13)">${icon("port")} Gerenciamento de portas OLT</h3>
+                  <span class="dim mono" style="font-size:var(--fs-11)">${e.portas.length} portas em ${Math.max(...e.portas.map(p => p.slot || 1))} slots</span>
+                </div>
+                <button class="btn btn-primary btn-sm" type="button" id="btnGerenciarPortasOLT">
+                  ${icon("edit")} Gerenciar portas OLT
+                </button>
+              </div>
+            ` : ""}
           </form>
         </div>
         <div class="modal-foot">
@@ -663,7 +761,7 @@
         $("[data-save]", host).onclick = async () => {
           const nome = $("#feNome", host).value.trim();
           if (!nome) return $("#feNome", host).focus();
-          const total = Math.max(1, Math.min(96, Number($("#fePortas", host).value) || portasAtuais));
+          const total = Math.max(1, Math.min(512, Number($("#fePortas", host).value) || portasAtuais));
           const destino = $("#feIsp", host).value || null;
           const valores = {
             nome,
@@ -676,19 +774,26 @@
 
           const t = NOC.data();
           if (novo) {
+            let portasIniciais;
+            const cat = valores.categoria.toLowerCase();
+            if (cat.includes("olt") || cat === "olts" || cat === "gpon") {
+              portasIniciais = gerarPortasOLT();
+            } else {
+              portasIniciais = Array.from({ length: total }, (_, i) => ({
+                numero: i + 1, capacidade: "A confirmar", tipo: "A confirmar", status: "livre",
+              }));
+            }
             const criado = {
               id: NOC.novoId("eq", nome, t.equipamentos),
               ...valores,
-              portas: Array.from({ length: total }, (_, i) => ({
-                numero: i + 1, capacidade: "A confirmar", tipo: "A confirmar", status: "livre",
-              })),
+              portas: portasIniciais,
             };
             t.equipamentos.push(criado);
             close();
             state.foco = destino;
             const ok = await persist("TOPOLOGY_CREATE_EQUIPAMENTO", {
               titulo: "Equipamento cadastrado",
-              texto: `${nome} entrou na PARTE ISP com ${total} portas.`,
+              texto: `${nome} entrou na PARTE ISP com ${portasIniciais.length} portas.`,
             }, async () => {
               t.equipamentos = t.equipamentos.filter((x) => x.id !== criado.id);
               await persist("TOPOLOGY_DELETE_EQUIPAMENTO", { titulo: "Cadastro desfeito", tipo: "info" });
@@ -731,6 +836,265 @@
               await persist("TOPOLOGY_UPDATE_EQUIPAMENTO", { titulo: "Cadastro anterior restaurado", tipo: "info" });
             });
           if (!ok) aplicar(antes);
+        };
+
+        // Botão para gerenciar portas OLT
+        const btnOlt = $("#btnGerenciarPortasOLT", host);
+        if (btnOlt) {
+          btnOlt.onclick = () => {
+            close();
+            formGerenciarPortasOLT(e);
+          };
+        }
+      },
+    });
+  }
+
+  /* ---------- OLT: Gerenciamento modular de portas ---------- */
+  function formGerenciarPortasOLT(equipamento) {
+    const permitido = podeEditarEquip();
+    let portas = [...equipamento.portas].sort((a, b) => Number(a.numero) - Number(b.numero));
+
+    // Agrupar por slot/placa
+    const porSlot = {};
+    for (const porta of portas) {
+      const slot = porta.slot || 1;
+      if (!porSlot[slot]) porSlot[slot] = { portas: [], tipoPlaca: porta.tipoPlaca || "Desconhecido", tecnologia: porta.tecnologia || "" };
+      porSlot[slot].portas.push(porta);
+    }
+
+    const slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+
+    function renderPortasOLT() {
+      const container = $("#oltPortasContainer");
+      if (!container) return;
+
+      container.innerHTML = slotsOrdenados.map(slot => {
+        const slotData = porSlot[slot];
+        const portaHtml = slotData.portas.map(p => {
+          const emUso = NOC.portaEmUso(equipamento.id, p.numero);
+          const statusClass = emUso ? "status-em-uso" : (p.status === "livre" ? "status-livre" : "status-" + (p.status || "livre"));
+          return `
+            <div class="olt-porta ${statusClass}" data-numero="${p.numero}" data-slot="${slot}" data-subslot="${p.subslot}">
+              <span class="porta-numero">P${p.subslot}</span>
+              <span class="porta-tipo">${p.tipo}</span>
+              <span class="porta-capacidade">${p.capacidade}</span>
+              <span class="porta-status">${emUso ? "Em uso" : (p.status || "livre")}</span>
+              <input type="hidden" name="porta_${p.numero}_capacidade" value="${esc(p.capacidade)}">
+              <input type="hidden" name="porta_${p.numero}_tipo" value="${esc(p.tipo)}">
+              <input type="hidden" name="porta_${p.numero}_status" value="${esc(p.status || "livre")}">
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <div class="olt-slot" data-slot="${slot}">
+            <div class="olt-slot-header">
+              <span class="slot-numero">Slot ${slot}</span>
+              <span class="slot-tipo">${esc(slotData.tipoPlaca)}</span>
+              <span class="slot-tecnologia">${esc(slotData.tecnologia)}</span>
+              <span class="slot-qtd">${slotData.portas.length} portas</span>
+            </div>
+            <div class="olt-slot-portas">${portaHtml}</div>
+          </div>
+        `;
+      }).join("");
+
+      // Bind click events for port editing
+      $$(".olt-porta", container).forEach(el => {
+        el.onclick = (ev) => {
+          if (ev.target.tagName === "INPUT") return;
+          editarPortaOLT(equipamento, Number(el.dataset.numero), el);
+        };
+      });
+    }
+
+    modal({
+      labelledBy: "oltPortasTitulo",
+      wide: true,
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("port")} OLT Modular</span>
+            <h2 id="oltPortasTitulo" style="margin-top:6px">${esc(equipamento.nome)} — Gerenciamento de Portas</h2>
+            <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(equipamento.id)} • ${portas.length} portas em ${slotsOrdenados.length} slots</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body" style="max-height:60vh;overflow:auto">
+          <div class="olt-portas-toolbar">
+            <div class="row wrap" style="gap:var(--s-2);flex:1">
+              <div class="input-affix" style="min-width:200px">
+                <span class="affix-icon">${icon("search")}</span>
+                <input class="input" id="oltPortaBusca" type="search" placeholder="Buscar porta, slot, tipo…" aria-label="Buscar porta">
+              </div>
+              <select class="select" id="oltFiltroSlot" style="width:160px">
+                <option value="">Todos os slots</option>
+                ${slotsOrdenados.map(s => `<option value="${s}">Slot ${s} — ${esc(porSlot[s].tipoPlaca)}</option>`).join("")}
+              </select>
+              <select class="select" id="oltFiltroStatus" style="width:140px">
+                <option value="">Todos os status</option>
+                <option value="livre">Livre</option>
+                <option value="em_uso">Em uso</option>
+              </select>
+            </div>
+            <div class="olt-portas-legenda">
+              <span class="legenda-item"><i class="dot dot-ok"></i>Livre</span>
+              <span class="legenda-item"><i class="dot" style="background:var(--yellow-400)"></i>Em uso</span>
+            </div>
+          </div>
+          <div class="olt-portas-grid" id="oltPortasContainer"></div>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">Clique em uma porta para editar capacidade, tipo ou status. Portas em uso não podem ter tipo/capacidade alterados.</span>
+          <span class="row">
+            <button class="btn btn-primary" type="button" id="oltSalvarPortas">${icon("check")} Salvar alterações</button>
+            <button class="btn" data-close type="button">Fechar</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        renderPortasOLT();
+
+        // Filtros
+        const busca = $("#oltPortaBusca", host);
+        const filtroSlot = $("#oltFiltroSlot", host);
+        const filtroStatus = $("#oltFiltroStatus", host);
+
+        function aplicarFiltros() {
+          const termo = busca.value.toLowerCase().trim();
+          const slotSel = filtroSlot.value;
+          const statusSel = filtroStatus.value;
+
+          $$(".olt-porta", host).forEach(el => {
+            const porta = portas.find(p => p.numero === Number(el.dataset.numero));
+            if (!porta) return;
+
+            let mostrar = true;
+            if (termo) {
+              const texto = `${porta.slot} ${porta.subslot} ${porta.tipo} ${porta.capacidade} ${porta.tipoPlaca} ${porta.tecnologia}`.toLowerCase();
+              mostrar = texto.includes(termo);
+            }
+            if (mostrar && slotSel) mostrar = String(porta.slot) === slotSel;
+            if (mostrar && statusSel) {
+              const emUso = NOC.portaEmUso(equipamento.id, porta.numero);
+              if (statusSel === "livre") mostrar = !emUso;
+              if (statusSel === "em_uso") mostrar = emUso;
+            }
+            el.style.display = mostrar ? "" : "none";
+          });
+
+          // Esconder slots vazios
+          $$(".olt-slot", host).forEach(slotEl => {
+            const visiveis = $$(".olt-porta", slotEl).filter(el => el.style.display !== "none").length;
+            slotEl.style.display = visiveis > 0 ? "" : "none";
+          });
+        }
+
+        busca.addEventListener("input", aplicarFiltros);
+        filtroSlot.addEventListener("change", aplicarFiltros);
+        filtroStatus.addEventListener("change", aplicarFiltros);
+
+        // Salvar
+        $("#oltSalvarPortas", host).onclick = async () => {
+          // Atualizar portas do equipamento com valores dos inputs hidden
+          const novasPortas = portas.map(p => {
+            const capInput = $(`input[name="porta_${p.numero}_capacidade"]`, host);
+            const tipoInput = $(`input[name="porta_${p.numero}_tipo"]`, host);
+            const statusInput = $(`input[name="porta_${p.numero}_status"]`, host);
+            return {
+              ...p,
+              capacidade: capInput?.value || p.capacidade,
+              tipo: tipoInput?.value || p.tipo,
+              status: statusInput?.value || p.status,
+            };
+          });
+
+          const antes = { ...equipamento, portas: equipamento.portas.map(p => ({ ...p })) };
+          equipamento.portas = novasPortas;
+
+          const ok = await persist("TOPOLOGY_UPDATE_EQUIPAMENTO", {
+            titulo: `Portas OLT atualizadas: ${equipamento.nome}`,
+            texto: `${novasPortas.length} portas organizadas em ${slotsOrdenados.length} slots.`,
+          }, async () => {
+            Object.assign(equipamento, antes);
+            await persist("TOPOLOGY_UPDATE_EQUIPAMENTO", { titulo: "Alterações revertidas", tipo: "info" });
+          });
+
+          if (ok) close();
+        };
+      },
+    });
+  }
+
+  function editarPortaOLT(equipamento, numeroPorta, elemento) {
+    const porta = equipamento.portas.find(p => p.numero === numeroPorta);
+    if (!porta) return;
+
+    const emUso = NOC.portaEmUso(equipamento.id, numeroPorta);
+
+    modal({
+      labelledBy: "oltPortaEditarTitulo",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("port")} Porta OLT</span>
+            <h2 id="oltPortaEditarTitulo" style="margin-top:6px">${esc(equipamento.nome)} — Slot ${porta.slot} / Porta ${porta.subslot} (Nº ${porta.numero})</h2>
+            ${emUso ? '<span class="badge badge-warn" style="margin-top:6px">Porta em uso — capacidade e tipo bloqueados</span>' : ""}</div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body">
+          <form class="stack" id="formOltPorta">
+            <div class="row" style="gap:var(--s-3)">
+              <div class="field grow"><label>Tipo da placa</label>
+                <input class="input" value="${esc(porta.tipoPlaca)}" readonly></div>
+              <div class="field grow"><label>Tecnologia</label>
+                <input class="input" value="${esc(porta.tecnologia)}" readonly></div>
+            </div>
+            <div class="row" style="gap:var(--s-3)">
+              <div class="field grow"><label for="oltPortaCapacidade">Capacidade</label>
+                <input class="input" id="oltPortaCapacidade" value="${esc(porta.capacidade)}" ${emUso ? "readonly" : ""}></div>
+              <div class="field grow"><label for="oltPortaTipo">Tipo de conector</label>
+                <select class="select" id="oltPortaTipo" ${emUso ? "disabled" : ""}>
+                  <option value="SFP" ${porta.tipo === "SFP" ? "selected" : ""}>SFP</option>
+                  <option value="SFP+" ${porta.tipo === "SFP+" ? "selected" : ""}>SFP+</option>
+                  <option value="QSFP28" ${porta.tipo === "QSFP28" ? "selected" : ""}>QSFP28</option>
+                  <option value="RJ45" ${porta.tipo === "RJ45" ? "selected" : ""}>RJ45</option>
+                  <option value="XFP" ${porta.tipo === "XFP" ? "selected" : ""}>XFP</option>
+                </select></div>
+            </div>
+            <div class="field"><label for="oltPortaStatus">Status administrativo</label>
+              <select class="select" id="oltPortaStatus">
+                <option value="livre" ${porta.status === "livre" ? "selected" : ""}>Livre</option>
+                <option value="reservada" ${porta.status === "reservada" ? "selected" : ""}>Reservada</option>
+                <option value="manutencao" ${porta.status === "manutencao" ? "selected" : ""}>Em manutenção</option>
+                <option value="bloqueada" ${porta.status === "bloqueada" ? "selected" : ""}>Bloqueada</option>
+              </select></div>
+            ${emUso ? '<div class="alert alert-info" style="margin-top:var(--s-2)"><small>Esta porta possui enlace documentado. Capacidade e tipo não podem ser alterados para preservar a integridade da topologia.</small></div>' : ""}
+          </form>
+        </div>
+        <div class="modal-foot">
+          <span class="row">
+            <button class="btn" data-close type="button">Cancelar</button>
+            <button class="btn btn-primary" type="button" id="oltPortaSalvar" ${emUso ? "" : ""}>Salvar</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        $("#oltPortaSalvar", host).onclick = () => {
+          const capInput = $("#oltPortaCapacidade", host);
+          const tipoInput = $("#oltPortaTipo", host);
+          const statusInput = $("#oltPortaStatus", host);
+
+          // Atualizar inputs hidden na grid principal
+          $(`input[name="porta_${numeroPorta}_capacidade"]`, elemento.closest(".modal-card") || document).value = capInput.value;
+          $(`input[name="porta_${numeroPorta}_tipo"]`, elemento.closest(".modal-card") || document).value = tipoInput.value;
+          $(`input[name="porta_${numeroPorta}_status"]`, elemento.closest(".modal-card") || document).value = statusInput.value;
+
+          // Atualizar display
+          const capEl = elemento.querySelector(".porta-capacidade");
+          const tipoEl = elemento.querySelector(".porta-tipo");
+          const statusEl = elemento.querySelector(".porta-status");
+          if (capEl) capEl.textContent = capInput.value;
+          if (tipoEl) tipoEl.textContent = tipoInput.value;
+          if (statusEl) statusEl.textContent = statusInput.value === "livre" ? "Livre" : statusInput.value;
+
+          close();
         };
       },
     });

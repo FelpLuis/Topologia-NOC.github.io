@@ -1,0 +1,157 @@
+/* ============================================================
+   UPDOWN NOC — cor por tráfego nos enlaces
+
+   Estilo compartilhado pela legenda e pela dica de todos os mapas e
+   esquemas. A cor da linha em si não mora aqui: ela sai de
+   window.TRAF e é escrita no atributo `style` de cada traçado, que é
+   o único jeito de uma escala de dez faixas vencer as regras de
+   estado (`is-up`, `is-down`) sem espalhar dez classes por folha.
+   O que sobra para o CSS é a espessura, o tracejado e o realce —
+   tudo o que não é cor.
+   ============================================================ */
+
+/* ---------------- legenda ---------------- */
+
+/* Faixas lado a lado, sempre na mesma ordem e sempre todas visíveis: é a
+   posição fixa que deixa o operador ler a cor de uma linha sem contar
+   caixinhas. O número entre parênteses é quantos enlaces do desenho estão
+   naquela faixa agora. */
+.traf-legenda {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  max-width: 100%;
+}
+
+.traf-faixa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 46px;
+  flex: 1 1 auto;
+  padding-bottom: 1px;
+  font-size: var(--fs-10);
+  line-height: 1.2;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.traf-faixa i {
+  display: block;
+  width: 100%;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--traf-cor);
+}
+
+.traf-faixa b {
+  font: 700 var(--fs-10) / 1.2 var(--font-mono);
+  color: var(--text-2);
+}
+
+.traf-faixa span { font-variant-numeric: tabular-nums; }
+
+.traf-legenda-titulo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-size: var(--fs-10);
+  color: var(--text-3);
+}
+
+.traf-legenda-titulo b { color: var(--text-2); font-size: var(--fs-11); }
+
+/* Leitura velha ou falha na coleta precisa aparecer junto da escala: uma cor
+   fria pode ser só um espelho parado. */
+.traf-legenda-aviso { color: var(--warn-500); }
+
+/* ---------------- dica flutuante ---------------- */
+
+/* O <title> nativo do SVG leva cerca de um segundo para abrir e some ao menor
+   movimento do ponteiro — passar o mouse pela linha para ler o tráfego não
+   funcionava. Este balão abre na hora e segue o cursor. */
+.traf-dica {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  max-width: 280px;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-11);
+  line-height: 1.45;
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.traf-dica[hidden] { display: none; }
+.traf-dica b { color: var(--text-1); font-size: var(--fs-12); }
+.traf-dica span { font-variant-numeric: tabular-nums; }
+
+/* ---------------- traçados coloridos por tráfego ---------------- */
+
+/* A cor vem do atributo style; aqui fica só o realce, que por isso não usa
+   cor nenhuma — mexer no stroke no :hover apagaria a leitura de tráfego
+   justamente enquanto o operador está lendo. */
+.topo-edge.is-traf { stroke-width: 2.6; }
+.topo-edge.is-traf:hover,
+.topo-edge.is-traf.is-active { stroke-width: 4.4; filter: brightness(1.25); }
+/* Enlace fora do ar fica cinza como manda a escala, mas continua tracejado:
+   a cor sozinha não separa "sem tráfego" de "sem enlace". */
+.topo-edge.is-traf.is-down { stroke-dasharray: 10 6; }
+.topo-edge.is-traf.is-partial { stroke-dasharray: 16 5; }
+
+.ring-link.is-traf { stroke-width: 2.6; cursor: pointer; }
+.ring-link.is-traf:hover { stroke-width: 4; filter: brightness(1.25); }
+.ring-link.is-traf.is-down { stroke-dasharray: 7 5; }
+
+.gpon-route-network.is-traf { stroke-width: 2.4; opacity: .95; }
+.gpon-route-network.is-traf.is-down { stroke-dasharray: 8 5; }
+
+/* Faixa larga e invisível por cima do traçado: uma linha de 2 px é fina
+   demais para o ponteiro acertar, e sem isto a dica quase nunca abre. */
+.traf-alvo {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  stroke-linecap: round;
+  cursor: pointer;
+}
+
+/* ---------------- encaixe nas telas ---------------- */
+
+/* O painel da legenda passa a ter duas linhas: a escala de utilização em cima
+   e os símbolos do mapa embaixo. Ficam juntos porque são as duas coisas que o
+   operador consulta com o olho — separá-los mandaria procurar em dois cantos
+   da tela. */
+.topo-legend {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-2);
+  min-width: min(560px, calc(100% - 222px));
+}
+
+.topo-legend-simbolos {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.topo-edge-traf {
+  font: 700 9px var(--font-mono);
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .topo-legend { min-width: 0; }
+}

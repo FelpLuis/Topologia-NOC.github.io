@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
+<link rel="stylesheet" href="/css/noc/trafego-enlace.css?v=20260820-1">
 <script src="/js/auth-guard.js"></script>
 </head>
 <body class="topology-no-sidebar">
@@ -81,9 +82,12 @@
           </div>
 
           <div class="panel topo-legend" id="legend">
-            <div class="row"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
-            <div class="row"><i class="dot"></i><span>Porta livre e disponível</span></div>
-            <div class="row"><i class="dot" style="background:var(--purple-400)"></i><span>Rota do anel óptico</span></div>
+            <div id="trafLegend"></div>
+            <div class="topo-legend-simbolos">
+              <div class="row"><i class="dot dot-ok"></i><span>Porta com enlace documentado</span></div>
+              <div class="row"><i class="dot"></i><span>Porta livre e disponível</span></div>
+              <div class="row"><i class="dot" style="background:var(--purple-400)"></i><span>Rota do anel óptico</span></div>
+            </div>
           </div>
 
           <!-- POPs ainda sem localização cadastrada não têm onde ser desenhados. -->
@@ -155,6 +159,7 @@
 <script src="/js/noc-ui.js?v=20260819-9"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
+<script src="/js/noc-trafego-enlace.js?v=20260820-1"></script>
 <script src="/js/noc-topology.js?v=20260818-3"></script>
 </body>
 </html>
