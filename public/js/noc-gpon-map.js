@@ -225,6 +225,7 @@
     idx.pop = new Map(pops().map((p) => [String(p.id), p]));
     idx.box = new Map(boxes().map((b) => [String(b.id), b]));
     idx.popOfDevice = new Map();
+    cargaPorPar = null;   // a topologia mudou: o agrupamento por par de POPs também
     state.rows = clients().map(toRow);
     idx.client = new Map(state.rows.map((r) => [String(r.id), r]));
     state.popPoints = pops().filter(hasCoord).map((p) => point(p, p.id, p.nome || p.name || p.id));
@@ -577,6 +578,12 @@
     applyView(false);
     load(false);
     setInterval(refreshIfChanged, 10000);
+
+    /* Cor por tráfego nas conexões de rede: a mesma escala e a mesma dica da
+       topologia e do anel de POPs. A dica é delegada no palco porque o SVG das
+       rotas é reescrito a cada quadro de arrasto. */
+    TRAF.ligarDica($("#gponMap"));
+    TRAF.acompanhar(() => { cargaPorPar = null; scheduleMap(); });
   }
 
   function toggleSide(forceOff) {
@@ -1073,7 +1080,7 @@
     el.textContent = `${nb(n)} de ${nb(total)} clientes no enquadramento`;
   }
 
-  function route(points, className) {
+  function route(points, className, extra = "") {
     let d = "";
     const { k, ox, oy } = state.map;
     for (const p of points) {
@@ -1081,18 +1088,50 @@
       const q = GEO.project(p.lat, p.lon);
       d += `${d ? "L" : "M"}${(q.x * k - ox).toFixed(1)},${(q.y * k - oy).toFixed(1)}`;
     }
-    return d ? `<path class="gpon-route ${className}" d="${d}"/>` : "";
+    if (!d) return "";
+    return `<path class="gpon-route ${className}" d="${d}" ${extra}/>${
+      extra ? `<path class="traf-alvo" d="${d}" ${extra}/>` : ""}`;
+  }
+
+  /* Carga por par de POPs, calculada uma vez por leitura do Zabbix e não a
+     cada quadro. O mapa redesenha as rotas em todo passo de arrasto, e varrer
+     os enlaces ali dentro custaria mais do que desenhar. `cargaPorPar` é
+     descartado quando a topologia ou a medida mudam. */
+  let cargaPorPar = null;
+
+  function indexarCarga() {
+    const grupos = new Map();
+    for (const c of state.topology.conexoes || []) {
+      const a = popOfDevice(deviceById(c.origem)), b = popOfDevice(deviceById(c.destino));
+      if (!a || !b || a.id === b.id) continue;
+      const key = [a.id, b.id].sort().join(":");
+      if (!grupos.has(key)) grupos.set(key, []);
+      grupos.get(key).push(c);
+    }
+    cargaPorPar = new Map();
+    grupos.forEach((conns, key) => cargaPorPar.set(key, TRAF.doConjunto(conns)));
+  }
+
+  function cargaDoPar(a, b) {
+    if (!cargaPorPar) indexarCarga();
+    return cargaPorPar.get([a, b].sort().join(":")) || null;
   }
 
   function renderRoutes(vis, view) {
-    const pieces = [], seen = new Set();
+    const pieces = [], seen = new Set(), medidas = [];
     if (state.layers.pops) (state.topology.conexoes || []).forEach((c) => {
       const a = popOfDevice(deviceById(c.origem)), b = popOfDevice(deviceById(c.destino));
       if (!hasCoord(a) || !hasCoord(b) || a.id === b.id) return;
       const key = [a.id, b.id].sort().join(":");
       if (seen.has(key)) return;
       seen.add(key);
-      pieces.push(route([a, b], "gpon-route-network"));
+      /* A conexão de rede deixou de ser uma linha roxa fixa: a cor é a
+         utilização, na mesma escala da topologia e do anel de POPs. */
+      const carga = cargaDoPar(a.id, b.id) || TRAF.doConjunto([]);
+      medidas.push(carga);
+      const t = TRAF.atributos(carga, `${a.nome || a.id} ↔ ${b.nome || b.id}`, "Conexão de rede");
+      pieces.push(route([a, b], `gpon-route-network is-traf ${carga.estado === "offline" ? "is-down" : ""}`,
+        `style="stroke:${t.cor}" data-traf="${esc(t.dica)}"`));
     });
     /* O drop só significa alguma coisa a partir do zoom de rua, e desenhar
        milhares de polilinhas de 3 px é o item mais caro do quadro. */
@@ -1110,6 +1149,27 @@
       }
     }
     $("#gponRoutes").innerHTML = pieces.join("");
+    renderTrafLegend(medidas);
+  }
+
+  /* A legenda só aparece quando a camada de POPs está ligada: sem conexão de
+     rede desenhada, uma escala de utilização sobre o mapa não explica nada. */
+  function renderTrafLegend(medidas) {
+    const host = $("#gponTrafLegend");
+    if (!host) return;
+    host.hidden = !medidas.length;
+    if (!medidas.length) return;
+    const bruto = TRAF.coletadoEm();
+    const d = bruto && new Date(String(bruto).includes("T") ? bruto : `${String(bruto).replace(" ", "T")}Z`);
+    const quando = TRAF.erro() ? "sem leitura nova do Zabbix"
+      : d && !Number.isNaN(d.getTime()) ? `medido às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+        : "aguardando o Zabbix";
+    host.innerHTML = `
+      <div class="traf-legenda-titulo">
+        <b>Utilização dos enlaces</b>
+        <span class="${TRAF.erro() ? "traf-legenda-aviso" : ""}">${esc(quando)}</span>
+      </div>
+      ${TRAF.legendaHTML(medidas)}`;
   }
 
   /* A propriedade `translate` (e não `left/top`) posiciona o marcador: a

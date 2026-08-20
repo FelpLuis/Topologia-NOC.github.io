@@ -359,7 +359,12 @@ window.TRAF = (() => {
     return state.buscando;
   }
 
-  const avisar = () => state.inscritos.forEach((cb) => { try { cb(); } catch {} });
+  /* O inscrito é a CHAVE do mapa — o valor guarda a necessidade dele
+     (tempo real, intervalo). Um inscrito que quebra não pode derrubar os
+     outros, mas some do log se o erro for engolido em silêncio. */
+  const avisar = () => state.inscritos.forEach((_, cb) => {
+    try { cb(); } catch (err) { console.error("Falha ao repintar com a carga do enlace:", err); }
+  });
 
   function agendar() {
     clearInterval(state.timer);

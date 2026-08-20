@@ -96,6 +96,7 @@
     $$("[data-editar-equip]").forEach((b) => (b.onclick = () => formEquipamento(b.dataset.editarEquip)));
     $$("[data-desvincular]").forEach((b) => (b.onclick = () => vincular(b.dataset.desvincular, null)));
     $$("[data-excluir-equip]").forEach((b) => (b.onclick = () => excluirEquipamento(b.dataset.excluirEquip)));
+    $$("[data-abrir-equip]").forEach((b) => (b.onclick = () => window.TOPO?.abrirEquipamento(b.dataset.abrirEquip)));
 
     renderResumo();
     if (state.foco) {
@@ -203,13 +204,9 @@
           <br><small class="truncate">${esc(e.modelo || "Modelo não informado")} • ${esc(e.categoria || "Equipamento")}</small>
         </div>
         <div class="row wrap" style="gap:6px;justify-content:flex-end">
-          <a class="btn btn-sm" href="/isp.html?device=${encodeURIComponent(e.id)}">Abrir na topologia</a>
-          <button class="btn btn-sm" type="button" data-editar-equip="${esc(e.id)}"
-            ${podeEditarEquip() ? "" : "disabled title='Requer as ações topology.edit + topology.equipment.edit'"}>Editar</button>
+          <button class="btn btn-sm" type="button" data-abrir-equip="${esc(e.id)}">${icon("port")} Abrir</button>
           <button class="btn btn-sm" type="button" data-desvincular="${esc(e.id)}"
             ${podeVincular() ? "" : "disabled title='Requer as ações topology.edit + topology.pop.link'"}>Desvincular</button>
-          <button class="btn btn-sm btn-danger" type="button" data-excluir-equip="${esc(e.id)}"
-            ${podeExcluirEquip() ? "" : "disabled title='Requer as ações topology.delete + topology.equipment.delete'"}>Excluir</button>
         </div>
       </div>
       <div class="row" style="gap:var(--s-3)">

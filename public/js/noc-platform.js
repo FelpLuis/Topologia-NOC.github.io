@@ -387,7 +387,28 @@
   }
 
   /* ---------------- usuários ---------------- */
-  function filteredUsers() {
+  function toggleUserStatus(userId, currentActive) {
+      const aplicar = async (active) => {
+        try {
+          await NOC.api(`/api/users/${userId}`, { method: "PATCH", body: JSON.stringify({ active }) });
+          state.users = state.users.map((u) => u.id === userId ? { ...u, active } : u);
+          renderUsers();
+          toast(active ? "Conta reativada" : "Conta desativada", { type: active ? "ok" : "warn" });
+        } catch (err) {
+          toast("Não foi possível alterar a conta", { text: err.message, type: "danger", timeout: 7000 });
+        }
+      };
+      if (currentActive) {
+        askConfirm({
+          title: `Ativar ${currentActive}?`,
+          text: "A conta será reativada.",
+          confirmLabel: "Ativar conta",
+          onConfirm: () => aplicar(true),
+        });
+      } else aplicar(true);
+    }
+
+    function filteredUsers() {
     const q = state.userQuery;
     return state.users.filter((u) => {
       if (state.userFilter === "ativos" && !u.active) return false;
@@ -415,7 +436,7 @@
           </select>
         </td>
         <td><button class="btn btn-sm" type="button" data-sectors="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${(u.sectors || []).length ? (u.sectors || []).map((s) => esc(s.name)).join(", ") : "Sem setor"}</button></td>
-        <td><span class="badge ${u.active ? "badge-ok" : "badge-danger"}"><i class="dot ${u.active ? "dot-ok" : "dot-danger"}"></i>${u.active ? "Ativo" : "Inativo"}</span></td>
+        <td><span class="badge ${u.active ? "badge-ok" : "badge-danger"} ${u.active ? "clickable" : ""}" onclick="toggleUserStatus(${u.id}, ${u.active})"><i class="dot ${u.active ? "dot-ok" : "dot-danger"}"></i>${u.active ? "Ativo" : "Inativo"}</span></td>
         <td class="mono dim">${esc(u.last_login_at || "—")}</td>
         <td>
           <div class="row" style="gap:6px;justify-content:flex-end">
@@ -423,7 +444,6 @@
             <button class="btn btn-sm" type="button" data-device-access="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${icon("lock")} Acessos SSH</button>
             <button class="btn btn-sm" type="button" data-email="${u.id}" ${can("manageUsers") ? "" : "disabled"}>E-mail OAuth</button>
             <button class="btn btn-sm" type="button" data-reset="${u.id}" ${can("resetPassword") ? "" : "disabled"}>Redefinir senha</button>
-            <button class="btn btn-sm ${u.active ? "btn-danger" : ""}" type="button" data-toggle="${u.id}" ${can("manageUsers") ? "" : "disabled"}>${u.active ? "Desativar" : "Ativar"}</button>
           </div>
         </td>
       </tr>`).join("") : `<tr><td colspan="6"><div class="empty">

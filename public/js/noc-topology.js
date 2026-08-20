@@ -3811,6 +3811,7 @@
       applyTransform();
     },
     persistir: (motivo, mensagem, undo) => persist(motivo, mensagem, undo),
+    abrirEquipamento: (id) => openDevice(id),
   };
 
   /* O modo escolhido é lembrado por navegador: quem trabalha com o mapa

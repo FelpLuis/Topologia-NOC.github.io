@@ -659,11 +659,30 @@
           </g>`;
         }).join("")}
       </svg>
-      <div class="stack" style="gap:6px;margin-top:var(--s-3);font-size:var(--fs-11)">
-        <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--cyan-400);display:block"></i> Rota aérea</span>
-        <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--purple-400);display:block"></i> Rota subterrânea</span>
+      <div class="stack" style="gap:var(--s-2);margin-top:var(--s-3);font-size:var(--fs-11)">
+        <div class="traf-legenda-titulo">
+          <b>Utilização dos enlaces</b>
+          <span class="${TRAF.erro() ? "traf-legenda-aviso" : ""}">${legendaQuando()}</span>
+        </div>
+        ${TRAF.legendaHTML(medidas)}
+        <div class="row" style="gap:var(--s-4);flex-wrap:wrap">
+          <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;background:var(--text-3);display:block"></i> Rota aérea</span>
+          <span class="row" style="gap:var(--s-2)"><i style="width:16px;height:2px;display:block;background:repeating-linear-gradient(90deg,var(--text-3) 0 5px,transparent 5px 9px)"></i> Rota subterrânea</span>
+        </div>
       </div>`;
     renderRingBar();
+  }
+
+  /* Quando a medida do anel foi tirada. Uma cor fria também pode ser só um
+     espelho parado, então a hora fica ao lado da escala. */
+  function legendaQuando() {
+    if (TRAF.erro()) return "sem leitura nova do Zabbix";
+    const bruto = TRAF.coletadoEm();
+    if (!bruto) return "aguardando o Zabbix";
+    const d = new Date(String(bruto).includes("T") ? bruto : `${String(bruto).replace(" ", "T")}Z`);
+    return Number.isNaN(d.getTime())
+      ? esc(String(bruto))
+      : `medido às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
   }
 
   function renderRingBar() {
@@ -927,6 +946,12 @@
     bindRingDrag();
 
     render();
+
+    /* A carga dos enlaces chega depois do primeiro desenho e volta de minuto
+       em minuto. Só o diagrama é repintado: refazer a lista de POPs a cada
+       leitura tiraria o foco de quem estivesse editando um cadastro. */
+    TRAF.ligarDica($("#ringMap"));
+    TRAF.acompanhar(renderRing);
   }
 
   boot();

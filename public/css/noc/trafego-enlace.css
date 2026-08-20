@@ -155,3 +155,25 @@
 @media (max-width: 760px) {
   .topo-legend { min-width: 0; }
 }
+
+/* O SVG das rotas do mapa GPON é inerte ao ponteiro para não atrapalhar o
+   arrasto; só a faixa de acerto das conexões de rede volta a receber hover, e
+   o pointerdown continua subindo para o palco, que é quem move o mapa. */
+.gpon-routes .traf-alvo { pointer-events: stroke; }
+
+/* Legenda sobre o mapa GPON: canto inferior esquerdo, acima da atribuição do
+   OpenStreetMap e fora do caminho dos controles de zoom, à direita. */
+.gpon-traf-legend {
+  position: absolute;
+  left: var(--s-4);
+  bottom: calc(var(--s-4) + 20px);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  width: min(460px, calc(100% - 2 * var(--s-4)));
+}
+
+.gpon-traf-legend[hidden] { display: none; }
