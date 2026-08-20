@@ -2970,7 +2970,7 @@
         btn.onclick = (ev) => {
           ev.stopPropagation();
           const slot = Number(btn.dataset.editSlot);
-          editarSlotOLT(equipamento, slot);
+          editarSlotOLT(equipamento, slot, porSlot[slot]);
         };
       });
     }
@@ -3198,8 +3198,7 @@
   }
 
   /* ---------- OLT: Edição de slot ---------- */
-  function editarSlotOLT(equipamento, slot) {
-    const slotData = porSlot[slot];
+  function editarSlotOLT(equipamento, slot, slotData) {
     if (!slotData) return;
 
     modal({
