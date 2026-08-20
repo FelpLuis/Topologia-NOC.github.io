@@ -3398,24 +3398,49 @@ async function handleZabbixLinks(env, request) {
  * A leitura é do espelho no D1, não do Zabbix: o cron reescreve o espelho a
  * cada 5 minutos, e uma tela aberta não deve virar carga na API do Zabbix.
  */
-async function handleZabbixUtilizacao(env, request) {
+async function handleZabbixUtilizacao(env, request, url) {
   const gate = await requirePermission(env, request, "zabbix.view");
   if (gate.response) return gate.response;
 
   const db = getDB(env);
-  const [linhas, ultima] = await Promise.all([
-    db.prepare(`
-      SELECT hostid, if_index, oper_status, speed_bps, in_bps, out_bps
-      FROM zabbix_interfaces
-    `).all(),
-    db.prepare(`
-      SELECT finished_at FROM zabbix_sync_runs WHERE ok=1 ORDER BY id DESC LIMIT 1
-    `).first()
-  ]);
+  const settings = await loadTrafegoSettings(db);
+  const tempoReal = url.searchParams.get("realtime") === "1";
+
+  let linhas = null;
+  let coletadoEm = null;
+  let fonte = "espelho";
+
+  /* Com `realtime=1` a resposta sai da leitura ao vivo do Zabbix (mesma
+     fotografia do painel de Tráfego, pelo cache da borda). Se a coleta ao vivo
+     falhar ou não estiver configurada, cai no espelho persistido: a tela nunca
+     fica sem número porque a API do Zabbix travou. */
+  if (tempoReal) {
+    const realtime = await lerInventarioTempoReal(env, request, settings);
+    if (realtime?.inventory) {
+      linhas = realtime.inventory.interfaces;
+      coletadoEm = realtime.collected_at;
+      fonte = "realtime";
+    }
+  }
+
+  if (linhas === null) {
+    const [lidas, ultima] = await Promise.all([
+      db.prepare(`
+        SELECT hostid, if_index, oper_status, speed_bps, in_bps, out_bps
+        FROM zabbix_interfaces
+      `).all(),
+      db.prepare(`
+        SELECT finished_at FROM zabbix_sync_runs WHERE ok=1 ORDER BY id DESC LIMIT 1
+      `).first()
+    ]);
+    linhas = lidas.results || [];
+    coletadoEm = ultima?.finished_at || null;
+  }
 
   return json({
-    coletado_em: ultima?.finished_at || null,
-    interfaces: (linhas.results || []).map(i => ({
+    coletado_em: coletadoEm,
+    fonte,
+    interfaces: linhas.map(i => ({
       hostid: String(i.hostid),
       if_index: Number(i.if_index),
       oper_status: i.oper_status === null || i.oper_status === undefined ? null : Number(i.oper_status),
@@ -3569,6 +3594,36 @@ async function handleZabbixHistory(env, request, url) {
   return json({ horas, amostras });
 }
 
+/* Leitura ao vivo do Zabbix, com cache curto na borda. O painel de Tráfego
+   (overview) e a topologia (utilizacao) pedem o mesmo inventário a cada
+   poucos segundos; o cache reúne as telas abertas no mesmo local durante uma
+   janela curta, para a API do Zabbix responder uma vez e todos lerem a mesma
+   fotografia. A coleta ao vivo não regrava centenas de interfaces no D1 a cada
+   15 s: o cron continua cuidando do espelho persistente e do histórico. */
+async function lerInventarioTempoReal(env, request, settings) {
+  if (!env.ZABBIX_URL || !env.ZABBIX_TOKEN) return null;
+  try {
+    const cacheKey = new Request(new URL("/__internal/zabbix-realtime", request.url), { method: "GET" });
+    const edgeCache = caches.default;
+    const cached = await edgeCache.match(cacheKey);
+    if (cached) return await cached.json();
+
+    const realtime = {
+      collected_at: new Date().toISOString(),
+      inventory: await fetchNetworkInventory(env)
+    };
+    await edgeCache.put(cacheKey, new Response(JSON.stringify(realtime), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `public, max-age=${Math.max(10, settings.intervaloSegundos - 2)}`
+      }
+    }));
+    return realtime;
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * GET /api/zabbix/overview — tudo o que o painel de tráfego precisa para o
  * primeiro desenho, em uma requisição só.
@@ -3587,33 +3642,9 @@ async function handleZabbixOverview(env, request, url) {
   const horas = boundedInteger(url.searchParams.get("horas"), settings.historicoHoras, 1, 168);
 
   const realtimeRequested = url.searchParams.get("realtime") === "1";
-  let realtime = null;
-  if (realtimeRequested && env.ZABBIX_URL && env.ZABBIX_TOKEN) {
-    try {
-      /* O cache da borda reúne telas abertas no mesmo local durante uma janela
-         curta. A coleta ao vivo não regrava centenas de interfaces no D1 a
-         cada 15 s; o cron continua cuidando do espelho persistente/histórico. */
-      const cacheKey = new Request(new URL("/__internal/zabbix-realtime", request.url), { method: "GET" });
-      const edgeCache = caches.default;
-      const cached = await edgeCache.match(cacheKey);
-      if (cached) {
-        realtime = await cached.json();
-      } else {
-        realtime = {
-          collected_at: new Date().toISOString(),
-          inventory: await fetchNetworkInventory(env)
-        };
-        await edgeCache.put(cacheKey, new Response(JSON.stringify(realtime), {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": `public, max-age=${Math.max(10, settings.intervaloSegundos - 2)}`
-          }
-        }));
-      }
-    } catch (error) {
-      realtime = { error: error instanceof Error ? error.message : String(error) };
-    }
-  }
+  const realtime = realtimeRequested
+    ? await lerInventarioTempoReal(env, request, settings)
+    : null;
 
   const [persistedInventory, lastRun, historico, permissoes] = await Promise.all([
     loadInventoryFromDb(db),
@@ -3777,7 +3808,7 @@ async function handleZabbix(request, env, url) {
     return handleZabbixLinks(env, request);
 
   if (url.pathname === "/api/zabbix/utilizacao" && request.method === "GET")
-    return handleZabbixUtilizacao(env, request);
+    return handleZabbixUtilizacao(env, request, url);
 
   if (url.pathname === "/api/zabbix/topology/apply" && request.method === "POST")
     return handleZabbixApplyTopology(env, request);

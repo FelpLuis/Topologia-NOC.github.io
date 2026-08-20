@@ -45,7 +45,12 @@ window.TRAF = (() => {
     erro: null,
     buscando: null,
     timer: 0,
-    inscritos: new Set(),
+    /* Inscrito -> { tempoReal, intervaloMs }. A gaveta do equipamento da
+       topologia pede leitura ao vivo (realtime=1) e intervalo curto; os mapas
+       continuam no espelho. Cada inscrito diz a própria necessidade, e o
+       módulo atende a maior: a requisição usa tempo real se alguém pedir, e o
+       intervalo do timer é o menor entre os inscritos. */
+    inscritos: new Map(),
   };
 
   const chave = (hostid, ifIndex) => `${hostid}|${Number(ifIndex)}`;
@@ -97,6 +102,24 @@ window.TRAF = (() => {
       saida: lida ? num(lida.saida) : 0,
       medido: !!lida,
     };
+  }
+
+  /* Medida de uma porta da topologia, já no formato das telas (estado, pct,
+     cor, rótulo). É o que a gaveta do equipamento usa para mostrar tráfego em
+     cada porta da grade e da lista. */
+  function medidaDePorta(deviceId, numero) {
+    const porta = portaDe(deviceId, numero);
+    if (!porta) return null;
+    const m = daPorta(porta);
+    if (!m) return null;
+    return montar({
+      entrada: m.entrada,
+      saida: m.saida,
+      capacidade: m.capacidade,
+      pontas: 1,
+      caidas: m.oper !== 1 ? 1 : 0,
+      medido: m.medido,
+    });
   }
 
   /* Medida de um enlace documentado.
@@ -323,7 +346,8 @@ window.TRAF = (() => {
 
   function atualizar() {
     if (state.buscando) return state.buscando;
-    state.buscando = NOC.zabbix.utilizacao()
+    const tempoReal = [...state.inscritos.values()].some((s) => s.tempoReal);
+    state.buscando = NOC.zabbix.utilizacao({ tempoReal })
       .then((r) => { aplicar(r); avisar(); return r; })
       .catch((err) => {
         /* Falha de leitura não apaga a última medida boa: a tela continua
@@ -341,7 +365,8 @@ window.TRAF = (() => {
     clearInterval(state.timer);
     state.timer = 0;
     if (!state.inscritos.size || document.hidden) return;
-    state.timer = setInterval(atualizar, INTERVALO_MS);
+    const intervalo = Math.min(...[...state.inscritos.values()].map((s) => s.intervaloMs));
+    state.timer = setInterval(atualizar, intervalo);
   }
 
   document.addEventListener("visibilitychange", () => {
@@ -352,9 +377,11 @@ window.TRAF = (() => {
   });
 
   /* Liga a tela na carga: `aoAtualizar` é chamado a cada leitura nova, e a
-     função devolvida desliga. Só quem chama isto gera requisição. */
-  function acompanhar(aoAtualizar) {
-    if (typeof aoAtualizar === "function") state.inscritos.add(aoAtualizar);
+     função devolvida desliga. Só quem chama isto gera requisição.
+     Opções: { tempoReal, intervaloMs } — a gaveta do equipamento usa tempo
+     real com intervalo curto, os mapas seguem no espelho de um minuto. */
+  function acompanhar(aoAtualizar, { tempoReal = false, intervaloMs = INTERVALO_MS } = {}) {
+    if (typeof aoAtualizar === "function") state.inscritos.set(aoAtualizar, { tempoReal, intervaloMs });
     agendar();
     atualizar();
     return () => {
@@ -365,7 +392,7 @@ window.TRAF = (() => {
 
   return {
     ESCALA, OFFLINE, SEM_DADO,
-    faixa, faixaDe, cor, daPorta, doEnlace, doConjunto,
+    faixa, faixaDe, cor, daPorta, medidaDePorta, doEnlace, doConjunto,
     rotulo, dica, linhasDica, atributos, legendaHTML, ligarDica,
     acompanhar, atualizar,
     pronto: () => state.medidas.size > 0,

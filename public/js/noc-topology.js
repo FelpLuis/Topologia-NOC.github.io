@@ -1838,8 +1838,17 @@
              o operador usa no equipamento, e o número é só o índice do cadastro. */
           const identidade = [p.nome, p.capacidade, p.descricao].filter(Boolean).join(" • ");
           const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${identidade ? `, ${identidade}` : ""}`;
-          return `<button class="port ${on ? "is-used" : ""}" type="button" data-port="${p.numero}"
-                    title="${esc(identidade || `Porta ${p.numero}`)}"
+          /* Cor por utilização, na mesma escala dos enlaces: a borda da porta
+             acompanha o tráfego lido do Zabbix. Porta sem interface monitorada
+             mantém a aparência de sempre — nenhuma cor é inventada. */
+          const m = TRAF.medidaDePorta(e.id, p.numero);
+          const trafCor = m && m.estado !== "sem-dado" ? TRAF.cor(m) : null;
+          const trafTitulo = m && m.estado !== "sem-dado"
+            ? `${identidade ? identidade + " • " : ""}${TRAF.rotulo(m)}`
+            : (identidade || `Porta ${p.numero}`);
+          return `<button class="port ${on ? "is-used" : ""} ${trafCor ? "is-traf" : ""}" type="button" data-port="${p.numero}"
+                    style="${trafCor ? `--port-traf:${trafCor}` : ""}"
+                    title="${esc(trafTitulo)}"
                     aria-label="${esc(rotulo)}">${String(p.numero).padStart(2, "0")}</button>`;
         }).join("")}
       </div>
@@ -1854,13 +1863,13 @@
       </div>
       <div class="table-wrap" style="max-height:340px">
         <table class="table">
-          <thead><tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Conexão</th><th></th></tr></thead>
+          <thead><tr><th>Porta</th><th>Capacidade</th><th>Tipo</th><th>Status</th><th>Tráfego</th><th>Conexão</th><th></th></tr></thead>
           <tbody id="portRows"></tbody>
         </table>
       </div>
       <p class="dim" style="font-size:var(--fs-11);margin-top:var(--s-3)">
         ${icon("info")} Status, capacidade e descrição vêm do inventário do Zabbix aplicado à topologia.
-        RX e TX atualizados ficam disponíveis na tela Tráfego.
+        O tráfego de cada porta é lido em tempo real enquanto esta gaveta está aberta.
       </p>`;
   }
 
@@ -1875,17 +1884,23 @@
         const c = NOC.portConnection(e.id, p.numero);
         const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
         const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
+        const m = TRAF.medidaDePorta(e.id, p.numero);
+        const trafCell = m && m.estado !== "sem-dado"
+          ? `<span class="port-traf" style="--port-traf:${TRAF.cor(m)}"
+                title="${esc(TRAF.linhasDica(m, `Porta ${p.numero}`).join(" — "))}">${esc(TRAF.rotulo(m))}</span>`
+          : '<span class="dim">—</span>';
         return `<tr>
           <td class="mono"><b>${String(p.numero).padStart(2, "0")}</b></td>
           <td>${esc(p.capacidade || "A confirmar")}</td>
           <td class="dim">${esc(p.tipo || "—")}</td>
           <td>${c ? '<span class="badge badge-ok"><i class="dot dot-ok"></i>Em uso</span>' : '<span class="badge">Livre</span>'}</td>
+          <td>${trafCell}</td>
           <td>${remoto ? `<button class="btn btn-ghost btn-sm" data-goto="${esc(remoto.id)}">${esc(remoto.nome)} • porta ${remotaPorta}</button>` : '<span class="dim">—</span>'}</td>
           <td><button class="btn btn-ghost btn-sm btn-icon" data-editport="${p.numero}" type="button"
                 aria-label="Editar a porta ${p.numero}" title="Editar porta e conexão"
                 ${podeEditarPorta() ? "" : "disabled"}>${icon("edit")}</button></td>
         </tr>`;
-      }).join("") : `<tr><td colspan="6"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
+      }).join("") : `<tr><td colspan="7"><div class="empty"><b>Nenhuma porta nesse filtro</b></div></td></tr>`;
       $$("#portRows [data-goto]", root).forEach((b) => (b.onclick = () => openDevice(b.dataset.goto)));
       $$("#portRows [data-editport]", root).forEach((b) => (b.onclick = () => openPort(e, +b.dataset.editport, { edit: true })));
     };

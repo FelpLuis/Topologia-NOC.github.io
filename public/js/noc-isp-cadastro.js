@@ -1030,6 +1030,11 @@
 
     const emUso = NOC.portaEmUso(equipamento.id, numeroPorta);
 
+    // Os inputs hidden estão dentro do próprio elemento .olt-porta
+    const hiddenCap = elemento.querySelector(`input[name="porta_${numeroPorta}_capacidade"]`);
+    const hiddenTipo = elemento.querySelector(`input[name="porta_${numeroPorta}_tipo"]`);
+    const hiddenStatus = elemento.querySelector(`input[name="porta_${numeroPorta}_status"]`);
+
     modal({
       labelledBy: "oltPortaEditarTitulo",
       html: `
@@ -1081,12 +1086,12 @@
           const tipoInput = $("#oltPortaTipo", host);
           const statusInput = $("#oltPortaStatus", host);
 
-          // Atualizar inputs hidden na grid principal
-          $(`input[name="porta_${numeroPorta}_capacidade"]`, elemento.closest(".modal-card") || document).value = capInput.value;
-          $(`input[name="porta_${numeroPorta}_tipo"]`, elemento.closest(".modal-card") || document).value = tipoInput.value;
-          $(`input[name="porta_${numeroPorta}_status"]`, elemento.closest(".modal-card") || document).value = statusInput.value;
+          // Atualizar inputs hidden na grid principal (estão no elemento .olt-porta)
+          if (hiddenCap) hiddenCap.value = capInput.value;
+          if (hiddenTipo) hiddenTipo.value = tipoInput.value;
+          if (hiddenStatus) hiddenStatus.value = statusInput.value;
 
-          // Atualizar display
+          // Atualizar display visual
           const capEl = elemento.querySelector(".porta-capacidade");
           const tipoEl = elemento.querySelector(".porta-tipo");
           const statusEl = elemento.querySelector(".porta-status");
