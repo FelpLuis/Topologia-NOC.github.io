@@ -2776,7 +2776,10 @@
     function rebuildPorSlot() {
       const porSlot = {};
       for (const porta of portas) {
-        const slot = porta.slot || 1;
+        // Dados antigos podem não ter `slot` gravado; sem isso, o filtro de
+        // remoção nunca casa o número do slot exibido com o da porta real.
+        const slot = Number(porta.slot) || 1;
+        porta.slot = slot;
         if (!porSlot[slot]) porSlot[slot] = { portas: [], tipoPlaca: porta.tipoPlaca || "Desconhecido", tecnologia: porta.tecnologia || "" };
         porSlot[slot].portas.push(porta);
       }
