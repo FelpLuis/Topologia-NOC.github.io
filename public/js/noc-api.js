@@ -521,6 +521,33 @@ window.NOC = (() => {
     return topologyPromise;
   }
 
+  /* Carrega equipamentos de todos os recortes (noc, isp, etc.) para permitir
+     vínculos entre recortes diferentes. Usado ao criar enlaces cruzados. */
+  let allScopesPromise = null;
+  async function loadAllScopesEquipment() {
+    if (!allScopesPromise) {
+      allScopesPromise = (async () => {
+        const scopes = ["noc", "isp"];
+        const results = {};
+        for (const scope of scopes) {
+          try {
+            const url = `/api/topology?scope=${scope}`;
+            const data = await api(url);
+            results[scope] = data.equipamentos || [];
+          } catch (e) {
+            results[scope] = [];
+          }
+        }
+        return results;
+      })().catch((err) => { allScopesPromise = null; throw err; });
+    }
+    return allScopesPromise;
+  }
+
+  function clearAllScopesCache() {
+    allScopesPromise = null;
+  }
+
   /* 1 = up e 2 = down são os valores de ifOperStatus (SNMP). */
   const interfaceStatus = (i) =>
     i?.oper_status === 1 ? { dot: "dot-ok", label: "Up", badge: "badge-ok" }
@@ -587,6 +614,7 @@ window.NOC = (() => {
   return {
     api, load, save, data, can, canAll, loadAccess, applyActions, screens, hasScreen,
     loadTopologyOnce, trafego, scope,
+    loadAllScopesEquipment, clearAllScopesCache,
     fibras, caixas, fibraById, caixaById, pontosDe, extensaoDe, formatarExtensao,
     novoId, podeEditarFibra, podeExcluirFibra,
     pops, popById, popCoords, popRecord, suggestPop, effectivePop, isSuggested,
