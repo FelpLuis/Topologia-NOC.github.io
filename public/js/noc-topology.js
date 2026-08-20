@@ -1907,6 +1907,62 @@
     });
   }
 
+  /* Uma porta some botão: mesma peça usada solta (equipamento comum) e dentro
+     de cada grupo de placa (OLT). */
+  function portaBotaoHtml(e, p) {
+    const on = NOC.portaEmUso(e.id, p.numero);
+    /* Portas vindas do Zabbix trazem o nome real da interface (p.nome) e a
+       descrição do enlace. Vão no title/aria-label: é o identificador que
+       o operador usa no equipamento, e o número é só o índice do cadastro. */
+    const identidade = [p.nome, p.capacidade, p.descricao].filter(Boolean).join(" • ");
+    const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${identidade ? `, ${identidade}` : ""}`;
+    /* Cor por utilização, na mesma escala dos enlaces: a borda da porta
+       acompanha o tráfego lido do Zabbix. Porta sem interface monitorada
+       mantém a aparência de sempre — nenhuma cor é inventada. */
+    const m = TRAF.medidaDePorta(e.id, p.numero);
+    const trafCor = m && m.estado !== "sem-dado" ? TRAF.cor(m) : null;
+    const trafTitulo = m && m.estado !== "sem-dado"
+      ? `${identidade ? identidade + " • " : ""}${TRAF.rotulo(m)}`
+      : (identidade || `Porta ${p.numero}`);
+    return `<button class="port ${on ? "is-used" : ""} ${trafCor ? "is-traf" : ""}" type="button" data-port="${p.numero}"
+              style="${trafCor ? `--port-traf:${trafCor}` : ""}"
+              title="${esc(trafTitulo)}"
+              aria-label="${esc(rotulo)}">${String(p.numero).padStart(2, "0")}</button>`;
+  }
+
+  /* Placas do equipamento, na ordem do slot. Um único grupo (equipamento
+     comum, sem placas) sinaliza que a face deve continuar na grade única. */
+  function portFaceGrupos(e) {
+    const porSlot = new Map();
+    for (const p of e.portas || []) {
+      const slot = Number(p.slot) || 1;
+      if (!porSlot.has(slot)) porSlot.set(slot, { slot, tipoPlaca: p.tipoPlaca || "", tecnologia: p.tecnologia || "", portas: [] });
+      porSlot.get(slot).portas.push(p);
+    }
+    return [...porSlot.values()].sort((a, b) => a.slot - b.slot);
+  }
+  const portFaceAgrupada = (e) => portFaceGrupos(e).length > 1;
+
+  /* Face do equipamento: OLTs modulares mostram cada placa como um bloco
+     próprio (mesmo agrupamento do "Gerenciar portas"), para bater com o
+     cadastro físico. Equipamento comum, sem placas, continua na grade única
+     de sempre — agrupar um só bloco só acrescentaria um cabeçalho vazio. */
+  function portFaceHtml(e) {
+    const grupos = portFaceGrupos(e);
+    if (grupos.length <= 1) return (e.portas || []).map((p) => portaBotaoHtml(e, p)).join("");
+
+    return grupos.map((g) => `
+      <div class="port-slot-group">
+        <div class="port-slot-header">
+          <span class="slot-numero">Placa ${g.slot}</span>
+          ${g.tipoPlaca ? `<span class="slot-tipo">${esc(g.tipoPlaca)}</span>` : ""}
+          ${g.tecnologia ? `<span class="slot-tecnologia">${esc(g.tecnologia)}</span>` : ""}
+          <span class="slot-qtd">${g.portas.length} portas</span>
+        </div>
+        <div class="port-grid">${g.portas.map((p) => portaBotaoHtml(e, p)).join("")}</div>
+      </div>`).join("");
+  }
+
   function portsTab(e) {
     const emUso = NOC.usedPorts(e);
     return `
@@ -1923,27 +1979,8 @@
         <button class="btn btn-sm" type="button" data-managerports
           ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>${icon("port")} Gerenciar portas</button>
       </div>
-      <div class="port-grid" id="portGrid">
-        ${e.portas.map((p) => {
-          const on = NOC.portaEmUso(e.id, p.numero);
-          /* Portas vindas do Zabbix trazem o nome real da interface (p.nome) e a
-             descrição do enlace. Vão no title/aria-label: é o identificador que
-             o operador usa no equipamento, e o número é só o índice do cadastro. */
-          const identidade = [p.nome, p.capacidade, p.descricao].filter(Boolean).join(" • ");
-          const rotulo = `Porta ${p.numero}${p.nome ? ` (${p.nome})` : ""}, ${on ? "em uso" : "livre"}${identidade ? `, ${identidade}` : ""}`;
-          /* Cor por utilização, na mesma escala dos enlaces: a borda da porta
-             acompanha o tráfego lido do Zabbix. Porta sem interface monitorada
-             mantém a aparência de sempre — nenhuma cor é inventada. */
-          const m = TRAF.medidaDePorta(e.id, p.numero);
-          const trafCor = m && m.estado !== "sem-dado" ? TRAF.cor(m) : null;
-          const trafTitulo = m && m.estado !== "sem-dado"
-            ? `${identidade ? identidade + " • " : ""}${TRAF.rotulo(m)}`
-            : (identidade || `Porta ${p.numero}`);
-          return `<button class="port ${on ? "is-used" : ""} ${trafCor ? "is-traf" : ""}" type="button" data-port="${p.numero}"
-                    style="${trafCor ? `--port-traf:${trafCor}` : ""}"
-                    title="${esc(trafTitulo)}"
-                    aria-label="${esc(rotulo)}">${String(p.numero).padStart(2, "0")}</button>`;
-        }).join("")}
+      <div class="${portFaceAgrupada(e) ? "port-slot-groups" : "port-grid"}" id="portGrid">
+        ${portFaceHtml(e)}
       </div>
 
       <div class="row-between" style="margin:var(--s-5) 0 var(--s-3)">

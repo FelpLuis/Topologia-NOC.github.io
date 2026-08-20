@@ -5,7 +5,7 @@
     "modelo": "Huawei NetEngine 8000 F1A",
     "categoria": "Núcleo",
     "local": "Ascenty",
-    "observacao": "Capacidade de interface depende da configuração e licenciamento do equipamento.",
+    "observacao": "Chassi 1U (56 portas: 48 SFP/SFP28 GE/10GE/25GE + 8 QSFP28 50/100GE). Capacidade de comutação 1.2 Tbps, 453 Mpps. Capacidade final de interface depende da configuração e licenciamento do equipamento.",
     "portas": [
       {
         "numero": 1,
@@ -297,49 +297,49 @@
       },
       {
         "numero": 49,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "conectada"
       },
       {
         "numero": 50,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 51,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 52,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 53,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 54,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 55,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       },
       {
         "numero": 56,
-        "capacidade": "40 / 100 Gbps",
+        "capacidade": "50 / 100 Gbps",
         "tipo": "QSFP28",
         "status": "livre"
       }
@@ -359,7 +359,7 @@
     "modelo": "Huawei CloudEngine S6730-H24X6C",
     "categoria": "Agregação",
     "local": "Ascenty",
-    "observacao": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.",
+    "observacao": "24 portas SFP+ 10GE + 6 portas QSFP28 40/100GE (autosensing; 100GE requer licença). Capacidade de comutação 1.68 Tbps (dispositivo) / 2.4 Tbps (chip).",
     "portas": [
       {
         "numero": 1,
@@ -549,7 +549,7 @@
     "modelo": "Huawei CloudEngine S6750-H36C",
     "categoria": "Agregação",
     "local": "Ascenty",
-    "observacao": "Capacidade operacional depende do modelo/sufixo e configuração instalada.",
+    "observacao": "36 portas QSFP28 40/100 Gbps (32 fixas + 4 de uplink). Capacidade de comutação 7.2 Tbps (dispositivo) / 8 Tbps (sistema).",
     "portas": [
       {
         "numero": 1,
@@ -863,7 +863,7 @@
     "modelo": "Huawei CloudEngine S6750-H36C",
     "categoria": "Agregação",
     "local": "Ascenty",
-    "observacao": "Capacidade operacional depende do modelo/sufixo e configuração instalada.",
+    "observacao": "36 portas QSFP28 40/100 Gbps (32 fixas + 4 de uplink). Capacidade de comutação 7.2 Tbps (dispositivo) / 8 Tbps (sistema).",
     "portas": [
       {
         "numero": 1,
@@ -1089,7 +1089,7 @@
     "modelo": "Huawei CloudEngine S6730-H24X6C",
     "categoria": "Distribuição",
     "local": "Ascenty",
-    "observacao": "24 portas 10GE + 6 portas 40GE; portas 25–30 podem operar em 100GE conforme licença/configuração.",
+    "observacao": "24 portas SFP+ 10GE + 6 portas QSFP28 40/100GE (autosensing; 100GE requer licença). Capacidade de comutação 1.68 Tbps (dispositivo) / 2.4 Tbps (chip).",
     "portas": [
       {
         "numero": 1,
@@ -1279,7 +1279,7 @@
     "modelo": "Huawei CloudEngine S6730-H24X6C",
     "categoria": "POP",
     "local": "POP Santos",
-    "observacao": "Equipamento de distribuição do POP Santos.",
+    "observacao": "Equipamento de distribuição do POP Santos. 24 portas SFP+ 10GE + 6 portas QSFP28 40/100GE (autosensing; 100GE requer licença). Capacidade de comutação 1.68 Tbps / 2.4 Tbps.",
     "portas": [
       {
         "numero": 1,
@@ -1469,7 +1469,7 @@
     "modelo": "Huawei CloudEngine S6730-H24X6C",
     "categoria": "POP",
     "local": "POP São Vicente",
-    "observacao": "Equipamento de distribuição do POP São Vicente.",
+    "observacao": "Equipamento de distribuição do POP São Vicente. 24 portas SFP+ 10GE + 6 portas QSFP28 40/100GE (autosensing; 100GE requer licença). Capacidade de comutação 1.68 Tbps / 2.4 Tbps.",
     "portas": [
       {
         "numero": 1,
@@ -1659,7 +1659,7 @@
     "modelo": "Huawei NetEngine 8000 M8",
     "categoria": "BGP/MPLS",
     "local": "Concentrador",
-    "observacao": "Chassi modular. A capacidade das portas depende da placa instalada.",
+    "observacao": "Chassi modular 3U com 8 slots para placas de interface (100GE/50GE/40GE/25GE/10GE/GE/FE/E1/POS). Capacidade de comutação até 2.4 Tbps e 453 Mpps com placa IPU-1T2. A capacidade das portas depende da placa instalada.",
     "portas": [
       {
         "numero": 1,

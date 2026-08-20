@@ -836,6 +836,24 @@
   grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
   gap: 6px;
 }
+
+/* OLT modular: cada placa vira um bloco próprio, na mesma organização do
+   "Gerenciar portas" — reaproveita .slot-numero/.slot-tipo/.slot-tecnologia/
+   .slot-qtd já usados lá. */
+.port-slot-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.port-slot-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding-bottom: var(--s-2);
+  margin-bottom: var(--s-3);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
 .port {
   position: relative;
   aspect-ratio: 1.5;
