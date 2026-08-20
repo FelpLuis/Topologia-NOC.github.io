@@ -1810,6 +1810,15 @@
           paint();
         };
         paint();
+        /* Tráfego ao vivo: enquanto a gaveta está aberta, a leitura sai do
+           Zabbix em tempo real (realtime=1) e a gaveta repinta as portas a
+           cada leitura. O inscrito se remove sozinho quando o host — e com ele
+           o body — sai do documento ao fechar a gaveta. */
+        let pararTraf = null;
+        pararTraf = TRAF.acompanhar(() => {
+          if (!document.body.contains(body)) { pararTraf?.(); return; }
+          paint();
+        }, { tempoReal: true, intervaloMs: 15000 });
       },
     });
   }
@@ -1958,6 +1967,7 @@
           const travado = semRemover || semCriar;
 
           $("#portSub", host).textContent = `${p.tipo || "—"} • ${p.capacidade || "A confirmar"}`;
+          const m = TRAF.medidaDePorta(e.id, numero);
 
           if (!editando) {
             body.innerHTML = `
@@ -1976,6 +1986,15 @@
                 </div>` : `
                 <div class="alert alert-info" style="animation:none">${icon("info")}
                   <span>Porta livre e disponível para novo cliente ou expansão do anel.</span></div>`}
+              ${m && m.estado === "up" ? `
+                <div class="card" style="padding:var(--s-4);border-left:3px solid ${TRAF.cor(m)}">
+                  <span class="kicker">${icon("trafego")} Tráfego agora</span>
+                  <div class="row wrap" style="gap:var(--s-5);margin-top:var(--s-3)">
+                    <span class="mono"><small class="dim">Entrada</small><br><b style="font-size:var(--fs-14)">${esc(NOC.formatBps(m.entrada))}</b></span>
+                    <span class="mono"><small class="dim">Saída</small><br><b style="font-size:var(--fs-14)">${esc(NOC.formatBps(m.saida))}</b></span>
+                    ${m.capacidade > 0 ? `<span class="mono"><small class="dim">Utilização</small><br><b style="font-size:var(--fs-14)">${esc(TRAF.pctTexto(m.pct))}</b></span>` : ""}
+                  </div>
+                </div>` : ""}
               <div class="kv">
                 <div><label>Status</label><strong style="font-size:var(--fs-14)">${esc(p.status || (c ? "conectada" : "livre"))}</strong></div>
                 <div><label>Capacidade</label><strong style="font-size:var(--fs-14)">${esc(p.capacidade || "A confirmar")}</strong></div>

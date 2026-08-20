@@ -868,6 +868,29 @@
 .port[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--cyan-400); }
 :root[data-theme="light"] .port.is-used { color: var(--brand-600); }
 
+/* Tráfego por porta: a borda esquerda segue a escala de utilização dos
+   enlaces (verde -> amarelo -> vermelho) via --port-traf, definido inline
+   pela topologia. A cor é a mesma da legenda, para o operador ler a porta
+   como lê um enlace. */
+.port.is-traf { border-left-width: 4px; border-left-color: var(--port-traf); }
+.port-traf {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  font-weight: 700;
+  color: var(--text-1);
+}
+.port-traf::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: var(--r-full);
+  background: var(--port-traf);
+  box-shadow: 0 0 6px var(--port-traf);
+}
+
 .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--s-3); }
 .kv > div {
   padding: var(--s-3) var(--s-4);
