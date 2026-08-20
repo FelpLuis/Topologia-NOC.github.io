@@ -1631,7 +1631,7 @@ const TOPOLOGY_SCOPES = {
   },
   isp: {
     seed: {
-      equipamentos:"isp-equipamentos.json", conexoes:"isp-conexoes.json", pops:"isp-pops.json",
+      equipamentos:"isp-equipamentos.json", conexoes:"isp-conexoes.json", pops:"pops.json",
       fibras:"isp-fibras.json", caixas:"isp-caixas.json"
     },
     config: {

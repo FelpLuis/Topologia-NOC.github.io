@@ -2770,16 +2770,92 @@
   function openOltPortsManager(equipamento) {
     if (!podeEditarPorta()) return;
     let portas = [...equipamento.portas].sort((a, b) => Number(a.numero) - Number(b.numero));
+    let nextPortNumber = portas.length > 0 ? Math.max(...portas.map(p => p.numero)) + 1 : 1;
 
     // Agrupar por slot/placa
-    const porSlot = {};
-    for (const porta of portas) {
-      const slot = porta.slot || 1;
-      if (!porSlot[slot]) porSlot[slot] = { portas: [], tipoPlaca: porta.tipoPlaca || "Desconhecido", tecnologia: porta.tecnologia || "" };
-      porSlot[slot].portas.push(porta);
+    function rebuildPorSlot() {
+      const porSlot = {};
+      for (const porta of portas) {
+        const slot = porta.slot || 1;
+        if (!porSlot[slot]) porSlot[slot] = { portas: [], tipoPlaca: porta.tipoPlaca || "Desconhecido", tecnologia: porta.tecnologia || "" };
+        porSlot[slot].portas.push(porta);
+      }
+      // Ordenar portas dentro do slot por subslot
+      Object.values(porSlot).forEach(s => s.portas.sort((a, b) => Number(a.subslot) - Number(b.subslot)));
+      return porSlot;
     }
 
-    const slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+    let porSlot = rebuildPorSlot();
+    let slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+
+    // Configuração padrão de tipos de slot
+    const SLOT_TYPES = {
+      linha: { tipoPlaca: "Linha", tecnologia: "GBIC/GPON", tipo: "SFP", capacidade: "1.25 / 2.5 Gbps" },
+      gerencia: { tipoPlaca: "Gerência", tecnologia: "Óptica", tipo: "SFP", capacidade: "1 Gbps" },
+      gerencia_rj45: { tipoPlaca: "Gerência", tecnologia: "Elétrica", tipo: "RJ45", capacidade: "1 Gbps" },
+      uplink_10g: { tipoPlaca: "Uplink", tecnologia: "10G", tipo: "SFP+", capacidade: "10 Gbps" },
+      uplink_2_5g: { tipoPlaca: "Uplink", tecnologia: "2.5G", tipo: "SFP", capacidade: "2.5 Gbps" },
+    };
+
+    function getNextSubslot(slot) {
+      const slotData = porSlot[slot];
+      if (!slotData || !slotData.portas.length) return 1;
+      return Math.max(...slotData.portas.map(p => p.subslot)) + 1;
+    }
+
+    function addPortToSlot(slot, slotType = "linha") {
+      const config = SLOT_TYPES[slotType] || SLOT_TYPES.linha;
+      const subslot = getNextSubslot(slot);
+      const novaPorta = {
+        numero: nextPortNumber++,
+        slot,
+        subslot,
+        tipoPlaca: config.tipoPlaca,
+        tecnologia: config.tecnologia,
+        capacidade: config.capacidade,
+        tipo: config.tipo,
+        status: "livre",
+      };
+      portas.push(novaPorta);
+      porSlot = rebuildPorSlot();
+      slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+      return novaPorta;
+    }
+
+    function removePortFromSlot(slot, subslot) {
+      const idx = portas.findIndex(p => p.slot === slot && p.subslot === subslot);
+      if (idx === -1) return false;
+      const porta = portas[idx];
+      if (NOC.portaEmUso(equipamento.id, porta.numero)) {
+        toast("Porta em uso", { text: "Não é possível remover uma porta com enlace documentado.", type: "warn" });
+        return false;
+      }
+      portas.splice(idx, 1);
+      porSlot = rebuildPorSlot();
+      slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+      return true;
+    }
+
+    function addSlot(slotType = "linha") {
+      const newSlot = slotsOrdenados.length > 0 ? Math.max(...slotsOrdenados) + 1 : 1;
+      // Adicionar primeira porta para criar o slot
+      addPortToSlot(newSlot, slotType);
+      return newSlot;
+    }
+
+    function removeSlot(slot) {
+      const slotData = porSlot[slot];
+      if (!slotData) return false;
+      const emUso = slotData.portas.some(p => NOC.portaEmUso(equipamento.id, p.numero));
+      if (emUso) {
+        toast("Slot em uso", { text: "Não é possível remover um slot com portas em uso.", type: "warn" });
+        return false;
+      }
+      portas = portas.filter(p => p.slot !== slot);
+      porSlot = rebuildPorSlot();
+      slotsOrdenados = Object.keys(porSlot).map(Number).sort((a, b) => a - b);
+      return true;
+    }
 
     function renderPortasOLT() {
       const container = $("#oltPortasContainer");
@@ -2796,6 +2872,7 @@
               <span class="porta-tipo">${p.tipo}</span>
               <span class="porta-capacidade">${p.capacidade}</span>
               <span class="porta-status">${emUso ? "Em uso" : (p.status || "livre")}</span>
+              ${!emUso ? `<button class="btn btn-ghost btn-icon btn-xs porta-remove" data-slot="${slot}" data-subslot="${p.subslot}" title="Remover porta" aria-label="Remover porta">${icon("trash")}</button>` : ""}
               <input type="hidden" name="porta_${p.numero}_capacidade" value="${esc(p.capacidade)}">
               <input type="hidden" name="porta_${p.numero}_tipo" value="${esc(p.tipo)}">
               <input type="hidden" name="porta_${p.numero}_status" value="${esc(p.status || "livre")}">
@@ -2810,19 +2887,79 @@
               <span class="slot-tipo">${esc(slotData.tipoPlaca)}</span>
               <span class="slot-tecnologia">${esc(slotData.tecnologia)}</span>
               <span class="slot-qtd">${slotData.portas.length} portas</span>
+              <div class="slot-actions">
+                <button class="btn btn-ghost btn-sm btn-icon" data-add-port="${slot}" title="Adicionar porta" aria-label="Adicionar porta">${icon("plus")}</button>
+                <button class="btn btn-ghost btn-sm btn-icon" data-remove-slot="${slot}" title="Remover slot" aria-label="Remover slot" ${slotData.portas.length > 0 ? "" : "disabled"}>${icon("trash")}</button>
+              </div>
             </div>
             <div class="olt-slot-portas">${portaHtml}</div>
           </div>
         `;
       }).join("");
 
-      // Bind click events for port editing
+      // Bind click events
       $$(".olt-porta", container).forEach(el => {
         el.onclick = (ev) => {
+          if (ev.target.closest(".porta-remove")) return;
           if (ev.target.tagName === "INPUT") return;
           editarPortaOLT(equipamento, Number(el.dataset.numero), el);
         };
       });
+
+      $$(".porta-remove", container).forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const slot = Number(btn.dataset.slot);
+          const subslot = Number(btn.dataset.subslot);
+          if (removePortFromSlot(slot, subslot)) {
+            renderPortasOLT();
+            updateToolbar();
+          }
+        };
+      });
+
+      $$("[data-add-port]", container).forEach(btn => {
+        btn.onclick = () => {
+          const slot = Number(btn.dataset.addPort);
+          // Determinar tipo de slot baseado no número
+          let slotType = "linha";
+          if (slot >= 18 && slot <= 19) slotType = "gerencia";
+          if (slot === 20) slotType = "uplink_10g";
+          addPortToSlot(slot, slotType);
+          renderPortasOLT();
+          updateToolbar();
+        };
+      });
+
+      $$("[data-remove-slot]", container).forEach(btn => {
+        btn.onclick = () => {
+          const slot = Number(btn.dataset.removeSlot);
+          askConfirm({
+            title: `Remover Slot ${slot}?`,
+            text: `Todas as ${porSlot[slot]?.portas.length || 0} portas deste slot serão removidas.`,
+            confirmLabel: "Remover slot",
+            danger: true,
+            onConfirm: () => {
+              if (removeSlot(slot)) {
+                renderPortasOLT();
+                updateToolbar();
+              }
+            },
+          });
+        };
+      });
+    }
+
+    function updateToolbar() {
+      const filtroSlot = $("#oltFiltroSlot", host);
+      if (filtroSlot) {
+        filtroSlot.innerHTML = `<option value="">Todos os slots</option>` +
+          slotsOrdenados.map(s => `<option value="${s}">Slot ${s} — ${esc(porSlot[s].tipoPlaca)}</option>`).join("");
+      }
+      const totalPortas = portas.length;
+      const totalSlots = slotsOrdenados.length;
+      const infoEl = host.querySelector(".olt-info-count");
+      if (infoEl) infoEl.textContent = `${totalPortas} portas em ${totalSlots} slots`;
     }
 
     modal({
@@ -2832,7 +2969,7 @@
         <div class="modal-head">
           <div><span class="kicker">${icon("port")} OLT Modular</span>
             <h2 id="oltPortasTitulo" style="margin-top:6px">${esc(equipamento.nome)} — Gerenciamento de Portas</h2>
-            <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(equipamento.id)} • ${portas.length} portas em ${slotsOrdenados.length} slots</p></div>
+            <p class="muted mono" style="font-size:var(--fs-12);margin-top:4px">${esc(equipamento.id)} • <span class="olt-info-count">${portas.length} portas em ${slotsOrdenados.length} slots</span></p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body" style="max-height:60vh;overflow:auto">
@@ -2852,6 +2989,13 @@
                 <option value="em_uso">Em uso</option>
               </select>
             </div>
+            <div class="row wrap" style="gap:var(--s-2);margin-top:var(--s-2)">
+              <button class="btn btn-sm" type="button" id="oltAddSlotLinha">${icon("plus")} Slot Linha (GBIC/GPON)</button>
+              <button class="btn btn-sm" type="button" id="oltAddSlotGerencia">${icon("plus")} Slot Gerência (Óptica)</button>
+              <button class="btn btn-sm" type="button" id="oltAddSlotGerenciaRj45">${icon("plus")} Slot Gerência (RJ45)</button>
+              <button class="btn btn-sm" type="button" id="oltAddSlotUplink10g">${icon("plus")} Slot Uplink (10G)</button>
+              <button class="btn btn-sm" type="button" id="oltAddSlotUplink2_5g">${icon("plus")} Slot Uplink (2.5G)</button>
+            </div>
             <div class="olt-portas-legenda">
               <span class="legenda-item"><i class="dot dot-ok"></i>Livre</span>
               <span class="legenda-item"><i class="dot" style="background:var(--yellow-400)"></i>Em uso</span>
@@ -2860,7 +3004,7 @@
           <div class="olt-portas-grid" id="oltPortasContainer"></div>
         </div>
         <div class="modal-foot">
-          <span class="dim" style="font-size:var(--fs-11)">Clique em uma porta para editar capacidade, tipo ou status. Portas em uso não podem ter tipo/capacidade alterados.</span>
+          <span class="dim" style="font-size:var(--fs-11)">Clique em uma porta para editar. Use os botões acima para adicionar slots/portas. Portas em uso não podem ser removidas.</span>
           <span class="row">
             <button class="btn btn-primary" type="button" id="oltSalvarPortas">${icon("check")} Salvar alterações</button>
             <button class="btn" data-close type="button">Fechar</button>
@@ -2906,6 +3050,13 @@
         busca.addEventListener("input", aplicarFiltros);
         filtroSlot.addEventListener("change", aplicarFiltros);
         filtroStatus.addEventListener("change", aplicarFiltros);
+
+        // Botões de adicionar slots
+        $("#oltAddSlotLinha", host).onclick = () => { addSlot("linha"); renderPortasOLT(); updateToolbar(); };
+        $("#oltAddSlotGerencia", host).onclick = () => { addSlot("gerencia"); renderPortasOLT(); updateToolbar(); };
+        $("#oltAddSlotGerenciaRj45", host).onclick = () => { addSlot("gerencia_rj45"); renderPortasOLT(); updateToolbar(); };
+        $("#oltAddSlotUplink10g", host).onclick = () => { addSlot("uplink_10g"); renderPortasOLT(); updateToolbar(); };
+        $("#oltAddSlotUplink2_5g", host).onclick = () => { addSlot("uplink_2_5g"); renderPortasOLT(); updateToolbar(); };
 
         // Salvar
         $("#oltSalvarPortas", host).onclick = async () => {
@@ -3872,7 +4023,12 @@
     }
     const side = $(".topo-side");
     if (side) side.hidden = !mapa;
-    $("#popsView").hidden = view !== "pops";
+    /* A aba POPs só existe na Topologia da rede; as telas ISP não a têm. Sem
+       a guarda, `setView` estourava ali e nunca chegava às linhas abaixo — a
+       legenda, o fundo do mapa e o enquadramento ficavam sem aplicar nas duas
+       telas ISP toda vez que elas abriam fora do modo "mapa". */
+    const popsView = $("#popsView");
+    if (popsView) popsView.hidden = view !== "pops";
     const legend = $("#legend");
     if (legend) {
       const views = (legend.dataset.views || "mapa").split(/\s+/);

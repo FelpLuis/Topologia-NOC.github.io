@@ -99,6 +99,16 @@ test("a leitura se repete sozinha e para com a aba escondida", () => {
   assert.match(traf, /state\.erro = err\?\.message[\s\S]{0,80}avisar\(\);/);
 });
 
+test("o aviso percorre os inscritos pela chave do mapa", () => {
+  // `inscritos` é um Map de callback -> necessidade. Percorrê-lo como se fosse
+  // um Set entrega o VALOR no lugar da função, e nenhuma tela repinta —
+  // silenciosamente, porque o erro cai no catch de isolamento.
+  assert.match(traf, /state\.inscritos\.forEach\(\(_, cb\) =>/);
+  assert.doesNotMatch(traf, /state\.inscritos\.forEach\(\(cb\) =>/);
+  // Um inscrito que quebra não derruba os outros, mas também não some do log.
+  assert.match(traf, /catch \(err\) \{ console\.error\(/);
+});
+
 test("topologia pinta enlace e anel pela escala e monta a legenda", () => {
   assert.match(topology, /TRAF\.doConjunto\(e\.conns\)/);
   assert.match(topology, /TRAF\.doConjunto\(conexoesEntreSites\(r\.a, r\.b\)\)/);
@@ -147,4 +157,24 @@ test("as telas da topologia têm onde desenhar a legenda", () => {
     assert.match(ler(`../public/${tela}.html`), /id="trafLegend"/, `${tela}.html sem o espaço da legenda`);
   }
   assert.match(ler("../public/gpon.html"), /id="gponTrafLegend"/);
+});
+
+test("a legenda também aparece no mapa geográfico", () => {
+  // Sem declarar os dois modos, `setView` esconde o painel ao sair do esquema
+  // — justamente onde o mapa com as cidades e os enlaces coloridos aparece.
+  for (const tela of ["topologia", "isp"]) {
+    assert.match(ler(`../public/${tela}.html`),
+      /id="legend" data-views="mapa geo"/, `${tela}.html não mostra a legenda no mapa`);
+  }
+  assert.match(ler("../public/isp-mapa.html"), /id="legend" data-views="geo"/);
+});
+
+test("setView não estoura nas telas sem a aba POPs", () => {
+  // isp.html e isp-mapa.html não têm #popsView. Sem a guarda, `setView`
+  // estourava antes de aplicar a legenda, o fundo do mapa e o enquadramento.
+  assert.match(topology, /const popsView = \$\("#popsView"\);\s+if \(popsView\) popsView\.hidden/);
+  assert.doesNotMatch(topology, /\$\("#popsView"\)\.hidden/);
+  for (const tela of ["isp", "isp-mapa"]) {
+    assert.doesNotMatch(ler(`../public/${tela}.html`), /id="popsView"/);
+  }
 });
