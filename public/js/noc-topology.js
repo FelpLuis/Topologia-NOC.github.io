@@ -2843,13 +2843,22 @@
       return newSlot;
     }
 
-    function removeSlot(slot) {
+    function removeSlot(slot, force = false) {
       const slotData = porSlot[slot];
       if (!slotData) return false;
       const emUso = slotData.portas.some(p => NOC.portaEmUso(equipamento.id, p.numero));
-      if (emUso) {
-        toast("Slot em uso", { text: "Não é possível remover um slot com portas em uso.", type: "warn" });
+      if (emUso && !force) {
+        toast("Slot em uso", { text: "Este slot tem portas com enlaces documentados. Use 'Forçar remoção' para apagar mesmo assim.", type: "warn" });
         return false;
+      }
+      // Se forçar, remover os enlaces das portas deste slot
+      if (force && emUso) {
+        const t = NOC.data();
+        t.conexoes = (t.conexoes || []).filter(c => {
+          const port = c.origem === equipamento.id ? c.portaOrigem : c.portaDestino;
+          return !(c.origem === equipamento.id || c.destino === equipamento.id) || 
+                 !slotData.portas.some(p => p.numero === port);
+        });
       }
       portas = portas.filter(p => p.slot !== slot);
       porSlot = rebuildPorSlot();

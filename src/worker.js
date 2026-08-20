@@ -1664,6 +1664,25 @@ async function loadInitialTopology(env, request, scope = DEFAULT_SCOPE) {
   };
   const inicial = {config:{...DEFAULT_TOPOLOGY_CONFIG, ...recorte.config}};
   for (const [campo, arquivo] of Object.entries(recorte.seed)) inicial[campo] = await read(arquivo);
+
+  /* O recorte ISP também deve conter os equipamentos de backbone vinculados aos POPs
+     compartilhados, para que a topologia ISP mostre a estrutura completa (POPs + equipamentos). */
+  if (scope === "isp") {
+    const nocEquipamentos = await read("equipamentos.json");
+    const nocConexoes = await read("conexoes.json");
+    const popIds = new Set(inicial.pops.map(p => p.id));
+    const popNames = new Set(inicial.pops.map(p => p.nome.toLowerCase()));
+    const nocPopEquipamentos = nocEquipamentos.filter(e => {
+      if (e.categoria === "POP") return true;
+      if (e.local && (popIds.has(e.local) || popNames.has(String(e.local).toLowerCase()))) return true;
+      return false;
+    });
+    const nocPopEquipIds = new Set(nocPopEquipamentos.map(e => e.id));
+    const nocPopConexoes = nocConexoes.filter(c => nocPopEquipIds.has(c.origem) || nocPopEquipIds.has(c.destino));
+    inicial.equipamentos = [...nocPopEquipamentos, ...inicial.equipamentos];
+    inicial.conexoes = [...nocPopConexoes, ...inicial.conexoes];
+  }
+
   return inicial;
 }
 
