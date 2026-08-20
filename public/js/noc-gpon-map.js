@@ -18,6 +18,7 @@
   const { $, $$, esc, icon, toast } = UI;
 
   const LIST_CHUNK = 60;      // clientes por página da lista lateral
+  const POINT_CHUNK = 40;     // caixas/POPs por página da lista lateral
   const PAGE_SIZE = 250;      // linhas por página da tabela
   const SOLO_MAX = 280;       // acima disso os clientes viram agrupamentos
   const CLUSTER_PX = 58;      // lado da célula de agrupamento, em px de tela
@@ -38,9 +39,13 @@
     topology: { equipamentos: [], conexoes: [], pops: [] },
     feed: { clients: [], boxes: [], alerts: [], configured: false },
     rows: [], boxPoints: [], popPoints: [], areas: [], alerts: [],
-    idx: { device: new Map(), box: new Map(), pop: new Map(), client: new Map(), popOfDevice: new Map() },
-    query: "", status: "all", focus: "auto", sideTab: "clients", listLimit: LIST_CHUNK,
-    baseCache: null, cache: null, sorted: null,
+    idx: { device: new Map(), box: new Map(), pop: new Map(), client: new Map(), popOfDevice: new Map(),
+      clientsOfBox: new Map(), clientsOfPop: new Map(), devicesOfPop: new Map() },
+    query: "", status: "all", focus: "auto", sideTab: "clients",
+    /* Um teto por seção da lista lateral: cada camada ativa mostra a sua fatia
+       e tem o seu próprio "carregar mais". */
+    limits: { clients: LIST_CHUNK, boxes: POINT_CHUNK, pops: POINT_CHUNK },
+    baseCache: null, cache: null, sorted: null, boxCache: null, popCache: null,
     selected: null, layers: { clients: true, boxes: true, pops: true, drops: true },
     map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null, fitted: false,
     frame: 0, view: "map", page: 0, searchTimer: 0,
@@ -150,7 +155,13 @@
 
   const point = (o, id, name) => {
     const p = GEO.project(o.lat, o.lon);
-    return { ref: o, id, name, lat: Number(o.lat), lon: Number(o.lon), px: p.x, py: p.y };
+    return {
+      ref: o, id, name, lat: Number(o.lat), lon: Number(o.lon), px: p.x, py: p.y,
+      /* A busca do topo vale para as três camadas listadas; sem este índice,
+         cada tecla varreria os objetos crus de caixa e POP. */
+      search: [name, id, o.type, o.address, o.endereco, o.local, o.cidade, o.pop_id]
+        .filter(Boolean).join(" ").toLowerCase(),
+    };
   };
 
   function indexData() {
@@ -163,12 +174,40 @@
     idx.client = new Map(state.rows.map((r) => [String(r.id), r]));
     state.popPoints = pops().filter(hasCoord).map((p) => point(p, p.id, p.nome || p.name || p.id));
     state.boxPoints = boxes().filter(hasCoord).map((b) => point(b, b.id, b.name || b.id));
+    countByParent();
     state.areas = computeAreas();
     state.alerts = computeAlerts();
     invalidate();
   }
 
-  function invalidate() { state.baseCache = null; state.cache = null; state.sorted = null; }
+  /* Ocupação de caixa e porte de POP entram em cada linha da lista lateral.
+     Contar varrendo state.rows dentro do desenho custava uma passada pela base
+     inteira por linha — e a lista é redesenhada a cada clique no mapa. */
+  function countByParent() {
+    const idx = state.idx;
+    idx.clientsOfBox = new Map();
+    idx.clientsOfPop = new Map();
+    idx.devicesOfPop = new Map();
+    const bump = (map, key) => { if (key) map.set(String(key), (map.get(String(key)) || 0) + 1); };
+    for (const r of state.rows) {
+      bump(idx.clientsOfBox, r.c.box_id);
+      bump(idx.clientsOfPop, popOfClient(r.c)?.id);
+    }
+    for (const e of devices()) bump(idx.devicesOfPop, popOfDevice(e)?.id);
+  }
+  const countOf = (map, id) => map.get(String(id)) || 0;
+
+  function invalidate() {
+    state.baseCache = null; state.cache = null; state.sorted = null;
+    state.boxCache = null; state.popCache = null;
+  }
+
+  /* Toda mudança de busca, foco ou camada recomeça a paginação de cada seção:
+     manter o teto antigo deixava a lista abrindo no meio de um resultado que
+     já não existe mais. */
+  function resetLimits() {
+    state.limits = { clients: LIST_CHUNK, boxes: POINT_CHUNK, pops: POINT_CHUNK };
+  }
 
   /* ---------------- concentrações de clientes ----------------
      O enquadramento "tudo na tela" só serve quando a base é homogênea. Numa
@@ -314,6 +353,22 @@
     return (state.cache = out);
   }
 
+  /* Caixas e POPs seguem a busca e o foco — os mesmos recortes que valem para
+     os clientes —, mas não os chips de estado: "offline", "sinal" e "sem GPS"
+     descrevem uma ONU, e aplicá-los aqui esvaziaria a seção sem explicação.
+     A lista acompanha o que a camada mostra no mapa, então quando o operador
+     desliga Caixas ou POPs a seção correspondente sai junto. */
+  function filteredPoints(kind) {
+    if (!state.layers[kind]) return [];
+    const chave = kind === "boxes" ? "boxCache" : "popCache";
+    if (state[chave]) return state[chave];
+    const q = state.query, area = currentArea();
+    let out = kind === "boxes" ? state.boxPoints : state.popPoints;
+    if (q) out = out.filter((p) => p.search.includes(q));
+    if (area) out = out.filter((p) => inArea(p, area));
+    return (state[chave] = out);
+  }
+
   /* Ordenado por X do mundo: o recorte por viewport vira busca binária. */
   function sortedVisible() {
     if (!state.sorted) state.sorted = filtered().filter((r) => r.located).slice().sort((a, b) => a.px - b.px);
@@ -375,9 +430,9 @@
          travava a digitação. */
       const aplicar = () => {
         state.query = value.trim().toLowerCase();
-        state.page = 0; state.listLimit = LIST_CHUNK;
+        state.page = 0; resetLimits();
         invalidate();
-        renderFilters(); renderClientList(); renderTable(); scheduleMap();
+        renderFilters(); renderSideList(); renderTable(); scheduleMap();
       };
       if (imediato) aplicar(); else state.searchTimer = setTimeout(aplicar, 180);
     };
@@ -394,13 +449,17 @@
       const on = el.getAttribute("aria-pressed") !== "true";
       el.setAttribute("aria-pressed", String(on));
       state.layers[el.dataset.layer] = on;
+      /* A camada não muda só o mapa: a lista lateral mostra o que está no
+         mapa, então ela é refeita no mesmo clique. */
+      resetLimits();
+      renderFilters(); renderSideList();
       scheduleMap();
     });
     $$("[data-status]").forEach((el) => el.onclick = () => {
       state.status = el.dataset.status;
-      state.listLimit = LIST_CHUNK; state.page = 0;
+      resetLimits(); state.page = 0;
       state.cache = null; state.sorted = null;
-      renderFilters(); renderClientList(); renderTable(); scheduleMap();
+      renderFilters(); renderSideList(); renderTable(); scheduleMap();
     });
     $$("[data-side-tab]").forEach((el) => el.onclick = () => { state.sideTab = el.dataset.sideTab; renderSideTabs(); });
     if ($("#gponFocus")) $("#gponFocus").onchange = (e) => setFocus(e.target.value);
@@ -416,8 +475,17 @@
       if (marker) { e.stopPropagation(); select(marker.dataset.type, marker.dataset.id); }
     });
     $("#clientList").addEventListener("click", (e) => {
+      const more = e.target.closest("[data-more]");
+      if (more) {
+        const kind = more.dataset.more;
+        state.limits[kind] += (kind === "clients" ? LIST_CHUNK : POINT_CHUNK) * 4;
+        renderSideList();
+        return;
+      }
       const row = e.target.closest("[data-client-row]");
-      if (row) select("client", row.dataset.clientRow, true);
+      if (row) { select("client", row.dataset.clientRow, true); return; }
+      const ponto = e.target.closest("[data-point-row]");
+      if (ponto) select(ponto.dataset.pointRow, ponto.dataset.pointId, true);
     });
     $("#alertsList").addEventListener("click", (e) => {
       const row = e.target.closest("[data-alert]");
@@ -491,9 +559,9 @@
   function setFocus(value) {
     state.focus = value;
     try { localStorage.setItem(FOCUS_KEY, value); } catch { /* modo privado */ }
-    state.listLimit = LIST_CHUNK; state.page = 0;
+    resetLimits(); state.page = 0;
     invalidate();
-    renderFocusOptions(); renderFilters(); renderClientList(); renderTable();
+    renderFocusOptions(); renderFilters(); renderSideList(); renderTable();
     state.fitted = false;
     fit();
   }
@@ -583,7 +651,7 @@
 
   function render() {
     renderSource(); renderKpis(); renderFocusOptions(); renderFilters();
-    renderClientList(); renderAlerts(); renderSideTabs(); renderTable(); renderMap(); renderDetail();
+    renderSideList(); renderAlerts(); renderSideTabs(); renderTable(); renderMap(); renderDetail();
   }
 
   function setView(view) {
@@ -643,7 +711,7 @@
      vista para conferir o cadastro que precisa de latitude/longitude. */
   function showNoCoord() {
     state.status = "nocoord";
-    state.listLimit = LIST_CHUNK;
+    resetLimits();
     state.page = 0;
     if (state.query) {
       state.query = "";
@@ -653,7 +721,7 @@
       if ($("#listSearchClear")) $("#listSearchClear").hidden = true;
     }
     state.cache = null; state.sorted = null;
-    renderFilters(); renderClientList(); renderTable();
+    renderFilters(); renderSideList(); renderTable();
     setView("list");
   }
 
@@ -727,7 +795,27 @@
     });
     const total = filtered().length;
     if ($("#clientListCount")) $("#clientListCount").textContent = nb(total);
-    if ($("#sideTabClients")) $("#sideTabClients").textContent = nb(total);
+    paintSideTab(total);
+  }
+
+  /* Com Clientes desligado a aba continuaria anunciando "Clientes 0" sobre uma
+     lista de caixas: o rótulo passa a dizer o que a lista tem de fato. */
+  function paintSideTab(clientes) {
+    const btn = $('[data-side-tab="clients"]');
+    const contador = $("#sideTabClients");
+    if (!btn || !contador) return;
+    if (state.layers.clients) {
+      /* Clientes é a camada principal: enquanto estiver ligada a aba continua
+         contando clientes, e cada seção mostra o seu próprio total. */
+      btn.firstChild.textContent = "Clientes ";
+      contador.textContent = nb(clientes);
+      return;
+    }
+    const nomes = [];
+    if (state.layers.boxes) nomes.push("Caixas");
+    if (state.layers.pops) nomes.push("POPs");
+    btn.firstChild.textContent = `${nomes.join(" · ") || "Camadas"} `;
+    contador.textContent = nb(filteredPoints("boxes").length + filteredPoints("pops").length);
   }
 
   function renderSideTabs() {
@@ -738,25 +826,87 @@
 
   const rxLabel = (v) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? "" : Number(v).toFixed(1));
 
-  function renderClientList() {
-    const list = filtered();
-    const shown = list.slice(0, state.listLimit);
-    const selId = state.selected?.type === "client" ? String(state.selected.id) : null;
-    const rows = shown.map((r) => {
-      const rx = rxLabel(r.c.rx_power);
-      const tone = r.off ? "is-off" : r.low ? "is-low" : "";
-      const meta = [r.c.serial || r.c.onu_index || "Sem serial", r.c.olt_id, r.c.pon].filter(Boolean).join(" • ");
-      return `<button class="gpon-client-row ${tone}" type="button" data-client-row="${esc(r.id)}"${String(r.id) === selId ? ' aria-current="true"' : ""}>
-        <i aria-hidden="true"></i>
-        <span class="gpon-client-main"><b>${esc(r.name)}</b><small>${esc(meta)}</small></span>
-        <span class="gpon-client-meta">${rx ? `<em>${esc(rx)}</em>` : ""}${r.located ? "" : '<u title="Sem coordenadas no cadastro">s/gps</u>'}</span>
-      </button>`;
-    }).join("");
-    const rest = list.length - shown.length;
-    $("#clientList").innerHTML = (rows || `<div class="empty gpon-side-empty"><b>Nenhum cliente</b><p>Ajuste a busca, o estado ou o foco do mapa.</p></div>`)
-      + (rest > 0 ? `<button class="gpon-list-more" id="clientMore" type="button">Carregar mais ${nb(Math.min(rest, LIST_CHUNK * 4))} · restam ${nb(rest)}</button>` : "");
-    const more = $("#clientMore");
-    if (more) more.onclick = () => { state.listLimit += LIST_CHUNK * 4; renderClientList(); };
+  function clientRowHtml(r, selId) {
+    const rx = rxLabel(r.c.rx_power);
+    const tone = r.off ? "is-off" : r.low ? "is-low" : "";
+    const meta = [r.c.serial || r.c.onu_index || "Sem serial", r.c.olt_id, r.c.pon].filter(Boolean).join(" • ");
+    return `<button class="gpon-client-row ${tone}" type="button" data-client-row="${esc(r.id)}"${String(r.id) === selId ? ' aria-current="true"' : ""}>
+      <i aria-hidden="true"></i>
+      <span class="gpon-client-main"><b>${esc(r.name)}</b><small>${esc(meta)}</small></span>
+      <span class="gpon-client-meta">${rx ? `<em>${esc(rx)}</em>` : ""}${r.located ? "" : '<u title="Sem coordenadas no cadastro">s/gps</u>'}</span>
+    </button>`;
+  }
+
+  function boxRowHtml(b, selId) {
+    const o = b.ref;
+    const fora = !statusOnline(o.status);
+    const ligados = countOf(state.idx.clientsOfBox, b.id);
+    const capacidade = Number(o.capacity);
+    const meta = [o.type || "Caixa", popById(o.pop_id)?.nome || o.pop_id, o.address].filter(Boolean).join(" • ");
+    return `<button class="gpon-client-row is-box ${fora ? "is-off" : ""}" type="button" data-point-row="box" data-point-id="${esc(b.id)}"${String(b.id) === selId ? ' aria-current="true"' : ""}>
+      <i aria-hidden="true"></i>
+      <span class="gpon-client-main"><b>${esc(b.name)}</b><small>${esc(meta)}</small></span>
+      <span class="gpon-client-meta"><em>${esc(Number.isFinite(capacidade) && capacidade > 0 ? `${nb(ligados)}/${nb(capacidade)}` : nb(ligados))}</em></span>
+    </button>`;
+  }
+
+  function popRowHtml(p, selId) {
+    const o = p.ref;
+    const fora = !statusOnline(NOC.popStatus(p.id));
+    const equipamentos = countOf(state.idx.devicesOfPop, p.id);
+    const meta = [o.endereco || o.local || o.cidade, `${nb(equipamentos)} equipamentos`].filter(Boolean).join(" • ");
+    return `<button class="gpon-client-row is-pop ${fora ? "is-off" : ""}" type="button" data-point-row="pop" data-point-id="${esc(p.id)}"${String(p.id) === selId ? ' aria-current="true"' : ""}>
+      <i aria-hidden="true"></i>
+      <span class="gpon-client-main"><b>${esc(p.name)}</b><small>${esc(meta)}</small></span>
+      <span class="gpon-client-meta"><em>${nb(countOf(state.idx.clientsOfPop, p.id))}</em></span>
+    </button>`;
+  }
+
+  /* Uma seção por camada ligada. O cabeçalho leva o total filtrado da camada —
+     com três listas empilhadas, o número solto da aba não diria mais de onde
+     vem cada bloco. */
+  function sectionHtml(kind, titulo, total, corpo, chunk) {
+    const teto = state.limits[kind];
+    const resto = total - Math.min(total, teto);
+    return `<section class="gpon-side-section" data-section="${kind}">
+      <h3 class="gpon-side-section-head"><span>${esc(titulo)}</span><b>${nb(total)}</b></h3>
+      ${corpo}
+      ${resto > 0 ? `<button class="gpon-list-more" type="button" data-more="${kind}">Carregar mais ${nb(Math.min(resto, chunk))} · restam ${nb(resto)}</button>` : ""}
+    </section>`;
+  }
+
+  /* A lista lateral espelha as camadas do mapa: o que está desligado no topo
+     some daqui também, e o que está ligado aparece como uma seção própria. */
+  function renderSideList() {
+    const sel = state.selected;
+    const selCliente = sel?.type === "client" ? String(sel.id) : null;
+    const selCaixa = sel?.type === "box" ? String(sel.id) : null;
+    const selPop = sel?.type === "pop" ? String(sel.id) : null;
+    const partes = [];
+
+    if (state.layers.clients) {
+      const list = filtered();
+      const corpo = list.slice(0, state.limits.clients).map((r) => clientRowHtml(r, selCliente)).join("")
+        || `<div class="gpon-list-note">Nenhum cliente neste recorte. Ajuste a busca, o estado ou o foco.</div>`;
+      partes.push(sectionHtml("clients", "Clientes", list.length, corpo, LIST_CHUNK * 4));
+    }
+    if (state.layers.boxes) {
+      const list = filteredPoints("boxes");
+      const corpo = list.slice(0, state.limits.boxes).map((b) => boxRowHtml(b, selCaixa)).join("")
+        || `<div class="gpon-list-note">Nenhuma caixa localizada neste recorte.</div>`;
+      partes.push(sectionHtml("boxes", "Caixas / CTOs", list.length, corpo, POINT_CHUNK * 4));
+    }
+    if (state.layers.pops) {
+      const list = filteredPoints("pops");
+      const corpo = list.slice(0, state.limits.pops).map((p) => popRowHtml(p, selPop)).join("")
+        || `<div class="gpon-list-note">Nenhum POP neste recorte.</div>`;
+      partes.push(sectionHtml("pops", "POPs", list.length, corpo, POINT_CHUNK * 4));
+    }
+
+    $("#clientList").innerHTML = partes.join("")
+      /* Drops não entram aqui: são o traçado entre cliente e caixa, não um
+         objeto que se possa abrir numa linha da lista. */
+      || `<div class="empty gpon-side-empty"><b>Nada para listar</b><p>Ligue Clientes, Caixas ou POPs no topo. Drops aparecem só como traçado no mapa.</p></div>`;
   }
 
   function renderAlerts() {
@@ -1076,7 +1226,7 @@
     state.selected = { type, id };
     /* Ao selecionar, o painel de detalhe volta à tela se estava recolhido. */
     if (state.detailOff) toggleDetail(false);
-    renderClientList();
+    renderSideList();
     renderDetail();
     if (focus) {
       const item = type === "client" ? rowById(id)

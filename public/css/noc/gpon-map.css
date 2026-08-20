@@ -272,8 +272,38 @@
 .gpon-side-tabs button[aria-pressed="true"] b { background: rgba(255, 255, 255, .22); }
 
 /* ---------- Lista de clientes ---------- */
-.gpon-clients { display: grid; gap: 5px; align-content: start; }
+.gpon-clients { display: grid; gap: var(--s-3); align-content: start; }
 .gpon-alerts { display: grid; gap: 6px; align-content: start; }
+
+/* Uma seção por camada ligada no topo. O cabeçalho gruda no alto da rolagem
+   porque, com três listas empilhadas, quem rola perde de vista o que está
+   olhando. */
+.gpon-side-section { display: grid; gap: 5px; align-content: start; }
+.gpon-side-section-head {
+  position: sticky;
+  top: calc(var(--s-2) * -1);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin: 0;
+  padding: var(--s-2) 2px 5px;
+  background: var(--surface-1);
+  color: var(--text-3);
+  font: 700 var(--fs-10) var(--font-sans);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.gpon-side-section-head b {
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font: 700 var(--fs-10) var(--font-mono);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
 
 .gpon-client-row {
   display: grid;
@@ -304,6 +334,13 @@
 }
 .gpon-client-row.is-off > i { background: var(--danger-500); box-shadow: 0 0 0 3px var(--danger-bg); }
 .gpon-client-row.is-low > i { background: var(--warn-500); box-shadow: 0 0 0 3px var(--warn-bg); }
+/* Mesmas cores dos marcadores: a linha da lista e o ponto no mapa são o mesmo
+   objeto, e trocar de cor entre os dois obriga a reler a legenda. */
+.gpon-client-row.is-box > i { border-radius: 3px; }
+.gpon-client-row.is-box:not(.is-off) > i { background: var(--purple-400); box-shadow: 0 0 0 3px rgba(165, 107, 255, .16); }
+.gpon-client-row.is-pop:not(.is-off) > i { background: var(--brand-500); box-shadow: 0 0 0 3px rgba(11, 116, 255, .18); }
+.gpon-client-row.is-box .gpon-client-meta em,
+.gpon-client-row.is-pop .gpon-client-meta em { color: var(--text-2); }
 .gpon-client-main { min-width: 0; }
 .gpon-client-main b, .gpon-client-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gpon-client-main b { font-size: var(--fs-11); }
