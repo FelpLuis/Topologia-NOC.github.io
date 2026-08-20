@@ -940,7 +940,7 @@ os dados têm custos e velocidades muito diferentes:
 | --- | --- | --- | --- |
 | Completo | 10 min | Cadastro do IXC (clientes, contratos, caixas, coordenadas) + `baseinfo` das PONs (serial, modelo) | `IXC_REFRESH_INTERVAL_MS` |
 | ONT | 10 s | `show gpon onu state` em cada OLT — se a ONU está acesa na fibra | `COLLECTOR_INTERVAL_MS` |
-| Radius | 10 s | `radusuarios` do IXC — se o cliente autenticou | `COLLECTOR_INTERVAL_MS` |
+| Radius | 10 s | `radusuarios` do IXC — se o cliente autenticou, com que IP, em que velocidade e há quanto tempo | `COLLECTOR_INTERVAL_MS` |
 
 Os dois ciclos rápidos correm **em paralelo e independentes**: cada um pula a vez
 enquanto o anterior não terminou, então uma OLT lenta se auto-regula sem atrasar
@@ -971,6 +971,33 @@ precisa das duas na mesma linha (`combinarEstado`):
 | `working` | online | `online` | `ONU working • Radius online` |
 
 O detalhe é o que decide se o chamado é de campo ou de provisionamento.
+
+### Tráfego e conexão
+
+O ciclo rápido do Radius já paginava `radusuarios` inteiro e usava uma coluna
+só. Ler as demais da mesma resposta não custa requisição nenhuma, e é o que faz
+tráfego e conexão acompanharem os 10 s em vez de esperar o ciclo completo:
+
+| Campo | Origem no IXC | Onde aparece |
+| --- | --- | --- |
+| `ip` | `radusuarios.ip` | Ficha do cliente e coluna **Velocidade / IP** da Lista |
+| `down_kbps` / `up_kbps` | `velocidade_download`/`_upload` (aceita `300M`, `300000`, `300000000`) | **Velocidade** |
+| `down_bytes` / `up_bytes` | `consumo_download`/`_upload` | **Consumo**, quando a base preenche |
+| `conn_since` | `ultima_conexao_inicial` | **Conectado há** |
+| `nas_id` | `id_concentrador` | Concentrador que autenticou |
+
+Duas decisões sustentam esses campos no ritmo de 10 s:
+
+- **O uptime não trafega.** Ele avança um segundo por segundo, então incluí-lo
+  na assinatura do delta faria todo cliente online ocupar uma linha a cada
+  ciclo — o parque inteiro no fio, que é exatamente o que o delta existe para
+  evitar. O que viaja é `conn_since`, estático durante a sessão, e a tela faz a
+  conta. O consumo entra arredondado a MiB pelo mesmo motivo.
+- **Conexão nova não é transição.** Trocar de IP numa reconexão não é queda, e
+  gravar isso em `gpon_status_history` tornaria a linha do tempo ilegível
+  justamente quando ela importa. Mas o `synced_at` precisa andar mesmo assim,
+  senão a tela nunca voltaria para buscar o dado novo — daí o Worker contar as
+  mudanças de conexão à parte das transições.
 
 ### O que fica no banco
 
@@ -1007,6 +1034,15 @@ GPON_RUNS_RETENTION_DAYS=30
 | `/api/gpon/revision` | GET | `topology.view` | Versão do snapshot + batimento da coleta |
 | `/api/gpon/history` | GET | `topology.view` | Linha do tempo (`client_id`, `limit`, `since`, `event`) |
 | `/api/gpon/sync-runs` | GET | `audit.view` | Auditoria dos ciclos de coleta |
+| `/api/gpon/refresh` | POST | `topology.view` | Botão **Atualizar**: sincronização forçada |
+
+O **Atualizar** da tela não é o ciclo de 10 s com outro nome. Ele chama
+`POST /api/gpon/sync` no coletor, que roda `syncFull(true)`: a OLT inteira é
+relida e a janela de recirculação do IXC é ignorada, então cadastro, tráfego e
+conexão voltam frescos na mesma resposta — e o coletor ainda empurra a
+fotografia nova para o D1. Isso depende do secret `GPON_CLIENTS_URL` apontar
+para o coletor; sem ele o Worker não tem como alcançá-lo e o botão cai no
+último snapshot persistido, avisando na tela que não foi possível sincronizar.
 
 ### Como a tela acompanha 10 segundos
 
@@ -1017,7 +1053,10 @@ GPON_RUNS_RETENTION_DAYS=30
   delta sobre os clientes já indexados, sem reprojetar coordenada nem refazer
   índice. É a resposta comum do ciclo, e é o que torna 10 s sustentável: baixar
   megabytes de nome e endereço para descobrir que três ONUs caíram era o que
-  impedia a tela de acompanhar a coleta nesse ritmo;
+  impedia a tela de acompanhar a coleta nesse ritmo. Quando só tráfego e
+  conexão mudaram, nenhum marcador do mapa muda de cor: a tela atualiza a ficha
+  aberta e não redesenha o parque — e preserva o histórico já carregado, em vez
+  de trocá-lo por "Carregando…" seis vezes por minuto;
 - **nada mudou** → só atualiza o relógio do cabeçalho.
 
 Um ciclo sem nenhuma transição move o `updated_at` (batimento) e **não** o

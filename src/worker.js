@@ -5386,6 +5386,25 @@ const pontosGpon = (valor) => (Array.isArray(valor) ? valor : []).map(p => ({
   lon: numeroGpon(Array.isArray(p) ? p[1] : primeiroGpon(p?.lon, p?.lng, p?.longitude))
 })).filter(p => p.lat !== null && p.lon !== null && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180);
 
+/* Tráfego e conexão do Radius, normalizados num lugar só.
+
+   O snapshot completo, o delta de 10 s e a leitura de estado precisam produzir
+   exatamente os mesmos campos: divergir aqui faria a ficha do cliente mudar de
+   forma conforme o ciclo que chegou por último. Os nomes toleram as variações
+   do IXC pelo mesmo motivo que o resto do normalizador — a coluna muda de nome
+   entre versões da base. */
+const CONEXAO_GPON = ["ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"];
+const conexaoGpon = (c) => ({
+  ip: String(primeiroGpon(c?.ip, c?.ip_address, c?.endereco_ip, "")),
+  down_kbps: numeroGpon(primeiroGpon(c?.down_kbps, c?.velocidade_download, c?.velocidade_down)),
+  up_kbps: numeroGpon(primeiroGpon(c?.up_kbps, c?.velocidade_upload, c?.velocidade_up)),
+  down_bytes: numeroGpon(primeiroGpon(c?.down_bytes, c?.consumo_download)),
+  up_bytes: numeroGpon(primeiroGpon(c?.up_bytes, c?.consumo_upload)),
+  uptime_s: numeroGpon(primeiroGpon(c?.uptime_s, c?.tempo_conectado)),
+  conn_since: textoGpon(primeiroGpon(c?.conn_since, c?.ultima_conexao_inicial, ""), 40),
+  nas_id: textoGpon(primeiroGpon(c?.nas_id, c?.id_concentrador, ""), 40)
+});
+
 function normalizarClienteGpon(c, i) {
   const loc = c?.location || c?.localizacao || {};
   const caminho = primeiroGpon(c?.path, c?.caminho, c?.end_to_end, []);
@@ -5401,12 +5420,16 @@ function normalizarClienteGpon(c, i) {
     olt_id: String(primeiroGpon(c?.olt_id, c?.olt, c?.equipment_id, c?.equipamento_id, "")),
     pon: String(primeiroGpon(c?.pon, c?.pon_port, c?.interface, c?.porta_pon, "")),
     vlan: String(primeiroGpon(c?.vlan, c?.service_vlan, "")),
-    ip: String(primeiroGpon(c?.ip, c?.ip_address, c?.endereco_ip, "")),
     address: String(primeiroGpon(c?.address, c?.endereco, loc?.address, loc?.endereco, "")),
     lat: numeroGpon(primeiroGpon(c?.lat, c?.latitude, loc?.lat, loc?.latitude)),
     lon: numeroGpon(primeiroGpon(c?.lon, c?.lng, c?.longitude, loc?.lon, loc?.lng, loc?.longitude)),
     rx_power: numeroGpon(primeiroGpon(c?.rx_power, c?.rx, c?.signal, c?.sinal_rx)),
     tx_power: numeroGpon(primeiroGpon(c?.tx_power, c?.tx, c?.sinal_tx)),
+    /* Tráfego e conexão do Radius do IXC. Velocidade em kbps (é como o IXC
+       provisiona o plano), consumo em bytes e o instante em que a sessão
+       começou — a tela deriva o uptime vivo a partir dele, sem que o número
+       precise trafegar a cada segundo. */
+    ...conexaoGpon(c),
     box_id: String(primeiroGpon(c?.box_id, c?.caixa_id, c?.cto_id, c?.cto, "")),
     /* Porta do splitter dentro da CTO. O coletor já resolve isto a partir de
        porta_ftth/ftth_porta do IXC; sem repassar o campo aqui, a tela da caixa
@@ -6036,7 +6059,8 @@ async function handleGponIngest(env, request) {
     if (!id) continue;
     const linha = {
       client_id: id, status: normalStatusGpon(cliente?.status), state_detail: textoGpon(cliente?.state_detail),
-      rx_power: numeroGpon(cliente?.rx_power), tx_power: numeroGpon(cliente?.tx_power)
+      rx_power: numeroGpon(cliente?.rx_power), tx_power: numeroGpon(cliente?.tx_power),
+      ...conexaoGpon(cliente)
     };
     compacto.push(linha);
     if (onlineGpon(linha.status)) online += 1;
@@ -6101,7 +6125,10 @@ async function handleGponStatusIngest(env, request) {
   const authorization = String(request.headers.get("Authorization") || "");
   if (!expected || !(await timingSafeEqual(authorization, `Bearer ${expected}`))) return json({ error: "UNAUTHORIZED" }, 401);
   let data;
-  try { data = await readJson(request, 4 * 1024 * 1024); }
+  /* Cada linha do delta cresceu com IP, velocidade, consumo e início da sessão.
+     Num ciclo em que meio parque reconecta, 4 MiB apertava; 8 MiB mantém a
+     folga sem chegar perto do teto da fotografia completa. */
+  try { data = await readJson(request, 8 * 1024 * 1024); }
   catch (error) { return json({ error: error?.message === "BODY_TOO_LARGE" ? "BODY_TOO_LARGE" : "INVALID_JSON" }, 400); }
   if (!Array.isArray(data?.changes) || data.changes.length > 30000) return json({ error: "INVALID_GPON_STATUS" }, 400);
   const rows = data.changes.map(change => ({
@@ -6109,7 +6136,8 @@ async function handleGponStatusIngest(env, request) {
     detail: textoGpon(change?.state_detail),
     rx: numeroGpon(change?.rx_power), tx: numeroGpon(change?.tx_power),
     olt_id: textoGpon(change?.olt_id, 60), onu_index: textoGpon(change?.onu_index, 60),
-    serial: textoGpon(change?.serial, 60), name: textoGpon(change?.name, 120)
+    serial: textoGpon(change?.serial, 60), name: textoGpon(change?.name, 120),
+    conexao: conexaoGpon(change)
   })).filter(row => row.id);
   const db = getDB(env), syncedAt = String(data.synced_at || new Date().toISOString()).slice(0, 40);
   const origem = textoGpon(data.origin || "ont+ixc", 30);
@@ -6122,9 +6150,17 @@ async function handleGponStatusIngest(env, request) {
      que virou transição. O coletor pode reenviar o mesmo valor sem que nada
      tenha acontecido de fato na rede. */
   const transicoes = [];
+  /* Tráfego e conexão mudam sem que o estado mude — o cliente reconecta com
+     outro IP, o plano é reajustado, o consumo avança. Isso não é transição
+     (o histórico ficaria ilegível), mas é dado novo para servir: sem contar
+     estas mudanças à parte, o `synced_at` não andaria e a tela nunca voltaria
+     para buscá-las. */
+  let conexoesMudadas = 0;
   for (const row of rows) {
-    const atual = { client_id: row.id, status: row.status, state_detail: row.detail, rx_power: row.rx, tx_power: row.tx };
-    const mudanca = transicaoGpon(byId.get(row.id), atual);
+    const anterior = byId.get(row.id);
+    const atual = { client_id: row.id, status: row.status, state_detail: row.detail, rx_power: row.rx, tx_power: row.tx, ...row.conexao };
+    if (!anterior || CONEXAO_GPON.some(campo => anterior[campo] !== atual[campo])) conexoesMudadas += 1;
+    const mudanca = transicaoGpon(anterior, atual);
     byId.set(row.id, atual);
     if (!mudanca) continue;
     transicoes.push({
@@ -6138,11 +6174,11 @@ async function handleGponStatusIngest(env, request) {
   const compacto = [...byId.values()];
   const online = compacto.filter(linha => onlineGpon(linha.status)).length;
 
-  /* Sem transição nenhuma, o estado servido não mudou: mexer em synced_at faria
-     cada tela reabrir o snapshot inteiro a cada 10 s sem um único dado novo.
-     updated_at avança sempre — é o batimento que prova que a coleta está viva
-     mesmo numa madrugada em que nada oscilou. */
-  if (transicoes.length) await db.batch([
+  /* Sem transição nem conexão nova, o estado servido não mudou: mexer em
+     synced_at faria cada tela reabrir a leitura a cada 10 s sem um único dado
+     novo. updated_at avança sempre — é o batimento que prova que a coleta está
+     viva mesmo numa madrugada em que nada oscilou. */
+  if (transicoes.length || conexoesMudadas) await db.batch([
     db.prepare(`
       INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
@@ -6188,7 +6224,8 @@ async function handleGponStatusRead(env, request) {
     updated_at: estado.updated_at,
     clients: linhas.map(linha => ({
       id: linha.client_id, status: linha.status, state_detail: linha.state_detail,
-      rx_power: linha.rx_power ?? null, tx_power: linha.tx_power ?? null
+      rx_power: linha.rx_power ?? null, tx_power: linha.tx_power ?? null,
+      ...conexaoGpon(linha)
     }))
   });
 }

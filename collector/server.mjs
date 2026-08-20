@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { loadCollectorEnv, collectorConfig } from "./env.mjs";
 import { collectZte, collectZteStates, closeZteSessions } from "./zte-cli.mjs";
-import { collectIxc, collectIxcLoginStatuses } from "./ixc-client.mjs";
+import { collectIxc, collectIxcLoginStatuses, conexaoNoCliente } from "./ixc-client.mjs";
 import { provisionPendingJobs } from "./provision.mjs";
 
 await loadCollectorEnv();
@@ -65,8 +65,21 @@ async function pushSnapshot() {
   if (!response.ok) throw new Error(`Worker GPON: HTTP ${response.status}`);
 }
 
+/* O que conta como "mudou" para efeito de delta.
+
+   Uptime fica de fora de propósito: ele avança um segundo por segundo, e
+   incluí-lo faria todo cliente online virar uma linha do delta a cada ciclo —
+   o parque inteiro no fio de 10 em 10 segundos, exatamente o que o delta
+   existe para evitar. Vai no lugar dele o `conn_since`, que é estático durante
+   a sessão e permite à tela derivar o uptime vivo sem tráfego nenhum.
+
+   O consumo entra arredondado a MiB pelo mesmo motivo: em bytes crus, qualquer
+   cliente passando tráfego reescreveria a própria linha todo ciclo. */
+const mib = (bytes) => (Number.isFinite(Number(bytes)) ? Math.round(Number(bytes) / 1048576) : null);
 const statusSignature = (client) => JSON.stringify([
-  client.status || "unknown", client.state_detail || "", client.rx_power ?? null, client.tx_power ?? null
+  client.status || "unknown", client.state_detail || "", client.rx_power ?? null, client.tx_power ?? null,
+  client.ip || "", client.down_kbps ?? null, client.up_kbps ?? null,
+  client.conn_since || "", client.nas_id || "", mib(client.down_bytes), mib(client.up_bytes)
 ]);
 
 async function enviarStatus(body) {
@@ -89,6 +102,12 @@ async function pushStatus(origem) {
       rx_power: client.rx_power ?? null, tx_power: client.tx_power ?? null,
       olt_id: client.olt_id || "", onu_index: client.onu_index || "",
       serial: client.serial || "", name: client.name || "",
+      /* Tráfego e conexão viajam no mesmo delta do estado: é uma leitura só do
+         Radius e uma escrita só no Worker, em vez de um segundo canal com o
+         mesmo custo de paginação. */
+      ip: client.ip || "", down_kbps: client.down_kbps ?? null, up_kbps: client.up_kbps ?? null,
+      down_bytes: client.down_bytes ?? null, up_bytes: client.up_bytes ?? null,
+      uptime_s: client.uptime_s ?? null, conn_since: client.conn_since || "", nas_id: client.nas_id || "",
     }));
   /* Um ciclo sem mudança ainda precisa chegar ao Worker: é ele que registra o
      batimento na auditoria e distingue "a rede está estável" de "o coletor
@@ -104,6 +123,12 @@ const radiusStatus = (value) => {
   if (/^(n|nao|não|0|false|offline|no)$/.test(normalized)) return "offline";
   return null;
 };
+
+/* O ciclo rápido passou a trazer a conexão inteira, e não só o "S"/"N" do
+   login. O ciclo completo semeia o mapa a partir do cadastro, onde ainda pode
+   haver só a string — por isso as duas formas são aceitas aqui. */
+const radiusOnline = (entry) => radiusStatus(entry && typeof entry === "object" ? entry.online : entry);
+const radiusDados = (entry) => (entry && typeof entry === "object" ? conexaoNoCliente(entry) : null);
 
 /* ---- ingestão de logs RADIUS no Worker ----
 
@@ -134,15 +159,21 @@ async function enviarRadiusLogs(events) {
 function combinarEstado(client) {
   const chave = String(client.ixc_login_id || "");
   const ont = state.ont.get(client.id);
-  const radius = chave && state.radius.has(chave) ? radiusStatus(state.radius.get(chave)) : null;
+  const entrada = chave && state.radius.has(chave) ? state.radius.get(chave) : null;
+  const radius = radiusOnline(entrada);
+  /* Tráfego e conexão vêm do Radius e valem qualquer que seja o veredito do
+     estado: um cliente offline com IP e velocidade na ficha é o que mostra
+     que o login existe e está provisionado — o contrário de um login que o
+     IXC não conhece. Um cliente sem leitura nova mantém o que já tinha. */
+  const conexao = radiusDados(entrada) || {};
 
   if (ont && ont.status !== "online")
-    return { status: ont.status, state_detail: `ONU ${ont.detail || ont.status}` };
+    return { ...conexao, status: ont.status, state_detail: `ONU ${ont.detail || ont.status}` };
   if (radius === "offline")
-    return { status: "offline", state_detail: ont ? "ONU ativa • Radius offline" : "Radius offline" };
-  if (ont) return { status: "online", state_detail: radius === "online" ? "ONU working • Radius online" : "ONU working" };
-  if (radius === "online") return { status: "online", state_detail: "Radius online" };
-  return null;
+    return { ...conexao, status: "offline", state_detail: ont ? "ONU ativa • Radius offline" : "Radius offline" };
+  if (ont) return { ...conexao, status: "online", state_detail: radius === "online" ? "ONU working • Radius online" : "ONU working" };
+  if (radius === "online") return { ...conexao, status: "online", state_detail: "Radius online" };
+  return Object.keys(conexao).length ? conexao : null;
 }
 
 const montarAlertas = () => [
@@ -199,9 +230,17 @@ async function syncFull(forcar = false) {
       if (ixc) matchedIxc += 1;
       return { ...client, ...(ixc || {}), ...(mapping[`${client.olt_id}|${client.onu_index}`] || {}) };
     });
+    /* A semeadura carrega a conexão inteira, e não só o "S"/"N": sem isso o
+       primeiro ciclo rápido apagaria IP, velocidade e consumo que o cadastro
+       acabou de trazer, e a ficha piscaria vazia entre os dois ritmos. */
     for (const client of state.clients)
       if (client.ixc_login_id && client.ixc_online !== undefined && !state.radius.has(String(client.ixc_login_id)))
-        state.radius.set(String(client.ixc_login_id), client.ixc_online);
+        state.radius.set(String(client.ixc_login_id), {
+          online: client.ixc_online, ip: client.ip, username: client.username,
+          uptime_s: client.uptime_s ?? null, down_kbps: client.down_kbps ?? null, up_kbps: client.up_kbps ?? null,
+          down_bytes: client.down_bytes ?? null, up_bytes: client.up_bytes ?? null,
+          since: client.conn_since || "", nas_id: client.nas_id || "",
+        });
     state.clients = state.clients.map((client) => {
       const combinado = combinarEstado(client);
       return combinado ? { ...client, ...combinado } : client;

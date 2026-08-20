@@ -79,6 +79,61 @@
   const statusOnline = (s) => !/offline|down|los|inativo|critical|critico|falha/i.test(String(s || "online"));
   const signalCritical = (c) => Number.isFinite(Number(c.rx_power)) && Number(c.rx_power) <= -27;
 
+  /* ---------------- tráfego e conexão (Radius do IXC) ----------------
+
+     Os campos que o ciclo de 10 s traz junto do estado. A lista existe para
+     que o delta saiba o que copiar sem enumerar campo por campo em dois
+     lugares. */
+  const CONEXAO = ["ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"];
+
+  /* O IXC provisiona em kbps; o operador pensa em mega. 300000 vira "300 Mbps",
+     e um plano fracionado não perde a fração. */
+  function velocidade(kbps) {
+    const n = Number(kbps);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".0", "")} Gbps`;
+    if (n >= 1000) return `${(n / 1000).toFixed(n % 1000 ? 1 : 0).replace(".0", "")} Mbps`;
+    return `${n} kbps`;
+  }
+
+  function bytes(valor) {
+    const n = Number(valor);
+    if (!Number.isFinite(n) || n < 0) return "";
+    const unidades = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let i = 0, v = n;
+    while (v >= 1024 && i < unidades.length - 1) { v /= 1024; i += 1; }
+    return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1).replace(".0", "")} ${unidades[i]}`;
+  }
+
+  /* Uptime vivo sem tráfego de rede: o coletor manda o instante em que a sessão
+     começou, que é estático, e a tela faz a conta. Mandar o contador em si
+     obrigaria todo cliente online a ocupar uma linha do delta a cada ciclo. */
+  function duracao(c) {
+    const inicio = Date.parse(String(c.conn_since || "").replace(" ", "T"));
+    const s = Number.isFinite(inicio) ? Math.max(0, Math.round((Date.now() - inicio) / 1000))
+      : Number.isFinite(Number(c.uptime_s)) ? Number(c.uptime_s) : null;
+    if (s === null) return "";
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d) return `${d}d ${h}h`;
+    if (h) return `${h}h ${m}min`;
+    if (m) return `${m}min`;
+    return `${s}s`;
+  }
+
+  /* "300 Mbps ↓ / 150 Mbps ↑" quando o IXC informa as duas pontas; só a que
+     existir quando informa uma. */
+  function plano(c) {
+    const d = velocidade(c.down_kbps), u = velocidade(c.up_kbps);
+    if (d && u) return `${d} ↓ / ${u} ↑`;
+    return d || u || "";
+  }
+
+  function consumo(c) {
+    const d = bytes(c.down_bytes), u = bytes(c.up_bytes);
+    if (d && u) return `${d} ↓ / ${u} ↑`;
+    return d || u || "";
+  }
+
   const devices = () => state.topology.equipamentos || [];
   const clients = () => state.feed.clients || [];
   const boxes = () => state.feed.boxes || [];
@@ -594,11 +649,22 @@
     try { delta = await NOC.api("/api/gpon/status"); }
     catch { return; }
     if (!Array.isArray(delta.clients)) return;
-    let mudou = 0;
+    let mudou = 0, conexao = 0;
     for (const linha of delta.clients) {
       const row = state.idx.client.get(String(linha.id));
       if (!row) continue;
       const c = row.c;
+      /* Tráfego e conexão andam sem que o estado mude — outro IP na
+         reconexão, plano reajustado, consumo avançando. Aplicar sempre custa
+         uma atribuição; deixar de aplicar deixava a ficha do cliente mostrando
+         o IP da sessão anterior. */
+      let mexeuConexao = false;
+      for (const campo of CONEXAO) {
+        if (c[campo] === linha[campo]) continue;
+        c[campo] = linha[campo];
+        mexeuConexao = true;
+      }
+      if (mexeuConexao) conexao += 1;
       if (c.status === linha.status && c.state_detail === linha.state_detail &&
           c.rx_power === linha.rx_power && c.tx_power === linha.tx_power) continue;
       c.status = linha.status; c.state_detail = linha.state_detail;
@@ -610,7 +676,14 @@
     }
     state.feed.synced_at = delta.synced_at || state.feed.synced_at;
     if (delta.version) state.revision = delta.version;
-    if (!mudou) return renderSource();
+    /* Só a conexão mudou: nenhum marcador do mapa muda de cor e nenhum alerta
+       nasce, então redesenhar o parque inteiro seria desperdício. A ficha
+       aberta, essa sim, precisa mostrar o dado novo. */
+    if (!mudou) {
+      renderSource();
+      if (conexao && state.selected?.type === "client") renderDetail(true);
+      return;
+    }
     state.alerts = computeAlerts();
     invalidate();
     render();
@@ -936,7 +1009,8 @@
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       return `<tr>
         <td><b>${esc(r.name)}</b><br><small class="dim mono">${esc(c.serial || c.onu_index || "Sem serial")}</small></td>
-        <td><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span></td>
+        <td><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span>${c.state_detail ? `<br><small class="dim">${esc(c.state_detail)}</small>` : ""}</td>
+        <td><b>${esc(plano(c) || "—")}</b><br><small class="dim mono">${esc(c.ip || "sem IP")}</small></td>
         <td><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b><br><small class="dim mono">${esc(c.pon || "PON não informada")}</small></td>
         <td>${esc(boxById(c.box_id)?.name || c.box_id || "—")}</td>
         <td class="mono">${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</td>
@@ -946,7 +1020,7 @@
           <button class="btn btn-sm" type="button" data-client-map="${esc(r.id)}"${r.located ? "" : ' disabled title="Cliente sem coordenadas"'}>Ver no mapa</button>
         </td>
       </tr>`;
-    }).join("") : `<tr><td colspan="7"><div class="empty"><b>Nenhum cliente encontrado</b><p>Ajuste a busca para consultar a base GPON.</p></div></td></tr>`;
+    }).join("") : `<tr><td colspan="8"><div class="empty"><b>Nenhum cliente encontrado</b><p>Ajuste a busca para consultar a base GPON.</p></div></td></tr>`;
     $$("[data-client-map]", body).forEach((el) => el.onclick = () => {
       setView("map");
       requestAnimationFrame(() => select("client", el.dataset.clientMap, true));
@@ -1364,12 +1438,18 @@
     }).join("");
   }
 
-  function renderDetail() {
+  /* `manterHistorico` é o caminho do ciclo de 10 s: o tráfego mudou e a ficha
+     precisa mostrar o número novo, mas refazer a busca do histórico a cada
+     volta trocaria a linha do tempo já carregada por "Carregando…" seis vezes
+     por minuto — e gastaria uma consulta por ciclo para trazer o mesmo
+     resultado. */
+  function renderDetail(manterHistorico) {
     const host = $("#gponDetail"), sel = state.selected;
     if (!sel) return;
     if (sel.type === "client") {
       const r = rowById(sel.id); if (!r) return;
       const c = r.c;
+      const historicoAtual = manterHistorico ? $("#gponHistory")?.innerHTML : null;
       const path = derivedPath(c);
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       const cadastro = c.cadastro;
@@ -1379,6 +1459,8 @@
           <div><span>Usuário</span><b>${esc(c.username || "—")}</b></div><div><span>Serial ONU</span><b class="mono">${esc(c.serial || "—")}</b></div>
           <div><span>OLT</span><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b></div><div><span>PON</span><b class="mono">${esc(c.pon || "—")}</b></div>
           <div><span>RX óptico</span><b>${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</b></div><div><span>VLAN / IP</span><b>${esc([c.vlan, c.ip].filter(Boolean).join(" • ") || "—")}</b></div>
+          <div><span>Velocidade</span><b>${esc(plano(c) || "—")}</b></div><div><span>Conectado há</span><b>${esc(duracao(c) || "—")}</b></div>
+          ${consumo(c) ? `<div><span>Consumo</span><b>${esc(consumo(c))}</b></div>` : ""}
           <div><span>Caixa / CTO</span><b>${esc([boxById(c.box_id)?.name || c.box_id || "—", c.box_port ? `porta ${c.box_port}` : ""].filter(Boolean).join(" • "))}</b></div><div><span>Drop</span><b>${c.drop_path?.length ? `${c.drop_path.length} pontos` : boxById(c.box_id) ? "Ligação direta cadastrada" : "Sem traçado"}</b></div>
           ${cadastro ? `<div><span>Telefone</span><b>${esc(cadastro.telefone || "—")}</b></div><div><span>Faturamento</span><b>${esc(cadastro.plano || cadastro.status_faturamento || "—")}</b></div>` : ""}
         </div>
@@ -1386,8 +1468,8 @@
         <b style="font-size:var(--fs-12)">Conexão ponta a ponta</b>
         <div class="gpon-path">${path.map((h) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(h.name)}</b><small>${esc(h.detail || h.kind)}</small></div></div>`).join("")}</div>
         <b style="font-size:var(--fs-12)">Histórico do estado</b>
-        <div class="gpon-history" id="gponHistory"><p class="muted">Carregando histórico…</p></div>`;
-      carregarHistorico(c.id);
+        <div class="gpon-history" id="gponHistory">${historicoAtual ?? '<p class="muted">Carregando histórico…</p>'}</div>`;
+      if (historicoAtual === null || historicoAtual === undefined) carregarHistorico(c.id);
       const btnEditar = host.querySelector("[data-editar-cadastro]");
       if (btnEditar) { btnEditar.onclick = () => editarCadastro(c); aplicarAcoes(host); }
     } else if (sel.type === "box") {
