@@ -5651,6 +5651,15 @@ async function decryptClienteSenha(env, encoded, clientId) {
   return new TextDecoder().decode(plaintext);
 }
 
+async function hashSenhaCliente(senha) {
+  if (senha === undefined || senha === null || senha === "") return "";
+  const enc = new TextEncoder();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const material = await crypto.subtle.importKey("raw", enc.encode(String(senha)), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" }, material, 256);
+  return `pbkdf2$150000$${bytesToBase64Url(salt)}$${bytesToBase64Url(new Uint8Array(bits))}`;
+}
+
 function publicCredential(row) {
   return row ? {
     username:row.login_username,
@@ -6436,16 +6445,9 @@ async function handleClientesCreate(env, request) {
   const existe = await db.prepare(`SELECT client_id FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
   if (existe) return json({ error: "CLIENTE_JA_CADASTRADO" }, 409);
   const dados = normalizarCadastroBody(body);
-  let senhaPppoe = "", senhaRoteador = "", senhaWifi = "";
-  try {
-    senhaPppoe = await encryptClienteSenha(env, body.senha_pppoe, clientId);
-    senhaRoteador = await encryptClienteSenha(env, body.senha_roteador, clientId);
-    senhaWifi = await encryptClienteSenha(env, body.senha_wifi, clientId);
-  } catch (error) {
-    if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
-      return json({ error: "CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA" }, 400);
-    throw error;
-  }
+  const senhaPppoe = await hashSenhaCliente(body.senha_pppoe);
+  const senhaRoteador = await hashSenhaCliente(body.senha_roteador);
+  const senhaWifi = await hashSenhaCliente(body.senha_wifi);
   await db.prepare(`
     INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,documento,telefone,email,endereco,bairro,cidade,uf,cep,
       lat,lon,plano,valor_mensal,vencimento_dia,status_faturamento,aparelhos_json,
@@ -6469,16 +6471,6 @@ async function handleClientesGet(env, request, clientId) {
   const row = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
   if (!row) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
   const dados = publicCadastro(row);
-  if (await hasPermission(env, gate.user, "clientes.edit")) {
-    try {
-      dados.senha_pppoe = await decryptClienteSenha(env, row.senha_pppoe_cipher, clientId);
-      dados.senha_roteador = await decryptClienteSenha(env, row.senha_roteador_cipher, clientId);
-      dados.senha_wifi = await decryptClienteSenha(env, row.senha_wifi_cipher, clientId);
-    } catch (error) {
-      console.error(JSON.stringify({ message: "Falha ao decifrar senha de cliente", error: error?.message || String(error) }));
-      dados.senhas_indisponiveis = true;
-    }
-  }
   return json(dados);
 }
 
@@ -6492,15 +6484,9 @@ async function handleClientesUpdate(env, request, clientId) {
   try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const dados = normalizarCadastroBody(body);
   let senhaPppoe = antes.senha_pppoe_cipher, senhaRoteador = antes.senha_roteador_cipher, senhaWifi = antes.senha_wifi_cipher;
-  try {
-    if (body.senha_pppoe !== undefined) senhaPppoe = await encryptClienteSenha(env, body.senha_pppoe, clientId);
-    if (body.senha_roteador !== undefined) senhaRoteador = await encryptClienteSenha(env, body.senha_roteador, clientId);
-    if (body.senha_wifi !== undefined) senhaWifi = await encryptClienteSenha(env, body.senha_wifi, clientId);
-  } catch (error) {
-    if (error?.message === "DEVICE_CREDENTIALS_KEY_NOT_CONFIGURED")
-      return json({ error: "CRIPTOGRAFIA_DE_CREDENCIAIS_NAO_CONFIGURADA" }, 400);
-    throw error;
-  }
+  if (body.senha_pppoe && String(body.senha_pppoe) !== "") senhaPppoe = await hashSenhaCliente(body.senha_pppoe);
+  if (body.senha_roteador && String(body.senha_roteador) !== "") senhaRoteador = await hashSenhaCliente(body.senha_roteador);
+  if (body.senha_wifi && String(body.senha_wifi) !== "") senhaWifi = await hashSenhaCliente(body.senha_wifi);
   /* O código do IXC só é preenchido, nunca apagado: a tela de edição do mapa
      manda o cadastro inteiro de volta e um campo vazio ali não é motivo para
      perder o vínculo com o ERP. */

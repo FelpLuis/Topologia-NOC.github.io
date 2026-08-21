@@ -301,7 +301,8 @@
           <div class="tabs" role="tablist" aria-label="Seções do cadastro de cliente">
             <button class="tab" type="button" role="tab" id="tabGeraisBtn" aria-controls="tabGerais" aria-selected="true" data-tab="tabGerais">${icon("user")} Dados gerais</button>
             <button class="tab" type="button" role="tab" id="tabFinanceiroBtn" aria-controls="tabFinanceiro" aria-selected="false" data-tab="tabFinanceiro">${icon("finance")} Dados financeiros</button>
-            <button class="tab" type="button" role="tab" id="tabTecnicoBtn" aria-controls="tabTecnico" aria-selected="false" data-tab="tabTecnico">${icon("lock")} Dados técnicos</button>
+            <button class="tab" type="button" role="tab" id="tabTecnicoBtn" aria-controls="tabTecnico" aria-selected="false" data-tab="tabTecnico">${icon("pulse")} Dados técnicos</button>
+            <button class="tab" type="button" role="tab" id="tabAcessosBtn" aria-controls="tabAcessos" aria-selected="false" data-tab="tabAcessos">${icon("lock")} Acessos</button>
           </div>
 
           <div class="tab-panel" id="tabGerais" role="tabpanel" aria-labelledby="tabGeraisBtn">
@@ -393,39 +394,42 @@
               <div class="field" style="max-width:260px"><label for="fIpGerencia">IP de gerência</label>
                 <input class="input" id="fIpGerencia" type="text" value="${valor(corpoForm.ip_gerencia)}" autocomplete="off">
               </div>`)}
+            ${secao("Aparelhos vinculados", "Equipamentos do cliente além da ONU (TV, decodificadores…).", `
+              <div class="stack" id="fAparelhos" style="gap:6px"></div>
+              <button class="btn btn-ghost btn-sm" id="fAparelhoAdd" type="button">${icon("plus")} Adicionar aparelho</button>`)}
+          </div>
+
+          <div class="tab-panel" id="tabAcessos" role="tabpanel" aria-labelledby="tabAcessosBtn" hidden>
             ${secao("PPPoE", "Autenticação da conexão no provedor.", `
               <div class="row wrap" style="gap:var(--s-3)">
                 <div class="field grow"><label for="fLoginPppoe">Login</label>
                   <input class="input" id="fLoginPppoe" type="text" value="${valor(corpoForm.login_pppoe)}" autocomplete="off">
                 </div>
                 <div class="field grow"><label for="fSenhaPppoe">Senha</label>
-                  <input class="input" id="fSenhaPppoe" type="text" value="${valor(corpoForm.senha_pppoe ?? "")}" autocomplete="off">
+                  <input class="input" id="fSenhaPppoe" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_pppoe ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_pppoe ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
             ${secao("Roteador", "Acesso ao equipamento do cliente.", `
               <div class="row wrap" style="gap:var(--s-3)">
                 <div class="field grow"><label for="fLoginRoteador">Usuário</label>
                   <input class="input" id="fLoginRoteador" type="text" value="${valor(corpoForm.login_roteador)}" autocomplete="off">
                 </div>
                 <div class="field grow"><label for="fSenhaRoteador">Senha</label>
-                  <input class="input" id="fSenhaRoteador" type="text" value="${valor(corpoForm.senha_roteador ?? "")}" autocomplete="off">
+                  <input class="input" id="fSenhaRoteador" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_roteador ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_roteador ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
             ${secao("WiFi", "Rede sem fio do cliente.", `
               <div class="row wrap" style="gap:var(--s-3)">
                 <div class="field grow"><label for="fSsid">SSID</label>
                   <input class="input" id="fSsid" type="text" value="${valor(corpoForm.ssid)}" autocomplete="off">
                 </div>
                 <div class="field grow"><label for="fSenhaWifi">Senha do WiFi</label>
-                  <input class="input" id="fSenhaWifi" type="text" value="${valor(corpoForm.senha_wifi ?? "")}" autocomplete="off">
+                  <input class="input" id="fSenhaWifi" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
-            ${secao("Aparelhos vinculados", "Equipamentos do cliente além da ONU (TV, decodificadores…).", `
-              <div class="stack" id="fAparelhos" style="gap:6px"></div>
-              <button class="btn btn-ghost btn-sm" id="fAparelhoAdd" type="button">${icon("plus")} Adicionar aparelho</button>`)}
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
           </div>
 
           <span class="field-error" id="clienteFormError" hidden></span>
