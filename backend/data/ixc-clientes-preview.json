@@ -1,15 +1,15 @@
 {
-  "gerado_em": "2026-08-21T17:23:40.538Z",
+  "gerado_em": "2026-08-21T17:39:25.187Z",
   "relacional": {
     "ixc_uf": 52,
     "ixc_cidade": 5681,
-    "ixc_cliente": 12720,
-    "ixc_cliente_contrato": 14354,
-    "ixc_radusuario": 13568
+    "ixc_cliente": 12721,
+    "ixc_cliente_contrato": 14355,
+    "ixc_radusuario": 13569
   },
-  "total_ixc": 12720,
-  "insercoes": 0,
-  "atualizacoes": 12720,
+  "total_ixc": 12721,
+  "insercoes": 1,
+  "atualizacoes": 18,
   "amostra": [
     {
       "client_id": "1",
