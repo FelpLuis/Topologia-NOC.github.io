@@ -228,10 +228,170 @@ export async function collectIxc(config) {
 }
 
 /* O ciclo rápido do Radius já paginava `radusuarios` inteiro e jogava fora tudo
-   menos o "online". Ler IP, velocidade, uptime e consumo da mesma resposta não
-   custa uma requisição a mais — é o que faz tráfego e conexão acompanharem os
-   10 s junto do estado, em vez de esperar o ciclo completo de 10 minutos. */
+    menos o "online". Ler IP, velocidade, uptime e consumo da mesma resposta não
+    custa uma requisição a mais — é o que faz tráfego e conexão acompanharem os
+    10 s junto do estado, em vez de esperar o ciclo completo de 10 minutos. */
 export async function collectIxcLoginStatuses(config) {
   const logins = await fetchAll(config, "radusuarios");
   return new Map(logins.map((login) => [text(login.id), radiusConnection(login)]));
+}
+
+/* ---- cadastro completo de TODOS os clientes do IXC ----
+
+    O `collectIxc` monta o inventário só dos clientes que têm fibra/ONU
+    casada (os que aparecem no mapa GPON). Para a tela "Cadastro de Cliente"
+    queremos o parque inteiro do ERP, independente de ter ONT monitorada: o
+    cliente que contratou mas ainda não foi instalado também é cadastro. Esta
+    função traz `cliente` + `cliente_contrato` + `radusuarios` e devolve um
+    objeto de cadastro por cliente, seguindo as mesmas regras de limpeza de
+    texto/coordenada usadas acima (ausência de dado vira string vazia, não
+    "null" como texto, e coordenada incompleta não vira ponto no Atlântico). */
+const STATUS_FATURAMENTO_IXC = {
+  A: "ativo", ATIVO: "ativo", ATIVA: "ativo",
+  I: "inativo", INATIVO: "inativo", INATIVA: "inativo",
+  C: "cancelado", CANCELADO: "cancelado", CANCELADA: "cancelado",
+  S: "suspenso", SUSPENSO: "suspenso", SUSPENSA: "suspenso",
+  B: "bloqueado", BLOQUEADO: "bloqueado", BLOQUEADA: "bloqueado",
+};
+
+function statusFaturamento(value) {
+  const v = String(value ?? "").trim().toUpperCase();
+  return STATUS_FATURAMENTO_IXC[v] || "ativo";
+}
+
+function primeiroNumero(value) {
+  if (!text(value)) return null;
+  const parsed = number(value);
+  return parsed === null ? null : parsed;
+}
+
+/* O IXC guarda `cidade` e `uf` como CÓDIGOS (ex.: cidade "3415", uf "4"), não
+    como texto. Um cadastro com "3415" na coluna cidade enganaria a tela, então
+    resolvemos o código para o nome usando as tabelas `cidade`/`uf`. Quando o
+    valor já vem como texto (instalações que gravam o nome direto), ele passa
+    limpo. */
+function codigoParaNome(valor, mapa) {
+  const t = text(valor);
+  if (!t) return "";
+  if (/^\d+$/.test(t)) return mapa.get(t) || "";
+  return t;
+}
+
+function camposEndereco(...records) {
+  for (const record of records) {
+    if (!record) continue;
+    const street = text(record.endereco), house = text(record.numero);
+    const bairro = text(record.bairro), cep = text(record.cep);
+    if (street || bairro) {
+      return { endereco: [street, house].filter(Boolean).join(", "), bairro, cep };
+    }
+  }
+  return {};
+}
+
+/* Vencimento: o IXC grava como dia (1-31) em nomes variados de campo. Só
+    aceitamos número dentro do mês; fora disso vira nulo e a tela trata como
+    "sem vencimento definido" em vez de quebrar a validação. */
+function diaVencimento(value) {
+  const n = parseInt(text(value), 10);
+  return Number.isFinite(n) && n >= 1 && n <= 31 ? n : null;
+}
+
+export function buildIxcCustomerCadastros({ customers, contracts, logins, cidades, ufs }) {
+  const contratosPorCliente = new Map();
+  for (const contrato of contracts || []) {
+    const idCliente = text(contrato.id_cliente);
+    if (!idCliente) continue;
+    const lista = contratosPorCliente.get(idCliente) || [];
+    lista.push(contrato);
+    contratosPorCliente.set(idCliente, lista);
+  }
+  const loginPorCliente = new Map();
+  for (const login of logins || []) {
+    const idCliente = text(login.id_cliente);
+    if (!idCliente || loginPorCliente.has(idCliente)) continue;
+    loginPorCliente.set(idCliente, login);
+  }
+  /* Cidade e UF vêm como código no cadastro; mapeamos para nome/sigla. */
+  const cidadeNomePorId = new Map((cidades || []).map((c) => [text(c.id), text(c.nome)]));
+  const ufSiglaPorId = new Map((ufs || []).map((u) => [text(u.id), text(u.sigla) || text(u.nome)]));
+  const cidadePorId = new Map((cidades || []).map((c) => [text(c.id), c]));
+
+  const resultado = [];
+  for (const cust of customers || []) {
+    const id = text(cust.id);
+    if (!id || id === "0") continue;
+    const contratos = contratosPorCliente.get(id) || [];
+    /* Entre vários contratos, prioriza um ativo para puxar plano/vencimento/
+       status; sem nenhum ativo, usa o primeiro. Assim um cliente com um
+       contrato cancelado e outro ativo recebe o cadastro do que está de pé. */
+    const contrato = contratos.find((c) => /^(a|ativo|susp|suspenso|bloq|bloquead)/i.test(String(c.status || ""))) || contratos[0] || null;
+    const login = loginPorCliente.get(id) || null;
+    const endereco = camposEndereco(contrato, cust);
+    const coords = coordinates(contrato, cust);
+
+    /* Cidade/UF: resolve código → nome quando vier numérico. A UF vem do
+       próprio registro de cidade (cidade.uf é o código da UF), caindo no
+       registro do cliente só se a cidade não foi encontrada. */
+    const cidadeRaw = first(contrato?.cidade, cust.cidade);
+    const cidadeFinal = codigoParaNome(cidadeRaw, cidadeNomePorId);
+    const cidadeRec = cidadePorId.get(text(cidadeRaw));
+    let ufFinal = "";
+    if (cidadeRec && text(cidadeRec.uf)) ufFinal = codigoParaNome(cidadeRec.uf, ufSiglaPorId);
+    if (!ufFinal) ufFinal = codigoParaNome(first(contrato?.uf, cust.uf), ufSiglaPorId);
+
+    resultado.push({
+      client_id: id,
+      ixc_id: id,
+      nome: text(cust.razao) || text(cust.fantasia) || text(cust.nome),
+      documento: first(cust.cnpj_cpf, cust.cpf_cnpj, cust.cpf, cust.cnpj, cust.documento),
+      telefone: first(cust.telefone, cust.telefone_celular, cust.celular, cust.fone),
+      email: first(cust.email, cust.e_mail, cust.email_),
+      ...endereco,
+      cidade: cidadeFinal,
+      uf: ufFinal,
+      /* Códigos originais do IXC, para ligar este cadastro às tabelas
+         relacionais (ixc_cidade, ixc_uf, ixc_cliente_contrato, ixc_radusuario). */
+      ixc_cidade_cod: text(cidadeRaw),
+      ixc_uf_cod: text(first(contrato?.uf, cust.uf)),
+      ixc_contrato_id: text(contrato?.id),
+      ixc_login: text(login?.login),
+      ...coords,
+      /* O nome do plano no IXC vive no campo `contrato` do cliente_contrato
+         (ex.: "PLANO FIBRA 80 MEGA PROMO**"), não em `plano`/`produto_servico`. */
+      plano: first(contrato?.contrato, contrato?.plano, contrato?.produto_servico,
+        contrato?.nome_produto, contrato?.descricao),
+      valor_mensal: primeiroNumero(first(contrato?.valor, contrato?.valor_mensalidade, contrato?.valor_plano)),
+      vencimento_dia: diaVencimento(first(contrato?.dia_vencimento_fatura, contrato?.vencimento_dia, contrato?.dia_vencimento)),
+      status_faturamento: statusFaturamento(contrato?.status),
+      login_pppoe: text(login?.login),
+    });
+  }
+  return resultado;
+}
+
+/* Traz o cadastro de todos os clientes do IXC (não só os com ONT monitorada). */
+export async function collectIxcCustomers(config) {
+  const [customers, contracts, logins, cidades, ufs] = await Promise.all([
+    fetchAll(config, "cliente"),
+    fetchAll(config, "cliente_contrato"),
+    fetchAll(config, "radusuarios"),
+    fetchAll(config, "cidade"),
+    fetchAll(config, "uf"),
+  ]);
+  return buildIxcCustomerCadastros({ customers, contracts, logins, cidades, ufs });
+}
+
+/* Devolve os registros crus do IXC (preservando os códigos originais) para a
+    importação relacional: cada entidade vira uma tabela própria, chaveada pelo
+    código que o ERP usa, e não por um id sintético. */
+export async function collectIxcRaw(config) {
+  const [clientes, contratos, logins, cidades, ufs] = await Promise.all([
+    fetchAll(config, "cliente"),
+    fetchAll(config, "cliente_contrato"),
+    fetchAll(config, "radusuarios"),
+    fetchAll(config, "cidade"),
+    fetchAll(config, "uf"),
+  ]);
+  return { clientes, contratos, logins, cidades, ufs };
 }

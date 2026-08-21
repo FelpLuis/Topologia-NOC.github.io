@@ -637,10 +637,14 @@ CREATE INDEX IF NOT EXISTS idx_wa_webhook_log_channel ON wa_webhook_log(channel,
    PPPoE/roteador/WiFi vão cifradas em AES-GCM, mesma proteção das credenciais
    de acesso remoto: a lista nunca as devolve; só a leitura individual, para
    quem tem a ação de edição, abre as senhas. */
-CREATE TABLE IF NOT EXISTS cliente_cadastro (
+CREATE TABLE IF NOT EXISTS   cliente_cadastro (
   client_id TEXT PRIMARY KEY,
   ixc_id TEXT NOT NULL DEFAULT '',
   origem TEXT NOT NULL DEFAULT 'manual',
+  ixc_cidade_cod TEXT NOT NULL DEFAULT '',
+  ixc_uf_cod TEXT NOT NULL DEFAULT '',
+  ixc_contrato_id TEXT NOT NULL DEFAULT '',
+  ixc_login TEXT NOT NULL DEFAULT '',
   nome TEXT NOT NULL DEFAULT '',
   documento TEXT NOT NULL DEFAULT '',
   telefone TEXT NOT NULL DEFAULT '',
@@ -672,6 +676,44 @@ CREATE TABLE IF NOT EXISTS cliente_cadastro (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cliente_cadastro_ixc ON cliente_cadastro(ixc_id);
+
+/* Espelho relacional do IXC: cada entidade vira tabela própria, chaveada pelo
+   código que o ERP usa, para reproduzir a mesma estrutura e permitir join a
+   partir de cliente_cadastro. Alimentado por backend/scripts/ixc-clientes-sync.mjs. */
+CREATE TABLE IF NOT EXISTS ixc_uf (
+  id TEXT PRIMARY KEY, cod_uf TEXT NOT NULL DEFAULT '', nome TEXT NOT NULL DEFAULT '',
+  sigla TEXT NOT NULL DEFAULT '', cod_ibge TEXT NOT NULL DEFAULT '',
+  regiao TEXT NOT NULL DEFAULT '', id_pais TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS ixc_cidade (
+  id TEXT PRIMARY KEY, nome TEXT NOT NULL DEFAULT '', uf TEXT NOT NULL DEFAULT '',
+  cod_ibge TEXT NOT NULL DEFAULT '', regiao TEXT NOT NULL DEFAULT '', cod_siafi TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS ixc_cliente (
+  id TEXT PRIMARY KEY, razao TEXT NOT NULL DEFAULT '', fantasia TEXT NOT NULL DEFAULT '',
+  cnpj_cpf TEXT NOT NULL DEFAULT '', tipo_pessoa TEXT NOT NULL DEFAULT '',
+  endereco TEXT NOT NULL DEFAULT '', numero TEXT NOT NULL DEFAULT '', bairro TEXT NOT NULL DEFAULT '',
+  cidade TEXT NOT NULL DEFAULT '', uf TEXT NOT NULL DEFAULT '', cep TEXT NOT NULL DEFAULT '',
+  latitude TEXT NOT NULL DEFAULT '', longitude TEXT NOT NULL DEFAULT '',
+  telefone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+  ativo TEXT NOT NULL DEFAULT '', data_cadastro TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS ixc_cliente_contrato (
+  id TEXT PRIMARY KEY, id_cliente TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '',
+  status_internet TEXT NOT NULL DEFAULT '', contrato TEXT NOT NULL DEFAULT '',
+  data_ativacao TEXT NOT NULL DEFAULT '', data_cancelamento TEXT NOT NULL DEFAULT '',
+  id_produto TEXT NOT NULL DEFAULT '', valor TEXT NOT NULL DEFAULT '',
+  endereco TEXT NOT NULL DEFAULT '', numero TEXT NOT NULL DEFAULT '', bairro TEXT NOT NULL DEFAULT '',
+  cidade TEXT NOT NULL DEFAULT '', uf TEXT NOT NULL DEFAULT '', cep TEXT NOT NULL DEFAULT '',
+  latitude TEXT NOT NULL DEFAULT '', longitude TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ixc_contrato_cliente ON ixc_cliente_contrato(id_cliente);
+CREATE TABLE IF NOT EXISTS ixc_radusuario (
+  login TEXT PRIMARY KEY, id_cliente TEXT NOT NULL DEFAULT '', id_contrato TEXT NOT NULL DEFAULT '',
+  online TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT '',
+  velocidade_download TEXT NOT NULL DEFAULT '', velocidade_upload TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ixc_radusuario_cliente ON ixc_radusuario(id_cliente);
 
 /* Cadastro único de locais (POP, Data Center, ISP) e de produtos
    (equipamentos). Substituem os arrays "pops" e "equipamentos" que viviam
@@ -1359,9 +1401,13 @@ async function ensureDatabaseImpl(env) {
   /* O cadastro passou a nascer sozinho da coleta GPON: 'ixc_id' guarda o
      código do cliente no IXC — o mesmo que o operador procura no ERP — e
      'origem' separa quem entrou pela importação de quem foi digitado. */
-  await ensureColumns(db, "cliente_cadastro", [
+   await ensureColumns(db, "cliente_cadastro", [
     ["ixc_id", "TEXT NOT NULL DEFAULT ''"],
-    ["origem", "TEXT NOT NULL DEFAULT 'manual'"]
+    ["origem", "TEXT NOT NULL DEFAULT 'manual'"],
+    ["ixc_cidade_cod", "TEXT NOT NULL DEFAULT ''"],
+    ["ixc_uf_cod", "TEXT NOT NULL DEFAULT ''"],
+    ["ixc_contrato_id", "TEXT NOT NULL DEFAULT ''"],
+    ["ixc_login", "TEXT NOT NULL DEFAULT ''"]
   ]);
   /* Bancos criados antes dos canais externos (Opa!Suite Meta e Webchat)
      ganham as colunas com o mesmo default 'whatsapp' das conversas nativas
