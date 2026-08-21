@@ -2201,12 +2201,15 @@ async function handleLogin(env, request) {
 
   // Autenticação de cliente (aplicativo): tabela cliente_cadastro, com
   // CPF/CNPJ como usuário e a senha PPPoE (hash PBKDF2 em senha_pppoe_cipher).
+  // Toleramos pontuação no CPF/CNPJ (pontos, traços e barras).
+  const cpfBusca = username.replace(/[^\d]/g, "");
   const cliente = await db.prepare(`
     SELECT client_id, cpf_cnpj, nome, senha_pppoe_cipher
     FROM cliente_cadastro
     WHERE lower(cpf_cnpj)=lower(?)
+       OR replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '')=?
     LIMIT 1
-  `).bind(username).first();
+  `).bind(username, cpfBusca).first();
 
   if (!cliente || !cliente.senha_pppoe_cipher || !(await verifyPassword(password, cliente.senha_pppoe_cipher))) {
     await recordFailedLogin(env, attempt.key);
@@ -6464,8 +6467,10 @@ function normalizarCadastroBody(body) {
     dados[campo] = Number.isFinite(numero) ? numero : null;
   }
   dados.status_faturamento = STATUS_FATURAMENTO.has(body?.status_faturamento) ? body.status_faturamento : "ativo";
+  // O CPF/CNPJ é sempre armazenado sem máscara (somente dígitos).
+  if (dados.cpf_cnpj) dados.cpf_cnpj = dados.cpf_cnpj.replace(/\D/g, "");
   // Compatibilidade: o frontend antigo ainda manda `documento`; normaliza para `cpf_cnpj`.
-  if (!dados.cpf_cnpj && body?.documento) dados.cpf_cnpj = String(body.documento).trim().slice(0, 200);
+  if (!dados.cpf_cnpj && body?.documento) dados.cpf_cnpj = String(body.documento).replace(/\D/g, "").slice(0, 20);
   dados.aparelhos = (Array.isArray(body?.aparelhos) ? body.aparelhos : []).slice(0, 40).map((a, i) => ({
     nome: String(a?.nome ?? a?.name ?? `Aparelho ${i + 1}`).trim().slice(0, 120),
     tipo: String(a?.tipo ?? "").trim().slice(0, 60),
@@ -6484,9 +6489,11 @@ async function handleClientesList(env, request, url) {
     const termo = `%${q}%`;
     rows = (await db.prepare(`
       SELECT * FROM cliente_cadastro
-      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ? OR lower(cpf_cnpj) LIKE ?
+      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ?
+        OR lower(cpf_cnpj) LIKE ?
+        OR replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '') LIKE ?
       ORDER BY nome,client_id
-    `).bind(termo, termo, termo, termo).all()).results || [];
+    `).bind(termo, termo, termo, termo, termo).all()).results || [];
   } else {
     rows = (await db.prepare(`SELECT * FROM cliente_cadastro ORDER BY nome,client_id`).all()).results || [];
   }

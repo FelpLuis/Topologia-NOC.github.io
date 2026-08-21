@@ -416,6 +416,11 @@
 /* ---------------------------------------------------------
    Abas
    --------------------------------------------------------- */
+/* `overflow-x: auto` faz o navegador tratar a barra como contêiner de
+   rolagem, e por especificação isso zera a altura mínima automática dela
+   quando é item de grid/flex (aqui, filha de `.stack`) — sem `min-height`
+   a barra encolhia para só o padding+borda (~10px) e cortava os botões
+   por dentro. */
 .tabs {
   display: flex;
   gap: 2px;
@@ -424,6 +429,7 @@
   border-radius: var(--r-md);
   background: var(--surface-2);
   overflow-x: auto;
+  min-height: min-content;
   scrollbar-width: none;
 }
 .tabs::-webkit-scrollbar { display: none; }
