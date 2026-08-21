@@ -1096,6 +1096,53 @@ body.tv-mode .tv-only { display: flex; }
 .timeline-body .meta { font-size: var(--fs-11); color: var(--text-3); margin-top: 3px; display: flex; gap: var(--s-3); flex-wrap: wrap; }
 
 /* ---------------------------------------------------------
+   4.1 Cadastro de clientes (lista)
+   --------------------------------------------------------- */
+.cliente-row { display: flex; align-items: flex-start; gap: var(--s-3); min-width: 200px; }
+.cliente-info { display: grid; gap: 4px; min-width: 0; }
+.cliente-info b { overflow-wrap: anywhere; }
+
+/* Endereço às vezes chega como link colado do Google Maps (sem espaço para
+   quebrar) — sem isso a célula estoura a tabela inteira para o lado. */
+.clientes-table td { overflow-wrap: anywhere; }
+
+/* Abaixo de 760px a tabela vira uma pilha de cartões: seis colunas lado a
+   lado não cabem no celular e a rolagem horizontal escondia metade do
+   cadastro. Cada `<td>` empresta o rótulo da coluna via `data-label`. */
+@media (max-width: 760px) {
+  .clientes-table-wrap { border: 0; background: transparent; overflow: visible; }
+  .clientes-table, .clientes-table tbody, .clientes-table tr, .clientes-table td { display: block; width: 100%; }
+  .clientes-table thead { display: none; }
+  .clientes-table tr {
+    padding: var(--s-4);
+    margin-bottom: var(--s-3);
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface-1);
+  }
+  .clientes-table tr:last-child { margin-bottom: 0; }
+  .clientes-table td { padding: var(--s-2) 0; border-bottom: 0; }
+  .clientes-table td:first-child { padding-top: 0; }
+  .clientes-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: var(--fs-10);
+    font-weight: 800;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .clientes-table td:last-child {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--s-3);
+    margin-top: var(--s-2);
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* ---------------------------------------------------------
    5. Hub do protótipo e guia visual
    --------------------------------------------------------- */
 .hub { max-width: 1180px; margin: 0 auto; padding: var(--s-10) var(--s-5) var(--s-16); }

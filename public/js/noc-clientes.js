@@ -20,12 +20,22 @@
 
   const STATUS = ["ativo", "inativo", "cancelado", "bloqueado", "suspenso"];
   const STATUS_LABEL = { ativo: "Ativo", inativo: "Inativo", cancelado: "Cancelado", bloqueado: "Bloqueado", suspenso: "Suspenso" };
-  const STATUS_CLASS = { ativo: "badge-ok", inativo: "", cancelado: "", bloqueado: "badge-warn", suspenso: "badge-warn" };
+  /* Cancelado é mais grave que inativo — sem classe própria os dois badges
+     ficavam idênticos e a lista não distinguia quem saiu de vez de quem só
+     está pausado. */
+  const STATUS_CLASS = { ativo: "badge-ok", inativo: "", cancelado: "badge-danger", bloqueado: "badge-warn", suspenso: "badge-warn" };
 
   const brl = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n) || n <= 0) return "";
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  };
+
+  const iniciais = (nome) => {
+    const partes = String(nome || "").trim().split(/\s+/).filter(Boolean);
+    if (!partes.length) return "?";
+    const ultima = partes.length > 1 ? partes[partes.length - 1][0] : "";
+    return (partes[0][0] + ultima).toUpperCase();
   };
 
   /* ---------------- permissões ----------------
@@ -97,37 +107,54 @@
     if (next) next.disabled = state.page >= paginas - 1;
 
     if (!linhas.length) {
-      corpo.innerHTML = `<tr><td colspan="6" class="dim" style="padding:var(--s-5)">Nenhum cadastro encontrado. Use "Novo cadastro" para registrar o primeiro cliente.</td></tr>`;
+      const semNada = !state.registros.length;
+      corpo.innerHTML = `<tr><td colspan="6">
+        <div class="empty">
+          <span class="empty-icon">${icon("users")}</span>
+          <b>Nenhum cadastro encontrado</b>
+          <p>${semNada ? `Use "Novo cadastro" para registrar o primeiro cliente.` : "Ajuste a busca ou o filtro de status para ver outros cadastros."}</p>
+        </div>
+      </td></tr>`;
       return;
     }
-    corpo.innerHTML = fatia.map((r) => `
+    corpo.innerHTML = fatia.map((r) => {
+      const nome = r.nome || "Cliente sem nome";
+      return `
       <tr>
         <td>
-          <b>${esc(r.nome || "Cliente sem nome")}</b><br>
-          <span class="mono dim" style="font-size:var(--fs-11)">${esc(r.client_id)}</span>
-          ${r.origem === "ixc" ? `<span class="badge" title="Cadastro criado pela importação da coleta GPON/IXC">IXC</span>` : ""}
-          ${r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : ""}
-          ${r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : ""}
-          ${r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : ""}
+          <div class="cliente-row">
+            <span class="avatar" aria-hidden="true">${esc(iniciais(nome))}</span>
+            <div class="cliente-info">
+              <b>${esc(nome)}</b>
+              <span class="mono dim" style="font-size:var(--fs-11)">${esc(r.client_id)}</span>
+              ${(r.origem === "ixc" || r.has_senha_pppoe || r.has_senha_roteador || r.has_senha_wifi) ? `<span class="row wrap" style="gap:4px">
+                ${r.origem === "ixc" ? `<span class="badge" title="Cadastro criado pela importação da coleta GPON/IXC">IXC</span>` : ""}
+                ${r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : ""}
+                ${r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : ""}
+                ${r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : ""}
+              </span>` : ""}
+            </div>
+          </div>
         </td>
-        <td>
+        <td data-label="Contato">
           ${esc(r.telefone || "—")}<br>
           <span class="dim" style="font-size:var(--fs-11)">${esc(r.email || "")}</span>
         </td>
-        <td>
+        <td data-label="Endereço">
           ${esc([r.endereco, r.bairro].filter(Boolean).join(", ") || "—")}<br>
           <span class="dim" style="font-size:var(--fs-11)">${esc([r.cidade, r.uf].filter(Boolean).join(" / ") || "")}</span>
         </td>
-        <td>
+        <td data-label="Faturamento">
           ${esc(r.plano || "—")}<br>
           <span class="dim" style="font-size:var(--fs-11)">${brl(r.valor_mensal) ? `${brl(r.valor_mensal)} • venc. ${r.vencimento_dia || "—"}` : r.vencimento_dia ? `Venc. dia ${r.vencimento_dia}` : ""}</span>
         </td>
-        <td><span class="badge ${STATUS_CLASS[r.status_faturamento] || ""}">${esc(STATUS_LABEL[r.status_faturamento] || r.status_faturamento)}</span></td>
+        <td data-label="Status"><span class="badge ${STATUS_CLASS[r.status_faturamento] || ""}">${esc(STATUS_LABEL[r.status_faturamento] || r.status_faturamento)}</span></td>
         <td class="row" style="gap:6px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" data-editar="${esc(r.client_id)}" type="button" data-action="clientes.edit">Editar</button>
           <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.client_id)}" type="button" title="Excluir cadastro" aria-label="Excluir cadastro" data-action="clientes.delete">${icon("trash")}</button>
         </td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
     aplicarAcoes(corpo);
     $$("[data-editar]", corpo).forEach((b) => b.onclick = () => abrirCadastro({ client_id: b.dataset.editar }, "edit"));
     $$("[data-excluir]", corpo).forEach((b) => b.onclick = () => excluir(b.dataset.excluir));
@@ -271,121 +298,136 @@
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack" style="gap:var(--s-4)">
-          ${secao("Dados do cliente", "Informações cadastrais do assinante.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              ${corpoForm.client_id ? `
-                <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
-                  <input class="input" id="clienteFormId" type="text" value="${esc(corpoForm.client_id)}" disabled>
-                </div>` : `
-                <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
-                  <input class="input" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Código do cliente no IXC — digite nome, serial ou endereço para buscar"
-                         aria-label="Código do cliente no IXC" autocomplete="off">
-                  <datalist id="clienteFeedList"></datalist>
-                </div>`}
-              <div class="field" style="max-width:180px"><label for="fDocumento">Documento (CPF/CNPJ)</label>
-                <input class="input" id="fDocumento" type="text" value="${valor(corpoForm.documento)}" autocomplete="off">
+          <div class="tabs" role="tablist" aria-label="Seções do cadastro de cliente">
+            <button class="tab" type="button" role="tab" id="tabGeraisBtn" aria-controls="tabGerais" aria-selected="true" data-tab="tabGerais">${icon("user")} Dados gerais</button>
+            <button class="tab" type="button" role="tab" id="tabFinanceiroBtn" aria-controls="tabFinanceiro" aria-selected="false" data-tab="tabFinanceiro">${icon("finance")} Dados financeiros</button>
+            <button class="tab" type="button" role="tab" id="tabTecnicoBtn" aria-controls="tabTecnico" aria-selected="false" data-tab="tabTecnico">${icon("lock")} Dados técnicos</button>
+          </div>
+
+          <div class="tab-panel" id="tabGerais" role="tabpanel" aria-labelledby="tabGeraisBtn">
+            ${secao("Dados do cliente", "Informações cadastrais do assinante.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                ${corpoForm.client_id ? `
+                  <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
+                    <input class="input" id="clienteFormId" type="text" value="${esc(corpoForm.client_id)}" disabled>
+                  </div>` : `
+                  <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
+                    <input class="input" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Código do cliente no IXC — digite nome, serial ou endereço para buscar"
+                           aria-label="Código do cliente no IXC" autocomplete="off">
+                    <datalist id="clienteFeedList"></datalist>
+                  </div>`}
+                <div class="field" style="max-width:180px"><label for="fDocumento">Documento (CPF/CNPJ)</label>
+                  <input class="input" id="fDocumento" type="text" value="${valor(corpoForm.documento)}" autocomplete="off">
+                </div>
               </div>
-            </div>
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fNome">Nome</label>
-                <input class="input" id="fNome" type="text" value="${valor(corpoForm.nome)}" autocomplete="off">
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fNome">Nome</label>
+                  <input class="input" id="fNome" type="text" value="${valor(corpoForm.nome)}" autocomplete="off">
+                </div>
+                <div class="field" style="max-width:180px"><label for="fTelefone">Telefone</label>
+                  <input class="input" id="fTelefone" type="text" value="${valor(corpoForm.telefone)}" autocomplete="off">
+                </div>
               </div>
-              <div class="field" style="max-width:180px"><label for="fTelefone">Telefone</label>
-                <input class="input" id="fTelefone" type="text" value="${valor(corpoForm.telefone)}" autocomplete="off">
+              <div class="field"><label for="fEmail">E-mail</label>
+                <input class="input" id="fEmail" type="email" value="${valor(corpoForm.email)}" autocomplete="off">
+              </div>`)}
+            ${secao("Endereço", "Onde o cliente está; com lat/lon o mapa GPON posiciona exatamente.", `
+              <div class="field"><label for="fEndereco">Endereço</label>
+                <input class="input" id="fEndereco" type="text" value="${valor(corpoForm.endereco)}" autocomplete="off">
               </div>
-            </div>
-            <div class="field"><label for="fEmail">E-mail</label>
-              <input class="input" id="fEmail" type="email" value="${valor(corpoForm.email)}" autocomplete="off">
-            </div>`)}
-          ${secao("Endereço", "Onde o cliente está; com lat/lon o mapa GPON posiciona exatamente.", `
-            <div class="field"><label for="fEndereco">Endereço</label>
-              <input class="input" id="fEndereco" type="text" value="${valor(corpoForm.endereco)}" autocomplete="off">
-            </div>
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field" style="max-width:200px"><label for="fBairro">Bairro</label>
-                <input class="input" id="fBairro" type="text" value="${valor(corpoForm.bairro)}" autocomplete="off">
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field" style="max-width:200px"><label for="fBairro">Bairro</label>
+                  <input class="input" id="fBairro" type="text" value="${valor(corpoForm.bairro)}" autocomplete="off">
+                </div>
+                <div class="field grow"><label for="fCidade">Cidade</label>
+                  <input class="input" id="fCidade" type="text" value="${valor(corpoForm.cidade)}" autocomplete="off">
+                </div>
+                <div class="field" style="max-width:90px"><label for="fUf">UF</label>
+                  <input class="input" id="fUf" type="text" maxlength="2" value="${valor(corpoForm.uf)}" autocomplete="off">
+                </div>
+                <div class="field" style="max-width:150px"><label for="fCep">CEP</label>
+                  <input class="input" id="fCep" type="text" value="${valor(corpoForm.cep)}" autocomplete="off">
+                </div>
               </div>
-              <div class="field grow"><label for="fCidade">Cidade</label>
-                <input class="input" id="fCidade" type="text" value="${valor(corpoForm.cidade)}" autocomplete="off">
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field" style="max-width:170px"><label for="fLat">Latitude</label>
+                  <input class="input" id="fLat" type="number" step="any" value="${valor(corpoForm.lat ?? "")}">
+                </div>
+                <div class="field" style="max-width:170px"><label for="fLon">Longitude</label>
+                  <input class="input" id="fLon" type="number" step="any" value="${valor(corpoForm.lon ?? "")}">
+                </div>
+              </div>`)}
+            ${secao("Observações", "Anotações livres do atendimento.", `
+              <textarea class="textarea" id="fObservacao" rows="3">${valor(corpoForm.observacao)}</textarea>`)}
+          </div>
+
+          <div class="tab-panel" id="tabFinanceiro" role="tabpanel" aria-labelledby="tabFinanceiroBtn" hidden>
+            ${secao("Faturamento", "Plano, valor e situação financeira.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fPlano">Plano</label>
+                  <input class="input" id="fPlano" type="text" value="${valor(corpoForm.plano)}" autocomplete="off">
+                </div>
+                <div class="field" style="max-width:160px"><label for="fValor">Valor mensal</label>
+                  <input class="input" id="fValor" type="number" step="0.01" min="0" value="${valor(corpoForm.valor_mensal ?? "")}">
+                </div>
+                <div class="field" style="max-width:150px"><label for="fVencimento">Vencimento (dia)</label>
+                  <input class="input" id="fVencimento" type="number" min="1" max="31" value="${valor(corpoForm.vencimento_dia ?? "")}">
+                </div>
+                <div class="field" style="max-width:170px"><label for="fStatus">Status</label>
+                  <select class="select" id="fStatus">${STATUS.map((s) => `<option value="${s}" ${corpoForm.status_faturamento === s ? "selected" : ""}>${esc(STATUS_LABEL[s])}</option>`).join("")}</select>
+                </div>
+              </div>`)}
+          </div>
+
+          <div class="tab-panel" id="tabTecnico" role="tabpanel" aria-labelledby="tabTecnicoBtn" hidden>
+            ${secao("ONT / ONU", "Equipamento óptico na casa do cliente.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fOntSerial">Serial da ONU</label>
+                  <input class="input" id="fOntSerial" type="text" value="${valor(corpoForm.ont_serial)}" autocomplete="off">
+                </div>
+                <div class="field grow"><label for="fOntModelo">Modelo</label>
+                  <input class="input" id="fOntModelo" type="text" value="${valor(corpoForm.ont_modelo)}" autocomplete="off">
+                </div>
+              </div>`)}
+            ${secao("Acesso remoto", "Gerência do equipamento na casa do cliente.", `
+              <div class="field" style="max-width:260px"><label for="fIpGerencia">IP de gerência</label>
+                <input class="input" id="fIpGerencia" type="text" value="${valor(corpoForm.ip_gerencia)}" autocomplete="off">
+              </div>`)}
+            ${secao("PPPoE", "Autenticação da conexão no provedor.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fLoginPppoe">Login</label>
+                  <input class="input" id="fLoginPppoe" type="text" value="${valor(corpoForm.login_pppoe)}" autocomplete="off">
+                </div>
+                <div class="field grow"><label for="fSenhaPppoe">Senha</label>
+                  <input class="input" id="fSenhaPppoe" type="text" value="${valor(corpoForm.senha_pppoe ?? "")}" autocomplete="off">
+                </div>
               </div>
-              <div class="field" style="max-width:90px"><label for="fUf">UF</label>
-                <input class="input" id="fUf" type="text" maxlength="2" value="${valor(corpoForm.uf)}" autocomplete="off">
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_pppoe ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
+            ${secao("Roteador", "Acesso ao equipamento do cliente.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fLoginRoteador">Usuário</label>
+                  <input class="input" id="fLoginRoteador" type="text" value="${valor(corpoForm.login_roteador)}" autocomplete="off">
+                </div>
+                <div class="field grow"><label for="fSenhaRoteador">Senha</label>
+                  <input class="input" id="fSenhaRoteador" type="text" value="${valor(corpoForm.senha_roteador ?? "")}" autocomplete="off">
+                </div>
               </div>
-              <div class="field" style="max-width:150px"><label for="fCep">CEP</label>
-                <input class="input" id="fCep" type="text" value="${valor(corpoForm.cep)}" autocomplete="off">
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_roteador ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
+            ${secao("WiFi", "Rede sem fio do cliente.", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fSsid">SSID</label>
+                  <input class="input" id="fSsid" type="text" value="${valor(corpoForm.ssid)}" autocomplete="off">
+                </div>
+                <div class="field grow"><label for="fSenhaWifi">Senha do WiFi</label>
+                  <input class="input" id="fSenhaWifi" type="text" value="${valor(corpoForm.senha_wifi ?? "")}" autocomplete="off">
+                </div>
               </div>
-            </div>
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field" style="max-width:170px"><label for="fLat">Latitude</label>
-                <input class="input" id="fLat" type="number" step="any" value="${valor(corpoForm.lat ?? "")}">
-              </div>
-              <div class="field" style="max-width:170px"><label for="fLon">Longitude</label>
-                <input class="input" id="fLon" type="number" step="any" value="${valor(corpoForm.lon ?? "")}">
-              </div>
-            </div>`)}
-          ${secao("Faturamento", "Plano, valor e situação financeira.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fPlano">Plano</label>
-                <input class="input" id="fPlano" type="text" value="${valor(corpoForm.plano)}" autocomplete="off">
-              </div>
-              <div class="field" style="max-width:160px"><label for="fValor">Valor mensal</label>
-                <input class="input" id="fValor" type="number" step="0.01" min="0" value="${valor(corpoForm.valor_mensal ?? "")}">
-              </div>
-              <div class="field" style="max-width:150px"><label for="fVencimento">Vencimento (dia)</label>
-                <input class="input" id="fVencimento" type="number" min="1" max="31" value="${valor(corpoForm.vencimento_dia ?? "")}">
-              </div>
-              <div class="field" style="max-width:170px"><label for="fStatus">Status</label>
-                <select class="select" id="fStatus">${STATUS.map((s) => `<option value="${s}" ${corpoForm.status_faturamento === s ? "selected" : ""}>${esc(STATUS_LABEL[s])}</option>`).join("")}</select>
-              </div>
-            </div>`)}
-          ${secao("Aparelhos vinculados", "Equipamentos do cliente além da ONU (TV, decodificadores…).", `
-            <div class="stack" id="fAparelhos" style="gap:6px"></div>
-            <button class="btn btn-ghost btn-sm" id="fAparelhoAdd" type="button">${icon("plus")} Adicionar aparelho</button>`)}
-          ${secao("ONT / ONU", "Equipamento óptico na casa do cliente.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fOntSerial">Serial da ONU</label>
-                <input class="input" id="fOntSerial" type="text" value="${valor(corpoForm.ont_serial)}" autocomplete="off">
-              </div>
-              <div class="field grow"><label for="fOntModelo">Modelo</label>
-                <input class="input" id="fOntModelo" type="text" value="${valor(corpoForm.ont_modelo)}" autocomplete="off">
-              </div>
-            </div>`)}
-          ${secao("Acesso remoto", "Gerência do equipamento na casa do cliente.", `
-            <div class="field" style="max-width:260px"><label for="fIpGerencia">IP de gerência</label>
-              <input class="input" id="fIpGerencia" type="text" value="${valor(corpoForm.ip_gerencia)}" autocomplete="off">
-            </div>`)}
-          ${secao("PPPoE", "Autenticação da conexão no provedor.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fLoginPppoe">Login</label>
-                <input class="input" id="fLoginPppoe" type="text" value="${valor(corpoForm.login_pppoe)}" autocomplete="off">
-              </div>
-              <div class="field grow"><label for="fSenhaPppoe">Senha</label>
-                <input class="input" id="fSenhaPppoe" type="text" value="${valor(corpoForm.senha_pppoe ?? "")}" autocomplete="off">
-              </div>
-            </div>
-            <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_pppoe ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
-          ${secao("Roteador", "Acesso ao equipamento do cliente.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fLoginRoteador">Usuário</label>
-                <input class="input" id="fLoginRoteador" type="text" value="${valor(corpoForm.login_roteador)}" autocomplete="off">
-              </div>
-              <div class="field grow"><label for="fSenhaRoteador">Senha</label>
-                <input class="input" id="fSenhaRoteador" type="text" value="${valor(corpoForm.senha_roteador ?? "")}" autocomplete="off">
-              </div>
-            </div>
-            <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_roteador ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
-          ${secao("WiFi", "Rede sem fio do cliente.", `
-            <div class="row wrap" style="gap:var(--s-3)">
-              <div class="field grow"><label for="fSsid">SSID</label>
-                <input class="input" id="fSsid" type="text" value="${valor(corpoForm.ssid)}" autocomplete="off">
-              </div>
-              <div class="field grow"><label for="fSenhaWifi">Senha do WiFi</label>
-                <input class="input" id="fSenhaWifi" type="text" value="${valor(corpoForm.senha_wifi ?? "")}" autocomplete="off">
-              </div>
-            </div>
-            <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
-          ${secao("Observações", "Anotações livres do atendimento.", `
-            <textarea class="textarea" id="fObservacao" rows="3">${valor(corpoForm.observacao)}</textarea>`)}
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Já há senha cadastrada; deixe o campo vazio para manter a atual." : "Nenhuma senha cadastrada até agora."}</p>`)}
+            ${secao("Aparelhos vinculados", "Equipamentos do cliente além da ONU (TV, decodificadores…).", `
+              <div class="stack" id="fAparelhos" style="gap:6px"></div>
+              <button class="btn btn-ghost btn-sm" id="fAparelhoAdd" type="button">${icon("plus")} Adicionar aparelho</button>`)}
+          </div>
+
           <span class="field-error" id="clienteFormError" hidden></span>
         </div>
         <div class="modal-foot"><span></span><span class="row">
@@ -408,6 +450,17 @@
         }
         const add = $("#fAparelhoAdd", host);
         if (add) add.onclick = () => { state.aparelhos.push({ nome: "", tipo: "", serial: "" }); renderAparelhos(); };
+
+        const tabBtns = $$("[role=tab]", host);
+        const selecionarAba = (id) => {
+          tabBtns.forEach((b) => {
+            const sel = b.dataset.tab === id;
+            b.setAttribute("aria-selected", sel ? "true" : "false");
+            const painel = $("#" + b.getAttribute("aria-controls"), host);
+            if (painel) painel.hidden = !sel;
+          });
+        };
+        tabBtns.forEach((b) => { b.onclick = () => selecionarAba(b.dataset.tab); });
 
         const erro = $("#clienteFormError", host);
         $("[data-salvar]", host).onclick = async (event) => {
