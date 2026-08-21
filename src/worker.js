@@ -559,14 +559,20 @@ CREATE INDEX IF NOT EXISTS idx_crm_cases_assignee ON crm_cases(assigned_user_id,
 CREATE INDEX IF NOT EXISTS idx_crm_cases_next_contact ON crm_cases(next_contact_at);
 CREATE INDEX IF NOT EXISTS idx_crm_activities_case ON crm_activities(case_id,created_at);
 
-/* Atendimento WhatsApp (WhatsApp Cloud API da Meta). Uma conversa por número,
-   com o bot direcionando para o setor escolhido pelo cliente. O atendente que
+/* Atendimento WhatsApp (WhatsApp Cloud API da Meta) e, além do número nativo,
+   canais externos que também caem na mesma fila (Opa!Suite/Meta e o Webchat
+   do Opa!Suite): 'channel' separa a origem e 'external_id' guarda o
+   identificador da conversa no sistema externo, usado para responder por lá.
+   Uma conversa por número/identificador dentro de cada canal, com o bot
+   direcionando para o setor escolhido pelo cliente. O atendente que
    "pega" a conversa fica em atendimento (status derivado) e o master, com a
    ação whatsapp.supervise, enxerga com quem cada colega está conversando. */
 CREATE TABLE IF NOT EXISTS wa_conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   phone TEXT NOT NULL,
   customer_name TEXT NOT NULL DEFAULT '',
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  external_id TEXT NOT NULL DEFAULT '',
   sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
   assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'routing' CHECK(status IN ('routing','open','closed')),
@@ -607,11 +613,23 @@ CREATE TABLE IF NOT EXISTS wa_contacts (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+/* Corpo bruto de cada chamada recebida em /api/opasuite/webhook, para
+   conferir o formato real do payload (ainda não documentado publicamente)
+   e ajustar oaExtractMessage() sem precisar reproduzir o envio. */
+CREATE TABLE IF NOT EXISTS wa_webhook_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel TEXT NOT NULL,
+  payload TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_wa_conv_phone_status ON wa_conversations(phone,status);
+CREATE INDEX IF NOT EXISTS idx_wa_conv_channel_phone ON wa_conversations(channel,phone);
 CREATE INDEX IF NOT EXISTS idx_wa_conv_sector ON wa_conversations(sector_id,status,updated_at);
 CREATE INDEX IF NOT EXISTS idx_wa_conv_assignee ON wa_conversations(assigned_user_id,status,updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_wamid ON wa_messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_wa_msg_conv ON wa_messages(conversation_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_wa_webhook_log_channel ON wa_webhook_log(channel,created_at);
 
 /* Cadastro de clientes mantido pela própria plataforma, além do que a OLT e o
    IXC informam. É o que a tela "Cadastro de Cliente" edita e o mapa GPON
@@ -1344,6 +1362,13 @@ async function ensureDatabaseImpl(env) {
   await ensureColumns(db, "cliente_cadastro", [
     ["ixc_id", "TEXT NOT NULL DEFAULT ''"],
     ["origem", "TEXT NOT NULL DEFAULT 'manual'"]
+  ]);
+  /* Bancos criados antes dos canais externos (Opa!Suite Meta e Webchat)
+     ganham as colunas com o mesmo default 'whatsapp' das conversas nativas
+     já existentes, então nada muda para quem só usa o número da Meta. */
+  await ensureColumns(db, "wa_conversations", [
+    ["channel", "TEXT NOT NULL DEFAULT 'whatsapp'"],
+    ["external_id", "TEXT NOT NULL DEFAULT ''"]
   ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
@@ -2857,11 +2882,46 @@ async function waStoreBotMessage(db, conversationId, body, waMessageId, ok) {
     .bind(conversationId, "bot", "text", body, waMessageId || null, ok ? "sent" : "failed", "Sistema").run();
 }
 
-async function waSendRoutingMenu(env, db, settings, conversationId, phone, attempts) {
+// Envio pela API do Opa!Suite, usado pelas conversas dos canais externos
+// (Meta via Opa!Suite e Webchat do Opa!Suite). Caminho e formato do corpo
+// ainda não confirmados com a documentação oficial (bloqueada sem login) —
+// ajustar OPASUITE_API_BASE/rota abaixo assim que o token estiver configurado
+// e o primeiro envio real puder ser conferido.
+const OPASUITE_API_BASE_DEFAULT = "https://api.opasuite.com.br";
+
+async function oaSendText(env, externalId, body) {
+  const token = env.OPASUITE_API_TOKEN;
+  if (!token || !externalId) return { ok: false, error: "OPASUITE_NAO_CONFIGURADO" };
+  const base = env.OPASUITE_API_BASE || OPASUITE_API_BASE_DEFAULT;
+  try {
+    const res = await fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: externalId, type: "text", text: body })
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return { ok: false, error: "OPASUITE_ENVIO_FALHOU", status: res.status, detail: detail.slice(0, 400) };
+    }
+    const data = await res.json().catch(() => ({}));
+    return { ok: true, wa_message_id: data?.id || data?.message_id || null };
+  } catch (e) {
+    return { ok: false, error: "OPASUITE_ENVIO_FALHOU", detail: String(e?.message || e).slice(0, 400) };
+  }
+}
+
+// Ponto único de envio: despacha para a Graph API da Meta (canal nativo) ou
+// para o Opa!Suite (Meta via Opa!Suite / Webchat), conforme a conversa.
+async function omniSendText(env, target, body) {
+  if (!target || target.channel === "whatsapp" || !target.channel) return await waSendText(env, target?.phone, body);
+  return await oaSendText(env, target.external_id || target.phone, body);
+}
+
+async function waSendRoutingMenu(env, db, settings, conversationId, target, attempts) {
   const options = await waRoutedSectorOptions(db, settings);
   if (!options.length) return;
   const menu = `${settings.greeting}\n\n${options.map(o => `${o.number} - ${o.name}`).join("\n")}`;
-  const send = await waSendText(env, phone, menu);
+  const send = await omniSendText(env, target, menu);
   await waStoreBotMessage(db, conversationId, menu, send.wa_message_id, send.ok);
   await db.prepare(`UPDATE wa_conversations SET routing_attempts=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(attempts, conversationId).run();
 }
@@ -2874,26 +2934,33 @@ async function waVerifySignature(env, request, raw) {
   return timingSafeEqual(signature, expected);
 }
 
-async function waHandleInbound(env, db, settings, msg, value) {
-  const phone = String(msg.from || "");
+// params: { channel, phone, externalId, contactName, type, body, externalMessageId }
+// Um único funil de roteamento para qualquer canal — nativo (Meta direto) ou
+// externo (Opa!Suite Meta / Opa!Suite Webchat) — todos caem na mesma fila de
+// setor e no mesmo painel. 'phone' é a chave de identidade dentro do canal
+// (no Webchat, sem telefone, cai para o externalId da conversa/visitante).
+async function waHandleInboundGeneric(env, db, settings, params) {
+  const channel = String(params.channel || "whatsapp");
+  const phone = String(params.phone || params.externalId || "");
   if (!phone) return;
-  const waId = String(msg.id || "");
+  const externalId = String(params.externalId || phone);
+  const waId = String(params.externalMessageId || "");
   if (waId && await db.prepare(`SELECT 1 FROM wa_messages WHERE wa_message_id=?`).bind(waId).first()) return;
-  const type = String(msg.type || "text");
-  const body = waMessageText(msg);
-  const contactName = String((value.contacts || [])[0]?.profile?.name || "").trim().slice(0, 200);
+  const type = String(params.type || "text");
+  const body = String(params.body || "");
+  const contactName = String(params.contactName || "").trim().slice(0, 200);
   if (contactName) await db.prepare(`INSERT OR IGNORE INTO wa_contacts(phone,name) VALUES(?,?)`).bind(phone, contactName).run();
 
-  const conv = await db.prepare(`SELECT * FROM wa_conversations WHERE phone=? ORDER BY id DESC LIMIT 1`).bind(phone).first();
+  const conv = await db.prepare(`SELECT * FROM wa_conversations WHERE phone=? AND channel=? ORDER BY id DESC LIMIT 1`).bind(phone, channel).first();
   if (!conv) {
     const res = await db.prepare(`
-      INSERT INTO wa_conversations(phone,customer_name,status,last_message,last_message_at,updated_at)
-      VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    `).bind(phone, contactName || phone, "routing", body).run();
+      INSERT INTO wa_conversations(phone,customer_name,channel,external_id,status,last_message,last_message_at,updated_at)
+      VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `).bind(phone, contactName || phone, channel, externalId, "routing", body).run();
     const conversationId = Number(res.meta.last_row_id);
     await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id) VALUES(?,?,?,?,?)`)
       .bind(conversationId, "in", type, body, waId || null).run();
-    await waSendRoutingMenu(env, db, settings, conversationId, phone, 1);
+    await waSendRoutingMenu(env, db, settings, conversationId, { channel, phone, external_id: externalId }, 1);
     return;
   }
 
@@ -2905,7 +2972,7 @@ async function waHandleInbound(env, db, settings, msg, value) {
       UPDATE wa_conversations SET status='routing',routing_attempts=0,closed_at=NULL,closed_by=NULL,
         last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
     `).bind(body, conv.id).run();
-    await waSendRoutingMenu(env, db, settings, conv.id, phone, 1);
+    await waSendRoutingMenu(env, db, settings, conv.id, conv, 1);
     return;
   }
 
@@ -2918,12 +2985,12 @@ async function waHandleInbound(env, db, settings, msg, value) {
           last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
       `).bind(target.id, body, conv.id).run();
       const confirm = (settings.routingDone || "").replace("{setor}", target.name);
-      const send = await waSendText(env, phone, confirm);
+      const send = await omniSendText(env, conv, confirm);
       await waStoreBotMessage(db, conv.id, confirm, send.wa_message_id, send.ok);
     } else if (Number(conv.routing_attempts) < WHATSAPP_ROUTING_MAX_ATTEMPTS) {
-      const send = await waSendText(env, phone, settings.routingError);
+      const send = await omniSendText(env, conv, settings.routingError);
       await waStoreBotMessage(db, conv.id, settings.routingError, send.wa_message_id, send.ok);
-      await waSendRoutingMenu(env, db, settings, conv.id, phone, Number(conv.routing_attempts) + 1);
+      await waSendRoutingMenu(env, db, settings, conv.id, conv, Number(conv.routing_attempts) + 1);
       await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
     } else {
       await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
@@ -2934,6 +3001,61 @@ async function waHandleInbound(env, db, settings, msg, value) {
   await db.prepare(`
     UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+1,updated_at=CURRENT_TIMESTAMP WHERE id=?
   `).bind(body, conv.id).run();
+}
+
+function waMetaToGeneric(msg, value) {
+  return {
+    channel: "whatsapp",
+    phone: String(msg.from || ""),
+    externalId: String(msg.from || ""),
+    contactName: String((value.contacts || [])[0]?.profile?.name || "").trim().slice(0, 200),
+    type: String(msg.type || "text"),
+    body: waMessageText(msg),
+    externalMessageId: String(msg.id || "")
+  };
+}
+
+// Formato do webhook do Opa!Suite ainda não confirmado (a documentação
+// pública exige login) — tenta os nomes de campo mais comuns entre CRMs de
+// atendimento. O payload bruto sempre fica em wa_webhook_log; se o primeiro
+// evento real não cair certo aqui, ajuste este parser olhando o log em
+// GET /api/whatsapp/webhook-log em vez de adivinhar de novo.
+function oaExtractMessage(payload) {
+  const p = payload || {};
+  const data = p.data || p.message || p.payload || p;
+  const channelRaw = String(p.channel || p.canal || p.origin || data.channel || data.canal || "").toLowerCase();
+  const channel = channelRaw.includes("webchat") || channelRaw.includes("chat") ? "opasuite_webchat" : "opasuite_meta";
+  const contact = data.contact || data.customer || {};
+  const externalId = String(data.conversation_id || data.chat_id || data.conversationId || p.conversation_id || data.contact_id || contact.id || "").trim();
+  const phone = String(data.phone || data.from || contact.phone || contact.number || "").replace(/\D/g, "").slice(0, 15);
+  const contactName = String(data.contact_name || contact.name || data.name || "").trim().slice(0, 200);
+  const body = String(data.text || data.body || data.message || data.content || "").trim();
+  const externalMessageId = String(data.id || data.message_id || data.messageId || "").trim();
+  const type = String(data.type || "text");
+  return { channel, phone, externalId, contactName, body, externalMessageId, type };
+}
+
+async function oaVerifyToken(env, request, url) {
+  const secret = env.OPASUITE_WEBHOOK_SECRET;
+  if (!secret) return true; // ainda sem segredo configurado — aceita para permitir o primeiro teste
+  const token = request.headers.get("X-Opasuite-Token") || request.headers.get("X-Webhook-Token") || url.searchParams.get("token") || "";
+  return timingSafeEqual(token, secret);
+}
+
+async function handleOpasuiteWebhook(env, request) {
+  const url = new URL(request.url);
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > 1024 * 1024) return json({ error: "BODY_TOO_LARGE" }, 413);
+  if (!(await oaVerifyToken(env, request, url))) return json({ error: "TOKEN_INVALIDO" }, 403);
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const db = getDB(env);
+  await db.prepare(`INSERT INTO wa_webhook_log(channel,payload) VALUES(?,?)`).bind("opasuite", raw.slice(0, 32000)).run();
+  const parsed = oaExtractMessage(payload);
+  if (!parsed.phone && !parsed.externalId) return json({ ok: true, ignored: true });
+  const settings = await loadWhatsappSettings(db);
+  await waHandleInboundGeneric(env, db, settings, parsed);
+  return json({ ok: true });
 }
 
 async function waHandleStatus(db, st) {
@@ -2966,7 +3088,7 @@ async function handleWhatsappWebhook(env, request) {
       const value = change.value || {};
       const phoneNumberId = value.metadata?.phone_number_id;
       if (phoneNumberId && env.WHATSAPP_PHONE_NUMBER_ID && phoneNumberId !== env.WHATSAPP_PHONE_NUMBER_ID) continue;
-      for (const msg of value.messages || []) await waHandleInbound(env, db, settings, msg, value);
+      for (const msg of value.messages || []) await waHandleInboundGeneric(env, db, settings, waMetaToGeneric(msg, value));
       for (const st of value.statuses || []) await waHandleStatus(db, st);
     }
   }
@@ -3146,7 +3268,7 @@ async function handleWhatsappSend(env, request, id) {
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const text = String(body.body || "").trim().slice(0, 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
-  const send = await waSendText(env, conv.phone, text);
+  const send = await omniSendText(env, conv, text);
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
     .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
   await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
@@ -3260,6 +3382,17 @@ async function handleWhatsappSettings(env, request) {
     .bind(WHATSAPP_SETTINGS_KEY, JSON.stringify(depois)).run();
   await audit(env, request, gate.user, "WHATSAPP_SETTINGS_UPDATE", "whatsapp", "settings", antes, depois);
   return json({ ok: true, settings: depois, podeEditar: true });
+}
+
+// Ajuda a fechar o mapeamento do payload do Opa!Suite: mostra os últimos
+// corpos brutos recebidos em /api/opasuite/webhook para quem pode configurar
+// o chat, sem precisar reproduzir o envio do lado de fora.
+async function handleWaWebhookLog(env, request) {
+  const gate = await requirePermission(env, request, "whatsapp.manage");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const rows = (await db.prepare(`SELECT id,channel,payload,created_at FROM wa_webhook_log ORDER BY id DESC LIMIT 20`).all()).results || [];
+  return json({ rows });
 }
 
 async function handleMe(env, request) {
@@ -7213,6 +7346,11 @@ export default {
         if (url.pathname === "/api/whatsapp/webhook" && request.method === "POST")
           return await handleWhatsappWebhook(env, request);
 
+        // Mesmo motivo acima: o webhook do Opa!Suite (canais Meta e Webchat)
+        // também chega cross-site, sem cookie de sessão.
+        if (url.pathname === "/api/opasuite/webhook" && request.method === "POST")
+          return await handleOpasuiteWebhook(env, request);
+
         const csrf = csrfFailure(request);
         if (csrf) return csrf;
 
@@ -7272,6 +7410,8 @@ export default {
           return await handleWhatsappPresence(env,request);
         if (url.pathname === "/api/whatsapp/settings" && (request.method === "GET" || request.method === "PUT"))
           return await handleWhatsappSettings(env,request);
+        if (url.pathname === "/api/whatsapp/webhook-log" && request.method === "GET")
+          return await handleWaWebhookLog(env,request);
         const waMessageMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)\/messages$/);
         if(waMessageMatch && request.method==="POST")
           return await handleWhatsappSend(env,request,Number(waMessageMatch[1]));

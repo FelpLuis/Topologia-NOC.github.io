@@ -29,6 +29,16 @@
     if (d.toDateString() === now.toDateString()) return formatTime(t);
     return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + formatTime(t);
   };
+  // Canal nativo (Meta direto) não ganha selo — é o padrão. Os externos, que
+  // chegam via webhook do Opa!Suite, ganham um selo pra distinguir na lista.
+  const CHANNEL_LABELS = {
+    opasuite_meta: { label: "Opa!Suite", color: "#7c5cff" },
+    opasuite_webchat: { label: "Webchat", color: "#22c55e" }
+  };
+  const channelBadge = c => {
+    const info = c.channel && CHANNEL_LABELS[c.channel];
+    return info ? `<span class="wa-list-badge" style="--wa-badge:${info.color}">${esc(info.label)}</span>` : "";
+  };
   const sectorOf = id => (state.data?.sectors || []).find(s => String(s.id) === String(id));
   const convOf = id => (state.data?.conversations || []).find(c => String(c.id) === String(id));
   const mine = c => c && Number(c.assigned_user_id) === Number(window.UPDOWN_AUTH?.id);
@@ -109,7 +119,7 @@
         <span class="wa-conv-avatar">${initials(c.customer_name && c.customer_name !== c.phone ? c.customer_name : (c.phone || "?"))}</span>
         <span class="wa-conv-main">
           <span class="wa-conv-top"><b>${esc(name)}</b><small>${esc(timeLabel(c.last_message_at || c.created_at))}</small></span>
-          <span class="wa-conv-bottom"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span><span class="wa-conv-meta">${badge}${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span></span>
+          <span class="wa-conv-bottom"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span><span class="wa-conv-meta">${channelBadge(c)}${badge}${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span></span>
         </span>
       </button>`;
     }).join("");
@@ -156,6 +166,7 @@
     const parts = [];
     parts.push(conv.status === "routing" ? "Aguardando escolha de setor" : conv.status === "closed" ? "Encerrada" : conv.assigned_name ? `Atendente: ${conv.assigned_name}` : "Aguardando atendente");
     if (conv.sector_name) parts.push(conv.sector_name);
+    if (conv.channel && CHANNEL_LABELS[conv.channel]) parts.push(CHANNEL_LABELS[conv.channel].label);
     parts.push(formatPhone(conv.phone));
     $("#chatMeta").textContent = parts.join(" · ");
     renderHeadButtons(conv);

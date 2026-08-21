@@ -1366,3 +1366,50 @@ As mensagens ficam em `wa_conversations` e `wa_messages`, a presença em
 `wa_agent_presence`. Se os Secrets do WhatsApp não estiverem configurados, o
 webhook continua recebendo e registrando mensagens, mas o envio responde
 `WHATSAPP_NAO_CONFIGURADO` — nada derruba o serviço.
+
+### Canais externos (Opa!Suite: Meta e Webchat)
+
+Além do número nativo acima, conversas que chegam pelo Opa!Suite — o canal
+Meta administrado por lá e o Webchat do site — caem na mesma fila e no mesmo
+painel. `wa_conversations.channel` guarda a origem (`whatsapp`, `opasuite_meta`
+ou `opasuite_webchat`) e `external_id` guarda o identificador da conversa no
+Opa!Suite, usado para responder por lá em vez da Graph API da Meta.
+
+```bash
+npx wrangler secret put OPASUITE_API_TOKEN
+npx wrangler secret put OPASUITE_WEBHOOK_SECRET
+```
+
+- `OPASUITE_API_TOKEN` — token gerado em Opa!Suite → Configurações → API,
+  usado para **enviar** mensagens de volta;
+- `OPASUITE_WEBHOOK_SECRET` — segredo compartilhado para validar quem chama o
+  webhook (enviado como header `X-Opasuite-Token`/`X-Webhook-Token` ou
+  `?token=` na URL). Sem ele o webhook aceita qualquer chamada — configure
+  antes de ligar o webhook em produção;
+- `OPASUITE_API_BASE` (opcional) — só se o endpoint de envio não for
+  `https://api.opasuite.com.br/v1/messages`.
+
+Cadastre em Opa!Suite → Configurações → Webhooks o destino:
+
+```text
+https://SEU-DOMINIO/api/whatsapp/webhook
+```
+
+```text
+https://SEU-DOMINIO/api/opasuite/webhook
+```
+
+**O formato exato do payload que o Opa!Suite envia não está documentado
+publicamente** (a central de ajuda exige login); `oaExtractMessage()` em
+`src/worker.js` tenta os nomes de campo mais comuns (`conversation_id`,
+`phone`/`from`, `contact.name`, `text`/`body`), mas cada chamada recebida
+também é gravada, crua, em `wa_webhook_log`. Depois de configurar o webhook,
+mande uma mensagem de teste e confira o payload real em:
+
+```text
+GET /api/whatsapp/webhook-log
+```
+
+(requer `whatsapp.manage`). Se os campos não baterem com o que
+`oaExtractMessage()` espera, ajuste a função com o formato visto no log — é o
+único ponto que precisa mudar.

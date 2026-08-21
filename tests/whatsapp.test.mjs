@@ -57,3 +57,23 @@ test("front atualiza por polling e controla presença", () => {
   assert.match(client, /togglePresence/);
   assert.match(client, /renderPresence/);
 });
+
+test("canais externos (Opa!Suite Meta e Webchat) caem na mesma fila", () => {
+  assert.match(worker, /channel TEXT NOT NULL DEFAULT 'whatsapp'/);
+  assert.match(worker, /external_id TEXT NOT NULL DEFAULT ''/);
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS wa_webhook_log/);
+  assert.match(worker, /\/api\/opasuite\/webhook/);
+  assert.match(worker, /async function handleOpasuiteWebhook/);
+  assert.match(worker, /async function oaExtractMessage|function oaExtractMessage/);
+  assert.match(worker, /async function omniSendText/);
+  assert.match(worker, /WHERE phone=\? AND channel=\?/);
+  assert.match(worker, /requirePermission\s*\(\s*env\s*,\s*request\s*,\s*"whatsapp\.manage"\s*\)/);
+  assert.match(worker, /\/api\/whatsapp\/webhook-log/);
+});
+
+test("badge de canal aparece na lista e no cabeçalho do chat", () => {
+  assert.match(client, /CHANNEL_LABELS/);
+  assert.match(client, /channelBadge/);
+  assert.match(client, /opasuite_meta/);
+  assert.match(client, /opasuite_webchat/);
+});

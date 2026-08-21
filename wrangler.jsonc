@@ -29,6 +29,8 @@
   // Secrets do Chat WhatsApp (ver .env.example):
   //   WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
   //   WHATSAPP_VERIFY_TOKEN, WHATSAPP_APP_SECRET
+  //   OPASUITE_API_TOKEN, OPASUITE_WEBHOOK_SECRET (canais externos: Meta via
+  //   Opa!Suite e Webchat do Opa!Suite, mesma fila)
   "triggers": {
     "crons": ["*/5 * * * *"]
   }
