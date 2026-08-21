@@ -294,7 +294,7 @@
           </div>
 
           <div class="tab-panel" id="tabGerais" role="tabpanel" aria-labelledby="tabGeraisBtn">
-            ${secao("Dados do cliente", "Informações cadastrais do assinante.", `
+            ${secao( `
               <div class="row wrap" style="gap:var(--s-3)">
                 ${corpoForm.client_id ? `
                   <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
