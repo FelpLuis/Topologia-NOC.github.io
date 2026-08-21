@@ -455,38 +455,39 @@
         tabBtns.forEach((b) => { b.onclick = () => selecionarAba(b.dataset.tab); });
 
         const erro = $("#clienteFormError", host);
-        $("[data-salvar]", host).onclick = async (event) => {
-          if (!temPermissao) return;
-          event.currentTarget.disabled = true;
-          event.currentTarget.classList.add("is-loading");
-          const corpo = camposForm();
-          if (!corpo.client_id) {
-            erro.hidden = false; erro.textContent = "Informe o código do cliente (a busca na OLT ajuda a preencher).";
-            event.currentTarget.disabled = false; event.currentTarget.classList.remove("is-loading");
-            return;
-          }
-          if (!corpo.nome) {
-            erro.hidden = false; erro.textContent = "Informe o nome do cliente.";
-            event.currentTarget.disabled = false; event.currentTarget.classList.remove("is-loading");
-            return;
-          }
-          try {
-            if (ehEdicao && dados.client_id) {
-              await NOC.api(`/api/clientes/${encodeURIComponent(dados.client_id)}`, { method: "PUT", body: JSON.stringify(corpo) });
-            } else {
-              await NOC.api("/api/clientes", { method: "POST", body: JSON.stringify(corpo) });
-            }
-            close();
-            toast(ehEdicao ? "Cadastro atualizado" : "Cadastro criado", { type: "ok" });
-            if (onSalvo) onSalvo();
-            if (ehTela) carregar();
-          } catch (error) {
-            erro.hidden = false;
-            erro.textContent = error.message || "Não foi possível salvar o cadastro.";
-            event.currentTarget.disabled = false;
-            event.currentTarget.classList.remove("is-loading");
-          }
-        };
+         $("[data-salvar]", host).onclick = async (event) => {
+           if (!temPermissao) return;
+           const btn = event.currentTarget;
+           btn.disabled = true;
+           btn.classList.add("is-loading");
+           const liberar = () => { btn.disabled = false; btn.classList.remove("is-loading"); };
+           const corpo = camposForm();
+           if (!corpo.client_id) {
+             erro.hidden = false; erro.textContent = "Informe o código do cliente (a busca na OLT ajuda a preencher).";
+             liberar();
+             return;
+           }
+           if (!corpo.nome) {
+             erro.hidden = false; erro.textContent = "Informe o nome do cliente.";
+             liberar();
+             return;
+           }
+           try {
+             if (ehEdicao && dados.client_id) {
+               await NOC.api(`/api/clientes/${encodeURIComponent(dados.client_id)}`, { method: "PUT", body: JSON.stringify(corpo) });
+             } else {
+               await NOC.api("/api/clientes", { method: "POST", body: JSON.stringify(corpo) });
+             }
+             close();
+             toast(ehEdicao ? "Cadastro atualizado" : "Cadastro criado", { type: "ok" });
+             if (onSalvo) onSalvo();
+             if (ehTela) carregar();
+           } catch (error) {
+             erro.hidden = false;
+             erro.textContent = (error?.message || "Não foi possível salvar o cadastro.") + (error?.detail ? ` (${error.detail})` : "");
+             liberar();
+           }
+         };
       },
     });
   }

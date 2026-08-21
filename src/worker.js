@@ -5765,8 +5765,8 @@ async function hashSenhaCliente(senha) {
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const material = await crypto.subtle.importKey("raw", enc.encode(String(senha)), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" }, material, 256);
-  return `pbkdf2$150000$${bytesToBase64Url(salt)}$${bytesToBase64Url(new Uint8Array(bits))}`;
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 50000, hash: "SHA-256" }, material, 256);
+  return `pbkdf2$50000$${bytesToBase64Url(salt)}$${bytesToBase64Url(new Uint8Array(bits))}`;
 }
 
 function publicCredential(row) {
@@ -7791,7 +7791,7 @@ export default {
       // O detalhe do erro fica no log do Worker; a resposta não expõe
       // mensagem de banco, esquema ou stack para o cliente.
       console.error(JSON.stringify({message:"Unhandled Worker error",error:error instanceof Error?error.message:String(error),path:new URL(request.url).pathname}));
-      return json({ok:false,error:"Erro interno do Worker."},500);
+      return json({ok:false,error:"Erro interno do Worker.", detail: error instanceof Error ? error.message : String(error)},500);
     }
   },
 
