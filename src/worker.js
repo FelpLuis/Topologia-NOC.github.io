@@ -646,7 +646,7 @@ CREATE TABLE IF NOT EXISTS   cliente_cadastro (
   ixc_contrato_id TEXT NOT NULL DEFAULT '',
   ixc_login TEXT NOT NULL DEFAULT '',
   nome TEXT NOT NULL DEFAULT '',
-  documento TEXT NOT NULL DEFAULT '',
+  cpf_cnpj TEXT NOT NULL DEFAULT '',
   telefone TEXT NOT NULL DEFAULT '',
   email TEXT NOT NULL DEFAULT '',
   endereco TEXT NOT NULL DEFAULT '',
@@ -676,6 +676,18 @@ CREATE TABLE IF NOT EXISTS   cliente_cadastro (
   updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cliente_cadastro_ixc ON cliente_cadastro(ixc_id);
+
+CREATE TABLE IF NOT EXISTS client_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  client_id TEXT NOT NULL REFERENCES cliente_cadastro(client_id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ip TEXT,
+  user_agent TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_sessions_client ON client_sessions(client_id);
 
 /* Espelho relacional do IXC: cada entidade vira tabela própria, chaveada pelo
    código que o ERP usa, para reproduzir a mesma estrutura e permitir join a
@@ -1276,6 +1288,17 @@ async function ensureColumns(db, table, columns) {
   }
 }
 
+// Renomeia uma coluna em bancos já existentes (o CREATE TABLE IF NOT EXISTS
+// não altera tabelas criadas por versões anteriores).
+async function renameColumnIfExists(db, table, from, to) {
+  const safeTable = safeSqlIdentifier(table);
+  const info = (await db.prepare(`PRAGMA table_info(${safeTable})`).all()).results || [];
+  const nomes = new Set(info.map(c => c.name));
+  if (nomes.has(from) && !nomes.has(to)) {
+    await db.prepare(`ALTER TABLE ${safeTable} RENAME COLUMN ${safeSqlIdentifier(from)} TO ${safeSqlIdentifier(to)}`).run();
+  }
+}
+
 /* Semeadura idempotente: roda uma vez e registra em platform_meta.
    Sem isso, um deploy devolveria as ações que o administrador tirou. */
 async function seedOnce(db, key, run) {
@@ -1409,6 +1432,9 @@ async function ensureDatabaseImpl(env) {
     ["ixc_contrato_id", "TEXT NOT NULL DEFAULT ''"],
     ["ixc_login", "TEXT NOT NULL DEFAULT ''"]
   ]);
+  /* O campo de identificação do cliente passou de `documento` para `cpf_cnpj`.
+     Bancos antigos ganham o rename; bancos novos já nascem com `cpf_cnpj`. */
+  await renameColumnIfExists(db, "cliente_cadastro", "documento", "cpf_cnpj");
   /* Bancos criados antes dos canais externos (Opa!Suite Meta e Webchat)
      ganham as colunas com o mesmo default 'whatsapp' das conversas nativas
      já existentes, então nada muda para quem só usa o número da Meta. */
@@ -2028,6 +2054,29 @@ async function createSession(env, request, user, authenticationMethod = "passwor
   };
 }
 
+// Sessão de cliente (aplicativo): autenticação pela tabela cliente_cadastro,
+// usando o CPF/CNPJ como usuário e a senha PPPoE (armazenada como hash PBKDF2
+// em senha_pppoe_cipher) para verificação.
+async function createClientSession(env, request, cliente) {
+  const db = getDB(env);
+  const rawToken = bytesToBase64Url(randomBytes(48));
+  const tokenHash = await sha256Base64Url(rawToken);
+  const durationSeconds = sessionDurationSeconds(true);
+  const expires = new Date(Date.now() + durationSeconds * 1000).toISOString();
+
+  await db.prepare(`
+    INSERT INTO client_sessions(token_hash, client_id, expires_at, ip, user_agent)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(tokenHash, cliente.client_id, expires, getClientIP(request), (request.headers.get("User-Agent") || "").slice(0, 512)).run();
+
+  await audit(env, request, { username: cliente.cpf_cnpj }, "LOGIN", "auth", cliente.client_id, null, { role: "cliente" }, { method: "password" });
+
+  return {
+    cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${durationSeconds}`,
+    tokenHash
+  };
+}
+
 async function loginAttemptKey(request, username) {
   return oauthSha256Base64Url(`${getClientIP(request)}\n${String(username).trim().toLowerCase()}`);
 }
@@ -2075,7 +2124,25 @@ async function getCurrentUser(env, request) {
       AND s.expires_at > datetime('now')
   `).bind(tokenHash).first();
 
-  return row || null;
+  if (row) return row;
+
+  // Sessão de cliente (aplicativo): autenticado pela tabela cliente_cadastro.
+  const cliente = await db.prepare(`
+    SELECT
+      c.client_id AS id,
+      c.cpf_cnpj AS username,
+      c.nome AS display_name,
+      1 AS active,
+      0 AS must_change_password,
+      'cliente' AS role
+    FROM client_sessions s
+    JOIN cliente_cadastro c ON c.client_id=s.client_id
+    WHERE s.token_hash=?
+      AND s.expires_at > datetime('now')
+    LIMIT 1
+  `).bind(tokenHash).first();
+
+  return cliente || null;
 }
 
 async function handleLogin(env, request) {
@@ -2109,8 +2176,39 @@ async function handleLogin(env, request) {
     LIMIT 1
   `).bind(username).first();
 
-  // Não revela se o usuário existe.
-  if (!user || !user.active || !(await verifyPassword(password, user.password_hash))) {
+  if (user && user.active && (await verifyPassword(password, user.password_hash))) {
+    await db.prepare(`DELETE FROM login_attempts WHERE attempt_key=?`).bind(attempt.key).run();
+    await db.prepare(`
+      UPDATE users
+      SET last_login_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `).bind(user.id).run();
+
+    const session = await createSession(env, request, user, "password", body.remember === true);
+    return json({
+      ok: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name,
+        role: user.role,
+        must_change_password: Boolean(user.must_change_password)
+      }
+    }, 200, {
+      "Set-Cookie": session.cookie
+    });
+  }
+
+  // Autenticação de cliente (aplicativo): tabela cliente_cadastro, com
+  // CPF/CNPJ como usuário e a senha PPPoE (hash PBKDF2 em senha_pppoe_cipher).
+  const cliente = await db.prepare(`
+    SELECT client_id, cpf_cnpj, nome, senha_pppoe_cipher
+    FROM cliente_cadastro
+    WHERE lower(cpf_cnpj)=lower(?)
+    LIMIT 1
+  `).bind(username).first();
+
+  if (!cliente || !cliente.senha_pppoe_cipher || !(await verifyPassword(password, cliente.senha_pppoe_cipher))) {
     await recordFailedLogin(env, attempt.key);
     if (user) {
       await audit(env, request, user, "LOGIN_FAILED", "auth", String(user.id), null, null, {reason:"invalid_credentials"});
@@ -2120,25 +2218,18 @@ async function handleLogin(env, request) {
 
   await db.prepare(`DELETE FROM login_attempts WHERE attempt_key=?`).bind(attempt.key).run();
 
-  await db.prepare(`
-    UPDATE users
-    SET last_login_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-    WHERE id=?
-  `).bind(user.id).run();
-
-  const session = await createSession(env, request, user, "password", body.remember === true);
-
+  const clientSession = await createClientSession(env, request, cliente);
   return json({
     ok: true,
     user: {
-      id: user.id,
-      username: user.username,
-      display_name: user.display_name,
-      role: user.role,
-      must_change_password: Boolean(user.must_change_password)
+      id: cliente.client_id,
+      username: cliente.cpf_cnpj,
+      display_name: cliente.nome,
+      role: "cliente",
+      must_change_password: false
     }
   }, 200, {
-    "Set-Cookie": session.cookie
+    "Set-Cookie": clientSession.cookie
   });
 }
 
@@ -3445,6 +3536,20 @@ async function handleMe(env, request) {
   const user = await getCurrentUser(env, request);
   if (!user) return json({ authenticated: false }, 401);
 
+  if (user.role === "cliente") {
+    return json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name,
+        role: "cliente",
+        must_change_password: false
+      },
+      screens: []
+    });
+  }
+
   const db = getDB(env);
   const screens = await db.prepare(`
     SELECT s.code, s.name
@@ -3476,6 +3581,7 @@ async function handleLogout(env, request) {
   if (rawToken) {
     const tokenHash = await sha256Base64Url(rawToken);
     await db.prepare(`DELETE FROM sessions WHERE token_hash=?`).bind(tokenHash).run();
+    await db.prepare(`DELETE FROM client_sessions WHERE token_hash=?`).bind(tokenHash).run();
   }
 
   if (user) {
@@ -6155,7 +6261,7 @@ function payloadGpon(data, message = "") {
 /* ---- cadastro de clientes mantido na plataforma ---- */
 
 const CLIENTE_CAMPOS = [
-  "ixc_id", "nome", "documento", "telefone", "email", "endereco", "bairro", "cidade", "uf", "cep",
+  "ixc_id", "nome", "cpf_cnpj", "telefone", "email", "endereco", "bairro", "cidade", "uf", "cep",
   "plano", "ont_serial", "ont_modelo", "ip_gerencia", "login_pppoe", "login_roteador", "ssid", "observacao"
 ];
 const CLIENTE_NUMERICOS = ["lat", "lon", "valor_mensal", "vencimento_dia"];
@@ -6171,7 +6277,7 @@ function publicCadastro(cad) {
   return {
     client_id: String(cad.client_id),
     ixc_id: String(cad.ixc_id || ""), origem: String(cad.origem || "manual"),
-    nome: cad.nome, documento: cad.documento, telefone: cad.telefone, email: cad.email,
+    nome: cad.nome, cpf_cnpj: cad.cpf_cnpj, telefone: cad.telefone, email: cad.email,
     endereco: cad.endereco, bairro: cad.bairro, cidade: cad.cidade, uf: cad.uf, cep: cad.cep,
     lat: cad.lat ?? null, lon: cad.lon ?? null,
     plano: cad.plano, valor_mensal: cad.valor_mensal ?? null, vencimento_dia: cad.vencimento_dia ?? null,
@@ -6358,6 +6464,8 @@ function normalizarCadastroBody(body) {
     dados[campo] = Number.isFinite(numero) ? numero : null;
   }
   dados.status_faturamento = STATUS_FATURAMENTO.has(body?.status_faturamento) ? body.status_faturamento : "ativo";
+  // Compatibilidade: o frontend antigo ainda manda `documento`; normaliza para `cpf_cnpj`.
+  if (!dados.cpf_cnpj && body?.documento) dados.cpf_cnpj = String(body.documento).trim().slice(0, 200);
   dados.aparelhos = (Array.isArray(body?.aparelhos) ? body.aparelhos : []).slice(0, 40).map((a, i) => ({
     nome: String(a?.nome ?? a?.name ?? `Aparelho ${i + 1}`).trim().slice(0, 120),
     tipo: String(a?.tipo ?? "").trim().slice(0, 60),
@@ -6376,7 +6484,7 @@ async function handleClientesList(env, request, url) {
     const termo = `%${q}%`;
     rows = (await db.prepare(`
       SELECT * FROM cliente_cadastro
-      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ? OR lower(documento) LIKE ?
+      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ? OR lower(cpf_cnpj) LIKE ?
       ORDER BY nome,client_id
     `).bind(termo, termo, termo, termo).all()).results || [];
   } else {
@@ -6449,12 +6557,12 @@ async function handleClientesCreate(env, request) {
   const senhaRoteador = await hashSenhaCliente(body.senha_roteador);
   const senhaWifi = await hashSenhaCliente(body.senha_wifi);
   await db.prepare(`
-    INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,documento,telefone,email,endereco,bairro,cidade,uf,cep,
+    INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,cpf_cnpj,telefone,email,endereco,bairro,cidade,uf,cep,
       lat,lon,plano,valor_mensal,vencimento_dia,status_faturamento,aparelhos_json,
       ont_serial,ont_modelo,ip_gerencia,login_pppoe,senha_pppoe_cipher,
       login_roteador,senha_roteador_cipher,ssid,senha_wifi_cipher,observacao,updated_by)
     VALUES (?,?,'manual',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(clientId, dados.ixc_id, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco,
+  `).bind(clientId, dados.ixc_id, dados.nome, dados.cpf_cnpj, dados.telefone, dados.email, dados.endereco,
     dados.bairro, dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano,
     dados.valor_mensal, dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
@@ -6492,13 +6600,13 @@ async function handleClientesUpdate(env, request, clientId) {
      perder o vínculo com o ERP. */
   const ixcId = String(dados.ixc_id || antes.ixc_id || "").trim();
   await db.prepare(`
-    UPDATE cliente_cadastro SET ixc_id=?,nome=?,documento=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
+    UPDATE cliente_cadastro SET ixc_id=?,nome=?,cpf_cnpj=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
       lat=?,lon=?,plano=?,valor_mensal=?,vencimento_dia=?,status_faturamento=?,aparelhos_json=?,
       ont_serial=?,ont_modelo=?,ip_gerencia=?,login_pppoe=?,senha_pppoe_cipher=?,
       login_roteador=?,senha_roteador_cipher=?,ssid=?,senha_wifi_cipher=?,observacao=?,
       updated_by=?,updated_at=CURRENT_TIMESTAMP
     WHERE client_id=?
-  `).bind(ixcId, dados.nome, dados.documento, dados.telefone, dados.email, dados.endereco, dados.bairro,
+  `).bind(ixcId, dados.nome, dados.cpf_cnpj, dados.telefone, dados.email, dados.endereco, dados.bairro,
     dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano, dados.valor_mensal,
     dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,

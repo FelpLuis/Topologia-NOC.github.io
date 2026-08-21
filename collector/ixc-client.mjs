@@ -344,7 +344,7 @@ export function buildIxcCustomerCadastros({ customers, contracts, logins, cidade
       client_id: id,
       ixc_id: id,
       nome: text(cust.razao) || text(cust.fantasia) || text(cust.nome),
-      documento: first(cust.cnpj_cpf, cust.cpf_cnpj, cust.cpf, cust.cnpj, cust.documento),
+      cpf_cnpj: first(cust.cnpj_cpf, cust.cpf_cnpj, cust.cpf, cust.cnpj, cust.documento),
       telefone: first(cust.telefone, cust.telefone_celular, cust.celular, cust.fone),
       email: first(cust.email, cust.e_mail, cust.email_),
       ...endereco,

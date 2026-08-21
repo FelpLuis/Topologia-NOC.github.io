@@ -1098,10 +1098,6 @@ body.tv-mode .tv-only { display: flex; }
 /* ---------------------------------------------------------
    4.1 Cadastro de clientes (lista)
    --------------------------------------------------------- */
-.cliente-row { display: flex; align-items: flex-start; gap: var(--s-3); min-width: 200px; }
-.cliente-info { display: grid; gap: 4px; min-width: 0; }
-.cliente-info b { overflow-wrap: anywhere; }
-
 /* Endereço às vezes chega como link colado do Google Maps (sem espaço para
    quebrar) — sem isso a célula estoura a tabela inteira para o lado. */
 .clientes-table td { overflow-wrap: anywhere; }

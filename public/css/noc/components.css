@@ -112,7 +112,7 @@
 /* ---------------------------------------------------------
    Campos de formulário
    --------------------------------------------------------- */
-.field { display: grid; gap: var(--s-2); }
+.field { display: grid; gap: var(--s-2); min-width: 0; }
 .field > label, .label {
   font-size: var(--fs-11);
   font-weight: 700;
@@ -122,6 +122,21 @@
 }
 .field-hint { font-size: var(--fs-11); color: var(--text-3); }
 .field-error { font-size: var(--fs-12); color: var(--danger-text); display: flex; gap: 6px; align-items: center; }
+
+/* Bloco de campos de um formulário longo (modal de cadastro): título e nota
+   numa linha própria, separados do bloco anterior por uma régua. Sem esta
+   regra, `<b>` e `<span>` da cabeça da seção ficavam colados um no outro —
+   texto corrido, sem quebra nem respiro entre título e descrição. */
+.form-section { display: grid; gap: var(--s-3); padding-top: var(--s-4); border-top: 1px solid var(--line); }
+.form-section:first-child { padding-top: 0; border-top: 0; }
+.form-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+}
+.form-section-head b { font-size: var(--fs-14); }
 
 .input, .select, .textarea {
   width: 100%;

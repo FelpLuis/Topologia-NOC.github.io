@@ -92,7 +92,7 @@ test("o INSERT da importação grava com origem 'ixc' e casa colunas, placeholde
   assert.equal(linha.cidade, "Santos");
   assert.equal(linha.lat, -23.96);
   // Campos que a coleta não conhece nascem vazios, não nulos.
-  assert.equal(linha.documento, "");
+  assert.equal(linha.cpf_cnpj, "");
   assert.equal(linha.status_faturamento, "ativo");
 });
 

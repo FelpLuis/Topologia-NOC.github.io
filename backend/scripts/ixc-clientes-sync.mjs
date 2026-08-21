@@ -37,7 +37,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 /* Campos do IXC que o cliente_cadastro escreve e pode reescrever. */
 const IXC_FIELDS = [
-  "nome", "documento", "telefone", "email", "endereco", "bairro", "cidade",
+  "nome", "cpf_cnpj", "telefone", "email", "endereco", "bairro", "cidade",
   "uf", "cep", "lat", "lon", "plano", "valor_mensal", "vencimento_dia",
   "status_faturamento", "login_pppoe", "ixc_cidade_cod", "ixc_uf_cod",
   "ixc_contrato_id", "ixc_login",

@@ -31,13 +31,6 @@
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   };
 
-  const iniciais = (nome) => {
-    const partes = String(nome || "").trim().split(/\s+/).filter(Boolean);
-    if (!partes.length) return "?";
-    const ultima = partes.length > 1 ? partes[partes.length - 1][0] : "";
-    return (partes[0][0] + ultima).toUpperCase();
-  };
-
   /* ---------------- permissões ----------------
      As ações só podem ser aplicadas depois que /api/access responde: antes
      disso o conjunto de permissões está vazio e todo botão apareceria
@@ -108,7 +101,7 @@
 
     if (!linhas.length) {
       const semNada = !state.registros.length;
-      corpo.innerHTML = `<tr><td colspan="6">
+      corpo.innerHTML = `<tr><td colspan="7">
         <div class="empty">
           <span class="empty-icon">${icon("users")}</span>
           <b>Nenhum cadastro encontrado</b>
@@ -119,22 +112,17 @@
     }
     corpo.innerHTML = fatia.map((r) => {
       const nome = r.nome || "Cliente sem nome";
+      const selos = [
+        r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : "",
+        r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : "",
+        r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : "",
+      ].filter(Boolean).join("");
       return `
       <tr>
-        <td>
-          <div class="cliente-row">
-            <span class="avatar" aria-hidden="true">${esc(iniciais(nome))}</span>
-            <div class="cliente-info">
-              <b>${esc(nome)}</b>
-              <span class="mono dim" style="font-size:var(--fs-11)">${esc(r.client_id)}</span>
-              ${(r.origem === "ixc" || r.has_senha_pppoe || r.has_senha_roteador || r.has_senha_wifi) ? `<span class="row wrap" style="gap:4px">
-                ${r.origem === "ixc" ? `<span class="badge" title="Cadastro criado pela importação da coleta GPON/IXC">IXC</span>` : ""}
-                ${r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : ""}
-                ${r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : ""}
-                ${r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : ""}
-              </span>` : ""}
-            </div>
-          </div>
+        <td data-label="Código"><span class="mono">${esc(r.client_id)}</span></td>
+        <td data-label="Cliente">
+          <b>${esc(nome)}</b>
+          ${selos ? `<span class="row wrap" style="gap:4px;margin-top:4px">${selos}</span>` : ""}
         </td>
         <td data-label="Contato">
           ${esc(r.telefone || "—")}<br>
@@ -149,7 +137,7 @@
           <span class="dim" style="font-size:var(--fs-11)">${brl(r.valor_mensal) ? `${brl(r.valor_mensal)} • venc. ${r.vencimento_dia || "—"}` : r.vencimento_dia ? `Venc. dia ${r.vencimento_dia}` : ""}</span>
         </td>
         <td data-label="Status"><span class="badge ${STATUS_CLASS[r.status_faturamento] || ""}">${esc(STATUS_LABEL[r.status_faturamento] || r.status_faturamento)}</span></td>
-        <td class="row" style="gap:6px;justify-content:flex-end">
+        <td data-label="Ações" class="row" style="gap:6px;justify-content:flex-end">
           <button class="btn btn-ghost btn-sm" data-editar="${esc(r.client_id)}" type="button" data-action="clientes.edit">Editar</button>
           <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.client_id)}" type="button" title="Excluir cadastro" aria-label="Excluir cadastro" data-action="clientes.delete">${icon("trash")}</button>
         </td>
