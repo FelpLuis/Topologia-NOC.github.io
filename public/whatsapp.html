@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
-<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260819-1">
+<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260824-1">
 <script src="/js/auth-guard.js"></script>
 </head>
 <body>
@@ -67,6 +67,7 @@
               <button class="btn btn-danger" id="closeBtn" type="button" data-action="whatsapp.chat"></button>
             </div>
           </header>
+          <div class="wa-client-strip" id="clientStrip" hidden></div>
           <div class="wa-messages" id="messages" aria-live="polite"></div>
           <form class="wa-composer" id="composer" hidden>
             <textarea class="textarea" id="msgInput" rows="1" maxlength="4096" placeholder="Digite a mensagem para o cliente…"></textarea>
@@ -88,6 +89,6 @@
 <nav data-mobile-nav aria-label="Navegação"></nav>
 <script src="/js/noc-ui.js?v=20260819-9"></script>
 <script src="/js/noc-api.js"></script>
-<script src="/js/noc-whatsapp.js?v=20260819-1"></script>
+<script src="/js/noc-whatsapp.js?v=20260824-1"></script>
 </body>
 </html>

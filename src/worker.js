@@ -573,6 +573,8 @@ CREATE TABLE IF NOT EXISTS wa_conversations (
   customer_name TEXT NOT NULL DEFAULT '',
   channel TEXT NOT NULL DEFAULT 'whatsapp',
   external_id TEXT NOT NULL DEFAULT '',
+  guest_id TEXT,
+  client_id TEXT,
   sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
   assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'routing' CHECK(status IN ('routing','open','closed')),
@@ -625,6 +627,8 @@ CREATE TABLE IF NOT EXISTS wa_webhook_log (
 
 CREATE INDEX IF NOT EXISTS idx_wa_conv_phone_status ON wa_conversations(phone,status);
 CREATE INDEX IF NOT EXISTS idx_wa_conv_channel_phone ON wa_conversations(channel,phone);
+CREATE INDEX IF NOT EXISTS idx_wa_conv_guest ON wa_conversations(guest_id);
+CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id);
 CREATE INDEX IF NOT EXISTS idx_wa_conv_sector ON wa_conversations(sector_id,status,updated_at);
 CREATE INDEX IF NOT EXISTS idx_wa_conv_assignee ON wa_conversations(assigned_user_id,status,updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_msg_wamid ON wa_messages(wa_message_id) WHERE wa_message_id IS NOT NULL;
@@ -1526,8 +1530,11 @@ async function ensureDatabaseImpl(env) {
      já existentes, então nada muda para quem só usa o número da Meta. */
   await ensureColumns(db, "wa_conversations", [
     ["channel", "TEXT NOT NULL DEFAULT 'whatsapp'"],
-    ["external_id", "TEXT NOT NULL DEFAULT ''"]
+    ["external_id", "TEXT NOT NULL DEFAULT ''"],
+    ["guest_id", "TEXT"],
+    ["client_id", "TEXT"]
   ]);
+  await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -2360,6 +2367,13 @@ async function handleLogin(env, request) {
 // o cliente manualmente. Mantém o rate limit por IP+CPF+telefone só pra não
 // virar vetor de flood de conversas falsas — nunca é limpo em caso de
 // "sucesso" porque aqui não existe falha a distinguir.
+//
+// guest_id é aleatório, NUNCA o telefone digitado: telefone não prova posse
+// (qualquer um pode digitar o número de outra pessoa), então usá-lo como
+// chave deixaria uma sessão convidada ler a conversa de outra só por digitar
+// o mesmo número. Cada identificação sempre começa um atendimento zerado —
+// histórico contínuo entre dispositivos só existe pra quem loga de verdade
+// pela Central do Assinante (ver createClientSession).
 async function handleClientLoginPhone(env, request) {
   let body;
   try {
@@ -2379,6 +2393,7 @@ async function handleClientLoginPhone(env, request) {
   await recordFailedLogin(env, attempt.key);
 
   const db = getDB(env);
+  const guestId = bytesToBase64Url(randomBytes(18));
   const rawToken = bytesToBase64Url(randomBytes(48));
   const tokenHash = await sha256Base64Url(rawToken);
   const durationSeconds = sessionDurationSeconds(true);
@@ -2387,14 +2402,14 @@ async function handleClientLoginPhone(env, request) {
   await db.prepare(`
     INSERT INTO guest_sessions(token_hash, guest_id, telefone, cpf_cnpj, expires_at, ip, user_agent)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(tokenHash, telefone, telefone, cpfBusca, expires, getClientIP(request), (request.headers.get("User-Agent") || "").slice(0, 512)).run();
+  `).bind(tokenHash, guestId, telefone, cpfBusca, expires, getClientIP(request), (request.headers.get("User-Agent") || "").slice(0, 512)).run();
 
-  await audit(env, request, { username: cpfBusca }, "LOGIN", "auth", telefone, null, { role: "cliente_convidado" }, { method: "guest" });
+  await audit(env, request, { username: cpfBusca }, "LOGIN", "auth", guestId, null, { role: "cliente_convidado" }, { method: "guest" });
 
   return json({
     ok: true,
     user: {
-      id: telefone,
+      id: guestId,
       displayName: telefone,
       telefone,
       role: "cliente"
@@ -3491,7 +3506,8 @@ async function handleWhatsapp(env, request) {
   const can = {
     chat: permissions.has("whatsapp.chat"),
     supervise: permissions.has("whatsapp.supervise"),
-    manage: permissions.has("whatsapp.manage")
+    manage: permissions.has("whatsapp.manage"),
+    clientes: permissions.has("clientes.view")
   };
   const settings = await loadWhatsappSettings(db);
   let rows;
@@ -3517,8 +3533,15 @@ async function handleWhatsapp(env, request) {
     `).bind(...sectorIds, gate.user.id).all()).results || [];
   }
   const presence = await waPresence(db, sectorIds, gate.user, can.supervise);
+  const clientIds = [...new Set(rows.map(c => c.client_id).filter(Boolean))];
+  const clientNames = clientIds.length
+    ? new Map((await db.prepare(
+        `SELECT client_id,nome FROM cliente_cadastro WHERE client_id IN (${clientIds.map(() => "?").join(",")})`
+      ).bind(...clientIds).all()).results?.map(r => [String(r.client_id), r.nome]) || [])
+    : new Map();
   const conversations = rows.map(c => ({
     ...c,
+    client_nome: c.client_id ? (clientNames.get(String(c.client_id)) || null) : null,
     is_mine: Number(c.assigned_user_id) === Number(gate.user.id),
     can_take: can.chat && c.status !== "closed" &&
       (c.status === "routing" || (c.sector_id != null && sectorIds.includes(Number(c.sector_id))))
@@ -3538,7 +3561,11 @@ async function handleWhatsappConversation(env, request, id) {
     FROM wa_messages WHERE conversation_id=? ORDER BY created_at ASC,id ASC LIMIT 500
   `).bind(id).all()).results || [];
   const permissions = await permissionsOf(env, gate.user);
-  const can = { chat: permissions.has("whatsapp.chat"), supervise: permissions.has("whatsapp.supervise") };
+  const can = {
+    chat: permissions.has("whatsapp.chat"),
+    supervise: permissions.has("whatsapp.supervise"),
+    clientes: permissions.has("clientes.view")
+  };
   if (Number(conv.assigned_user_id) === Number(gate.user.id)) {
     if (conv.unread > 0) {
       await db.prepare(`UPDATE wa_conversations SET unread=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
@@ -3546,7 +3573,53 @@ async function handleWhatsappConversation(env, request, id) {
     }
     await db.prepare(`UPDATE wa_messages SET status='read' WHERE conversation_id=? AND direction='in' AND status!='read'`).bind(id).run();
   }
-  return json({ conversation: conv, messages, can });
+  const cliente = conv.client_id ? await db.prepare(`
+    SELECT client_id,nome,cpf_cnpj,telefone,email,endereco,bairro,cidade,uf,plano,status_faturamento
+    FROM cliente_cadastro WHERE client_id=?
+  `).bind(conv.client_id).first() : null;
+  return json({ conversation: conv, messages, can, cliente: cliente || null });
+}
+
+/* Vincula/desvincula a conversa a um registro de cliente_cadastro, pra o
+   atendente identificar quem está do outro lado do chat sem sair da tela.
+   Mesma regra de posse do handleWhatsappClose: dono do atendimento,
+   supervisor, ou ainda na fila de roteamento (ninguém "possui" ainda). */
+async function handleWhatsappLinkClient(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  const permissions = await permissionsOf(env, gate.user);
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise") && conv.status !== "routing")
+    return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
+  if (!permissions.has("clientes.view")) return json({ error: "SEM_PERMISSAO_CLIENTES" }, 403);
+  let body; try { body = await readJson(request, 4096); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const clientId = String(body.client_id || "").trim().slice(0, 120);
+  if (!clientId) return json({ error: "CLIENTE_ID_OBRIGATORIO" }, 400);
+  const cliente = await db.prepare(`SELECT client_id,nome FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  if (!cliente) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
+  await db.prepare(`UPDATE wa_conversations SET client_id=?,customer_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(clientId, cliente.nome || conv.customer_name, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_LINK_CLIENT", "wa_conversation", id,
+    { client_id: conv.client_id || null }, { client_id: clientId });
+  return json({ ok: true, client_id: clientId, customer_name: cliente.nome || conv.customer_name });
+}
+
+async function handleWhatsappUnlinkClient(env, request, id) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const conv = await waConversationFor(db, gate.user, id);
+  if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  const permissions = await permissionsOf(env, gate.user);
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise") && conv.status !== "routing")
+    return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
+  await db.prepare(`UPDATE wa_conversations SET client_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_UNLINK_CLIENT", "wa_conversation", id,
+    { client_id: conv.client_id || null }, null);
+  return json({ ok: true });
 }
 
 async function handleWhatsappCreate(env, request) {
@@ -4009,12 +4082,25 @@ async function handleClientConversations(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user);
-  if (!phone) return json({ conversations: [] });
-  const rows = (await db.prepare(`
-    SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
-    FROM wa_conversations WHERE phone=? ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
-  `).bind(phone).all()).results || [];
+  // Convidado: escopo por guest_id, não por telefone — ver
+  // handleClientLoginPhone. Cada sessão convidada nasce sem nenhuma conversa
+  // (guest_id é sempre novo), então isso já garante atendimento zerado a
+  // cada identificação, sem vazar histórico de outra pessoa que digitou o
+  // mesmo telefone.
+  let rows;
+  if (gate.user.is_guest) {
+    rows = (await db.prepare(`
+      SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
+      FROM wa_conversations WHERE guest_id=? AND channel='app' ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
+    `).bind(gate.user.id).all()).results || [];
+  } else {
+    const phone = await clientePhoneOf(db, gate.user);
+    if (!phone) return json({ conversations: [] });
+    rows = (await db.prepare(`
+      SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
+      FROM wa_conversations WHERE phone=? ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
+    `).bind(phone).all()).results || [];
+  }
   return json({ conversations: rows.map(conversationToCamel) });
 }
 
@@ -4023,13 +4109,15 @@ async function handleClientConversationDetail(env, request, id) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user);
   const conv = await db.prepare(`
-    SELECT id,phone,customer_name,channel,status,last_message,last_message_at,unread,created_at,updated_at
+    SELECT id,phone,customer_name,channel,status,last_message,last_message_at,unread,created_at,updated_at,guest_id
     FROM wa_conversations WHERE id=?
   `).bind(id).first();
   // 404 (não 403) em vez de confirmar que o id pertence a outro cliente.
-  if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  const owns = conv && (gate.user.is_guest
+    ? conv.guest_id === gate.user.id
+    : conv.phone === await clientePhoneOf(db, gate.user));
+  if (!owns) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
   const messages = (await db.prepare(`
     SELECT id,direction,type,body,status,sender_user_id,sender_name,wa_message_id,created_at
     FROM wa_messages WHERE conversation_id=? ORDER BY created_at ASC,id ASC LIMIT 500
@@ -4050,11 +4138,14 @@ async function handleClientConversationDetail(env, request, id) {
 // direction 'in', igual a qualquer mensagem recebida por outro canal (nunca
 // 'out', que é reservado pra quando o atendente/bot fala).
 //
-// Um único atendimento por cliente: telefone+CPF nunca abrem uma segunda
-// conversa em paralelo. Se já existir uma (aberta, na fila, ou encerrada),
-// reaproveita a mesma linha em vez de inserir outra — encerrada volta pra
-// fila de roteamento — assim o histórico inteiro fica numa thread só, nunca
-// fragmentado.
+// Um único atendimento em paralelo por identidade: reaproveita a conversa
+// existente (aberta, na fila, ou encerrada — encerrada volta pra fila) em
+// vez de inserir outra, então o histórico daquela sessão fica numa thread
+// só. "Identidade" é o client_id real pra quem loga pela Central do
+// Assinante, e o guest_id (sempre novo a cada identificação) pra quem entra
+// pelo app sem validação — por isso convidado NUNCA reaproveita conversa de
+// outra sessão, mesmo com o mesmo telefone digitado (ver
+// handleClientLoginPhone).
 async function handleClientConversationCreate(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
@@ -4066,9 +4157,9 @@ async function handleClientConversationCreate(env, request) {
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
   const customerName = String(gate.user.display_name || "").trim() || phone;
 
-  const existing = await db.prepare(`
-    SELECT id, status FROM wa_conversations WHERE phone=? AND channel='app' ORDER BY id DESC LIMIT 1
-  `).bind(phone).first();
+  const existing = gate.user.is_guest
+    ? await db.prepare(`SELECT id, status FROM wa_conversations WHERE guest_id=? AND channel='app' ORDER BY id DESC LIMIT 1`).bind(gate.user.id).first()
+    : await db.prepare(`SELECT id, status FROM wa_conversations WHERE phone=? AND channel='app' ORDER BY id DESC LIMIT 1`).bind(phone).first();
 
   if (existing) {
     if (existing.status === "closed") {
@@ -4087,9 +4178,9 @@ async function handleClientConversationCreate(env, request) {
   }
 
   const result = await db.prepare(`
-    INSERT INTO wa_conversations(phone,customer_name,channel,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
-    VALUES(?,?,'app',NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-  `).bind(phone, customerName, text).run();
+    INSERT INTO wa_conversations(phone,customer_name,channel,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at,guest_id)
+    VALUES(?,?,'app',NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?)
+  `).bind(phone, customerName, text, gate.user.is_guest ? gate.user.id : null).run();
   const id = Number(result.meta.last_row_id);
   await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,sender_name) VALUES(?,?,?,?,?)`)
     .bind(id, "in", "text", text, customerName).run();
@@ -4102,9 +4193,11 @@ async function handleClientMessageSend(env, request, id) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user);
-  const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel FROM wa_conversations WHERE id=?`).bind(id).first();
-  if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel,guest_id FROM wa_conversations WHERE id=?`).bind(id).first();
+  const owns = conv && (gate.user.is_guest
+    ? conv.guest_id === gate.user.id
+    : conv.phone === await clientePhoneOf(db, gate.user));
+  if (!owns) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
   // Cliente só tem UMA conversa (ver handleClientConversationCreate): mandar
   // mensagem numa encerrada reabre pra fila em vez de rejeitar, senão o
   // cliente ficaria travado sem conseguir voltar a falar com o suporte.
@@ -8057,6 +8150,16 @@ export default {
         if (url.pathname === "/api/opasuite/webhook" && request.method === "POST")
           return await handleOpasuiteWebhook(env, request);
 
+        // O app noc_cliente (Cloudflare Pages) roda numa origem diferente
+        // desta API: essa é a PRIMEIRA chamada que ele faz, então ainda não
+        // tem Bearer token — o navegador manda Sec-Fetch-Site:cross-site e o
+        // csrfFailure() abaixo bloquearia (CROSS_SITE_REQUEST_BLOCKED) antes
+        // mesmo de a sessão convidada existir. Sem risco de CSRF aqui: a
+        // rota não lê cookie/sessão de ninguém, só cria uma sessão convidada
+        // nova a partir do que veio no corpo — ver handleClientLoginPhone.
+        if (url.pathname === "/api/auth/client-login" && request.method === "POST")
+          return await handleClientLoginPhone(env, request);
+
         const csrf = csrfFailure(request);
         if (csrf) return csrf;
 
@@ -8131,6 +8234,12 @@ export default {
         const waConvMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)$/);
         if(waConvMatch && request.method==="GET")
           return await handleWhatsappConversation(env,request,Number(waConvMatch[1]));
+        const waConvClientMatch=url.pathname.match(/^\/api\/whatsapp\/conversations\/(\d+)\/client$/);
+        if(waConvClientMatch){
+          const id=Number(waConvClientMatch[1]);
+          if(request.method==="POST")return await handleWhatsappLinkClient(env,request,id);
+          if(request.method==="DELETE")return await handleWhatsappUnlinkClient(env,request,id);
+        }
 
         // Depois de ensureDatabase: as rotas do Zabbix gravam no D1.
         if (url.pathname.startsWith("/api/zabbix/"))
@@ -8138,9 +8247,6 @@ export default {
 
         if (url.pathname === "/api/auth/login" && request.method === "POST")
           return await handleLogin(env, request);
-
-        if (url.pathname === "/api/auth/client-login" && request.method === "POST")
-          return await handleClientLoginPhone(env, request);
 
         if (url.pathname === "/api/auth/me" && request.method === "GET")
           return await handleMe(env, request);

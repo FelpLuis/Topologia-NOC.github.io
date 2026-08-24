@@ -9,7 +9,8 @@
     activeId: null,        // conversa aberta no painel
     conversation: null,    // detalhe da conversa aberta
     messages: [],
-    can: { chat: false, supervise: false, manage: false },
+    cliente: null,          // cadastro vinculado à conversa aberta (cliente_cadastro)
+    can: { chat: false, supervise: false, manage: false, clientes: false },
     lastMessageCount: 0,
     sending: false,
     timer: null
@@ -80,6 +81,7 @@
       state.activeId = id;
       state.conversation = detail.conversation;
       state.messages = detail.messages || [];
+      state.cliente = detail.cliente || null;
       state.lastMessageCount = state.messages.length;
       renderChat();
       renderConvList();
@@ -119,11 +121,12 @@
       const name = c.customer_name && c.customer_name !== c.phone ? c.customer_name : c.phone;
       const badge = c.status === "routing" ? `<span class="wa-list-badge routing">Setor</span>` :
         (c.assigned_name ? `<span class="wa-list-badge" style="--wa-badge:${esc(c.sector_color || "var(--cyan-400)")}">${esc(c.assigned_name)}</span>` : "");
+      const clientBadge = c.client_id ? `<span class="wa-list-badge" style="--wa-badge:var(--ok-500,#22c55e)" title="Cliente vinculado: ${esc(c.client_nome || c.client_id)}">${icon("link")}</span>` : "";
       return `<button class="wa-conv-item ${state.activeId === String(c.id) ? "is-active" : ""} ${unread ? "has-unread" : ""}" data-conv="${c.id}" type="button">
         <span class="wa-conv-avatar">${initials(c.customer_name && c.customer_name !== c.phone ? c.customer_name : (c.phone || "?"))}</span>
         <span class="wa-conv-main">
           <span class="wa-conv-top"><b>${esc(name)}</b><small>${esc(timeLabel(c.last_message_at || c.created_at))}</small></span>
-          <span class="wa-conv-bottom"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span><span class="wa-conv-meta">${channelBadge(c)}${badge}${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span></span>
+          <span class="wa-conv-bottom"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span><span class="wa-conv-meta">${channelBadge(c)}${clientBadge}${badge}${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span></span>
         </span>
       </button>`;
     }).join("");
@@ -212,6 +215,7 @@
     $("#chatEmpty").hidden = true;
     $("#chatThread").hidden = false;
     updateHead(conv);
+    renderClientStrip();
     renderMessages();
     const input = $("#msgInput");
     if ($("#composer").dataset.ready === "1") setTimeout(() => input.focus(), 30);
@@ -221,10 +225,94 @@
     state.activeId = null;
     state.conversation = null;
     state.messages = [];
+    state.cliente = null;
     state.lastMessageCount = 0;
     $("#chatEmpty").hidden = false;
     $("#chatThread").hidden = true;
     if (!silent) renderConvList();
+  }
+
+  /* ---------- vínculo com o cadastro de cliente ---------- */
+
+  function renderClientStrip() {
+    const strip = $("#clientStrip");
+    const conv = state.conversation;
+    if (!conv) { strip.hidden = true; return; }
+    const canManage = state.can.clientes && state.can.chat && conv.status !== "closed" &&
+      (mine(conv) || state.can.supervise || conv.status === "routing");
+    const cliente = state.cliente;
+    if (cliente) {
+      strip.hidden = false;
+      const meta = [cliente.plano, cliente.telefone ? formatPhone(cliente.telefone) : "", cliente.cidade].filter(Boolean).join(" · ");
+      strip.innerHTML = `
+        <span class="wa-client-linked">${icon("link")}<span class="wa-client-name">${esc(cliente.nome || cliente.client_id)}</span>${meta ? `<span class="wa-client-meta">${esc(meta)}</span>` : ""}</span>
+        <span class="wa-client-actions">${canManage ? `<button class="btn btn-sm btn-ghost" id="clientUnlinkBtn" type="button">Desvincular</button>` : ""}</span>`;
+      if (canManage) $("#clientUnlinkBtn").onclick = () => unlinkClient(conv);
+    } else if (canManage) {
+      strip.hidden = false;
+      strip.innerHTML = `<span class="dim" style="font-size:var(--fs-12)">Nenhum cliente vinculado a esta conversa.</span>
+        <span class="wa-client-actions"><button class="btn btn-sm" id="clientLinkBtn" type="button">${icon("link")} Vincular cliente</button></span>`;
+      $("#clientLinkBtn").onclick = () => openClientLinkModal(conv);
+    } else {
+      strip.hidden = true;
+    }
+  }
+
+  function openClientLinkModal(conv) {
+    modal({
+      labelledBy: "waLinkClientTitle",
+      html: `
+        <div class="modal-head"><div><span class="kicker">Cadastro de cliente</span><h2 id="waLinkClientTitle">Vincular cliente à conversa</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+        <div class="modal-body">
+          <div class="field"><label for="clientSearch">Buscar por nome, código, telefone ou CPF/CNPJ</label><input class="input" id="clientSearch" autocomplete="off" placeholder="Digite para buscar…"></div>
+          <div class="wa-client-search-results" id="clientSearchResults"></div>
+          <span class="field-error" id="clientLinkError" hidden></span>
+        </div>
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button></span></div>`,
+      onMount: (host, close) => {
+        const input = $("#clientSearch", host), results = $("#clientSearchResults", host), error = $("#clientLinkError", host);
+        let timer = null;
+        const search = async () => {
+          const q = input.value.trim();
+          if (!q) { results.innerHTML = ""; return; }
+          try {
+            const data = await NOC.api(`/api/clientes?q=${encodeURIComponent(q)}`);
+            const registros = (data.registros || []).slice(0, 25);
+            results.innerHTML = registros.length
+              ? registros.map(c => `<button class="wa-client-search-item" type="button" data-client="${esc(c.client_id)}"><b>${esc(c.nome || c.client_id)}</b><small>${esc([c.client_id, c.telefone ? formatPhone(c.telefone) : "", c.plano].filter(Boolean).join(" · "))}</small></button>`).join("")
+              : '<p class="dim" style="text-align:center;padding:var(--s-3);font-size:var(--fs-12)">Nenhum cliente encontrado.</p>';
+            $$("[data-client]", results).forEach(btn => btn.onclick = async () => {
+              try {
+                await NOC.api(`/api/whatsapp/conversations/${conv.id}/client`, { method: "POST", body: JSON.stringify({ client_id: btn.dataset.client }) });
+                close();
+                toast("Cliente vinculado", { type: "ok" });
+                await loadConversation(conv.id);
+                load(true);
+              } catch (err) { error.hidden = false; error.textContent = err.message; }
+            });
+          } catch (err) { error.hidden = false; error.textContent = err.message; }
+        };
+        input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 300); });
+        setTimeout(() => input.focus(), 30);
+      }
+    });
+  }
+
+  function unlinkClient(conv) {
+    askConfirm({
+      title: "Desvincular este cliente?",
+      text: "A conversa deixa de estar associada ao cadastro do cliente.",
+      confirmLabel: "Desvincular",
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await NOC.api(`/api/whatsapp/conversations/${conv.id}/client`, { method: "DELETE" });
+          toast("Cliente desvinculado", { type: "ok" });
+          await loadConversation(conv.id);
+          load(true);
+        } catch (err) { toast("Não foi possível desvincular", { text: err.message, type: "danger" }); }
+      }
+    });
   }
 
   /* ---------- ações ---------- */
@@ -452,7 +540,10 @@
           const detail = await NOC.api(`/api/whatsapp/conversations/${state.activeId}`);
           state.conversation = detail.conversation;
           state.messages = detail.messages || [];
+          const clienteChanged = (detail.cliente?.client_id || null) !== (state.cliente?.client_id || null);
+          state.cliente = detail.cliente || null;
           updateHead(detail.conversation);
+          if (clienteChanged) renderClientStrip();
           if (state.messages.length !== state.lastMessageCount) {
             state.lastMessageCount = state.messages.length;
             renderMessages();
