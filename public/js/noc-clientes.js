@@ -116,6 +116,7 @@
         r.has_senha_pppoe ? `<span class="badge badge-warn" title="Senha PPPoE cadastrada">PPPoE</span>` : "",
         r.has_senha_roteador ? `<span class="badge" title="Senha do roteador cadastrada">Rot</span>` : "",
         r.has_senha_wifi ? `<span class="badge badge-warn" title="Senha WiFi cadastrada">WiFi</span>` : "",
+        r.has_senha_portal ? `<span class="badge badge-ok" title="Acesso ao app liberado">App</span>` : "",
       ].filter(Boolean).join("");
       return `
       <tr>
@@ -196,6 +197,7 @@
     senha_roteador: $("#fSenhaRoteador", formHost)?.value ?? "",
     ssid: $("#fSsid", formHost)?.value ?? "",
     senha_wifi: $("#fSenhaWifi", formHost)?.value ?? "",
+    senha_portal: $("#fSenhaPortal", formHost)?.value ?? "",
     observacao: $("#fObservacao", formHost)?.value ?? "",
   });
 
@@ -418,6 +420,13 @@
                 </div>
               </div>
               <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
+            ${secao("App do cliente", "Acesso do cliente ao app (chat com a central e status do roteador).", `
+              <div class="row wrap" style="gap:var(--s-3)">
+                <div class="field grow"><label for="fSenhaPortal">Senha inicial do app</label>
+                  <input class="input" id="fSenhaPortal" type="text" autocomplete="off">
+                </div>
+              </div>
+              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_portal ? "Senha cadastrada. Deixe em branco para manter; preencha para redefinir (o cliente é obrigado a trocá-la no próximo login)." : "Sem senha cadastrada — o cliente ainda não consegue entrar no app. O login é feito com o CPF/CNPJ; defina uma senha inicial aqui."}</p>`)}
           </div>
 
           <span class="field-error" id="clienteFormError" hidden></span>

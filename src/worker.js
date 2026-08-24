@@ -670,6 +670,8 @@ CREATE TABLE IF NOT EXISTS   cliente_cadastro (
   senha_roteador_cipher TEXT NOT NULL DEFAULT '',
   ssid TEXT NOT NULL DEFAULT '',
   senha_wifi_cipher TEXT NOT NULL DEFAULT '',
+  senha_portal_cipher TEXT NOT NULL DEFAULT '',
+  portal_must_change_password INTEGER NOT NULL DEFAULT 1,
   observacao TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1320,6 +1322,19 @@ async function requirePermission(env, request, code) {
   return { user, response: null };
 }
 
+// Gate das rotas /api/client/* (papel "cliente" — cliente final da ISP no
+// app). Nunca usa requirePermission/hasPermission: uma sessão de cliente não
+// tem role_id/role_permissions, então essas funções sempre negariam. Toda
+// consulta dentro de um handler que usa este gate deve ser escopada por
+// gate.user.id (== cliente_cadastro.client_id do próprio cliente autenticado),
+// nunca por um id vindo do corpo/query da requisição.
+async function requireClient(env, request) {
+  const user = await requireUser(env, request);
+  if (!user) return { user: null, response: json({error:"AUTH_REQUIRED"},401) };
+  if (user.role !== "cliente") return { user, response: json({error:"FORBIDDEN"},403) };
+  return { user, response: null };
+}
+
 let databaseSchemaReady = false;
 
 async function ensureDatabase(env) {
@@ -1430,7 +1445,12 @@ async function ensureDatabaseImpl(env) {
     ["ixc_cidade_cod", "TEXT NOT NULL DEFAULT ''"],
     ["ixc_uf_cod", "TEXT NOT NULL DEFAULT ''"],
     ["ixc_contrato_id", "TEXT NOT NULL DEFAULT ''"],
-    ["ixc_login", "TEXT NOT NULL DEFAULT ''"]
+    ["ixc_login", "TEXT NOT NULL DEFAULT ''"],
+    /* Senha do app do cliente (papel "cliente"), distinta de senha_pppoe_cipher
+       (senha PPPoE editável por staff): misturar as duas faria uma alteração
+       de staff derrubar a sessão do cliente no app e vice-versa. */
+    ["senha_portal_cipher", "TEXT NOT NULL DEFAULT ''"],
+    ["portal_must_change_password", "INTEGER NOT NULL DEFAULT 1"]
   ]);
   /* O campo de identificação do cliente passou de `documento` para `cpf_cnpj`.
      Bancos antigos ganham o rename; bancos novos já nascem com `cpf_cnpj`. */
@@ -2055,8 +2075,10 @@ async function createSession(env, request, user, authenticationMethod = "passwor
 }
 
 // Sessão de cliente (aplicativo): autenticação pela tabela cliente_cadastro,
-// usando o CPF/CNPJ como usuário e a senha PPPoE (armazenada como hash PBKDF2
-// em senha_pppoe_cipher) para verificação.
+// usando o CPF/CNPJ (sincronizado do IXC) como usuário e uma senha própria do
+// app (hash PBKDF2 em senha_portal_cipher, atribuída por staff) para
+// verificação — não há validação ao vivo contra o IXC, que não expõe essa
+// checagem por webservice.
 async function createClientSession(env, request, cliente) {
   const db = getDB(env);
   const rawToken = bytesToBase64Url(randomBytes(48));
@@ -2133,7 +2155,7 @@ async function getCurrentUser(env, request) {
       c.cpf_cnpj AS username,
       c.nome AS display_name,
       1 AS active,
-      0 AS must_change_password,
+      c.portal_must_change_password AS must_change_password,
       'cliente' AS role
     FROM client_sessions s
     JOIN cliente_cadastro c ON c.client_id=s.client_id
@@ -2200,18 +2222,19 @@ async function handleLogin(env, request) {
   }
 
   // Autenticação de cliente (aplicativo): tabela cliente_cadastro, com
-  // CPF/CNPJ como usuário e a senha PPPoE (hash PBKDF2 em senha_pppoe_cipher).
-  // Toleramos pontuação no CPF/CNPJ (pontos, traços e barras).
+  // CPF/CNPJ (sincronizado do IXC) como usuário e uma senha própria do app
+  // (hash PBKDF2 em senha_portal_cipher, atribuída por staff — não há
+  // validação ao vivo contra o IXC). Toleramos pontuação no CPF/CNPJ.
   const cpfBusca = username.replace(/[^\d]/g, "");
   const cliente = await db.prepare(`
-    SELECT client_id, cpf_cnpj, nome, senha_pppoe_cipher
+    SELECT client_id, cpf_cnpj, nome, senha_portal_cipher, portal_must_change_password
     FROM cliente_cadastro
     WHERE lower(cpf_cnpj)=lower(?)
        OR replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '')=?
     LIMIT 1
   `).bind(username, cpfBusca).first();
 
-  if (!cliente || !cliente.senha_pppoe_cipher || !(await verifyPassword(password, cliente.senha_pppoe_cipher))) {
+  if (!cliente || !cliente.senha_portal_cipher || !(await verifyPassword(password, cliente.senha_portal_cipher))) {
     await recordFailedLogin(env, attempt.key);
     if (user) {
       await audit(env, request, user, "LOGIN_FAILED", "auth", String(user.id), null, null, {reason:"invalid_credentials"});
@@ -2229,7 +2252,7 @@ async function handleLogin(env, request) {
       username: cliente.cpf_cnpj,
       display_name: cliente.nome,
       role: "cliente",
-      must_change_password: false
+      must_change_password: Boolean(cliente.portal_must_change_password)
     }
   }, 200, {
     "Set-Cookie": clientSession.cookie
@@ -3547,7 +3570,7 @@ async function handleMe(env, request) {
         username: user.username,
         display_name: user.display_name,
         role: "cliente",
-        must_change_password: false
+        must_change_password: Boolean(user.must_change_password)
       },
       screens: []
     });
@@ -3600,6 +3623,227 @@ async function handleLogout(env, request) {
   return json({ ok: true }, 200, {
     "Set-Cookie": `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`
   });
+}
+
+// ---------------------------------------------------------------------------
+// Área do cliente (app, papel "cliente") — só identificação e roteador, sem
+// setor, sem "hospedagem"/infra e sem informação de staff. Ver requireClient.
+// ---------------------------------------------------------------------------
+
+// GET /api/client/me — perfil mínimo do próprio cliente autenticado.
+async function handleClientMe(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const row = await getDB(env).prepare(`
+    SELECT client_id, nome, telefone, email FROM cliente_cadastro WHERE client_id=?
+  `).bind(gate.user.id).first();
+  if (!row) return json({ error: "CLIENTE_NAO_ENCONTRADO" }, 404);
+  return json({
+    id: row.client_id,
+    displayName: row.nome,
+    telefone: row.telefone,
+    email: row.email
+  });
+}
+
+// POST /api/client/change-password — troca a senha do app (senha_portal_cipher),
+// nunca a senha PPPoE/roteador/WiFi editadas por staff.
+async function handleClientChangePassword(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  let body = {}; try { body = await readJson(request, 16384); } catch {}
+  const cred = await db.prepare(`SELECT senha_portal_cipher FROM cliente_cadastro WHERE client_id=?`).bind(gate.user.id).first();
+  if (!cred || !cred.senha_portal_cipher || !(await verifyPassword(String(body.oldPassword || ""), cred.senha_portal_cipher)))
+    return json({ error: "SENHA_ATUAL_INVALIDA" }, 400);
+  if (String(body.newPassword || "").length < 8) return json({ error: "SENHA_FRACA" }, 400);
+  await db.prepare(`
+    UPDATE cliente_cadastro SET senha_portal_cipher=?, portal_must_change_password=0, updated_at=CURRENT_TIMESTAMP
+    WHERE client_id=?
+  `).bind(await hashSenhaCliente(String(body.newPassword)), gate.user.id).run();
+  const currentHash = await sha256Base64Url(parseCookies(request)[COOKIE_NAME] || "");
+  await db.prepare(`DELETE FROM client_sessions WHERE client_id=? AND token_hash<>?`).bind(gate.user.id, currentHash).run();
+  await audit(env, request, { username: gate.user.username }, "CLIENT_PASSWORD_CHANGED", "cliente_cadastro", gate.user.id);
+  return json({ ok: true });
+}
+
+// GET /api/client/router-status — status do próprio roteador/ONU (GPON) e da
+// última autenticação RADIUS conhecida. Nunca aceita client_id da requisição;
+// sempre escopado a gate.user.id. Não usa Zabbix (sem mapeamento por cliente).
+async function handleClientRouterStatus(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+
+  const compacto = await db.prepare(`SELECT data_json, synced_at FROM gpon_status_snapshot WHERE id=1`).first();
+  const linhas = lerStatusCompactoGpon(compacto);
+  const linha = linhas.find(l => String(l.client_id) === String(gate.user.id)) || null;
+
+  const radiusUltimo = await db.prepare(`
+    SELECT status_after, detail, olt_id, onu_index, serial, synced_at, created_at
+    FROM radius_logs WHERE client_id=? ORDER BY id DESC LIMIT 1
+  `).bind(gate.user.id).first();
+
+  const cadastro = await db.prepare(`
+    SELECT ont_serial, ont_modelo, ip_gerencia, login_pppoe FROM cliente_cadastro WHERE client_id=?
+  `).bind(gate.user.id).first();
+
+  return json({
+    clientId: gate.user.id,
+    ontSerial: cadastro?.ont_serial || null,
+    ontModelo: cadastro?.ont_modelo || null,
+    loginPppoe: cadastro?.login_pppoe || null,
+    gpon: linha ? {
+      status: linha.status,
+      stateDetail: linha.state_detail || null,
+      rxPower: linha.rx_power ?? null,
+      txPower: linha.tx_power ?? null,
+      ip: linha.ip || cadastro?.ip_gerencia || null,
+      downKbps: linha.down_kbps ?? null,
+      upKbps: linha.up_kbps ?? null,
+      downBytes: linha.down_bytes ?? null,
+      upBytes: linha.up_bytes ?? null,
+      uptimeS: linha.uptime_s ?? null,
+      connSince: linha.conn_since || null
+    } : null,
+    radius: radiusUltimo ? {
+      status: radiusUltimo.status_after,
+      detail: radiusUltimo.detail || null,
+      updatedAt: radiusUltimo.created_at
+    } : null,
+    updatedAt: compacto?.synced_at || null
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Conversas do cliente (app) — histórico e chat com a central, escopados por
+// telefone do próprio cadastro (nunca aceito da requisição).
+// ---------------------------------------------------------------------------
+
+function telefoneNormalizado(valor) {
+  return String(valor || "").replace(/\D/g, "");
+}
+
+async function clientePhoneOf(db, clientId) {
+  const row = await db.prepare(`SELECT telefone FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+  return telefoneNormalizado(row?.telefone);
+}
+
+// O app Flutter espera JSON em camelCase (Conversation/Message usam
+// json_serializable sem fieldRename); as colunas do banco são snake_case.
+function conversationToCamel(row) {
+  return {
+    id: row.id,
+    phone: row.phone,
+    customerName: row.customer_name,
+    channel: row.channel || null,
+    status: row.status,
+    unread: row.unread ?? 0,
+    lastMessage: row.last_message || "",
+    lastMessageAt: row.last_message_at || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function messageToCamel(row) {
+  return {
+    id: row.id,
+    direction: row.direction,
+    type: row.type,
+    body: row.body,
+    status: row.status || null,
+    senderUserId: row.sender_user_id ?? null,
+    senderName: row.sender_name || null,
+    createdAt: row.created_at,
+    waMessageId: row.wa_message_id || null
+  };
+}
+
+// GET /api/client/conversations
+async function handleClientConversations(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const phone = await clientePhoneOf(db, gate.user.id);
+  if (!phone) return json({ conversations: [] });
+  const rows = (await db.prepare(`
+    SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
+    FROM wa_conversations WHERE phone=? ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
+  `).bind(phone).all()).results || [];
+  return json({ conversations: rows.map(conversationToCamel) });
+}
+
+// GET /api/client/conversations/:id
+async function handleClientConversationDetail(env, request, id) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const phone = await clientePhoneOf(db, gate.user.id);
+  const conv = await db.prepare(`
+    SELECT id,phone,customer_name,channel,status,last_message,last_message_at,unread,created_at,updated_at
+    FROM wa_conversations WHERE id=?
+  `).bind(id).first();
+  // 404 (não 403) em vez de confirmar que o id pertence a outro cliente.
+  if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  const messages = (await db.prepare(`
+    SELECT id,direction,type,body,status,sender_user_id,sender_name,wa_message_id,created_at
+    FROM wa_messages WHERE conversation_id=? ORDER BY created_at ASC,id ASC LIMIT 500
+  `).bind(id).all()).results || [];
+  if (conv.unread > 0) {
+    await db.prepare(`UPDATE wa_conversations SET unread=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+    conv.unread = 0;
+  }
+  return json({ conversation: conversationToCamel(conv), messages: messages.map(messageToCamel) });
+}
+
+// POST /api/client/conversations — sem setor: entra na fila de roteamento,
+// igual ao fluxo do bot de WhatsApp hoje. Telefone/nome vêm sempre do próprio
+// cadastro, nunca do corpo da requisição.
+async function handleClientConversationCreate(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const cadastro = await db.prepare(`SELECT nome, telefone FROM cliente_cadastro WHERE client_id=?`).bind(gate.user.id).first();
+  const phone = telefoneNormalizado(cadastro?.telefone);
+  if (!phone) return json({ error: "TELEFONE_NAO_CADASTRADO" }, 409);
+  let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const text = String(body.body || "").trim().slice(0, 4096);
+  if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  const customerName = String(cadastro?.nome || "").trim() || phone;
+  const result = await db.prepare(`
+    INSERT INTO wa_conversations(phone,customer_name,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
+    VALUES(?,?,NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+  `).bind(phone, customerName, text).run();
+  const id = Number(result.meta.last_row_id);
+  const send = await waSendText(env, phone, text);
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", null, customerName).run();
+  await audit(env, request, { username: gate.user.username }, "CLIENT_CONVERSATION_CREATE", "wa_conversation", id, null, { phone });
+  return json({ id, ok: true }, send.ok ? 201 : 502);
+}
+
+// POST /api/client/conversations/:id/messages
+async function handleClientMessageSend(env, request, id) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const phone = await clientePhoneOf(db, gate.user.id);
+  const conv = await db.prepare(`SELECT id,status,phone,customer_name FROM wa_conversations WHERE id=?`).bind(id).first();
+  if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
+  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  const text = String(body.body || "").trim().slice(0, 4096);
+  if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  const send = await omniSendText(env, conv, text);
+  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
+    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", null, conv.customer_name).run();
+  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
+  await audit(env, request, { username: gate.user.username }, "CLIENT_MESSAGE_SEND", "wa_conversation", id, null, { ok: send.ok });
+  if (!send.ok) {
+    return json({ error: send.error || "WHATSAPP_ENVIO_FALHOU", messageId: result.meta.last_row_id }, 502);
+  }
+  return json({ messageId: result.meta.last_row_id, waMessageId: send.wa_message_id });
 }
 
 async function handleHealth(env) {
@@ -6290,6 +6534,7 @@ function publicCadastro(cad) {
     login_pppoe: cad.login_pppoe, has_senha_pppoe: Boolean(cad.senha_pppoe_cipher),
     login_roteador: cad.login_roteador, has_senha_roteador: Boolean(cad.senha_roteador_cipher),
     ssid: cad.ssid, has_senha_wifi: Boolean(cad.senha_wifi_cipher),
+    has_senha_portal: Boolean(cad.senha_portal_cipher),
     observacao: cad.observacao, updated_at: cad.updated_at
   };
 }
@@ -6563,17 +6808,20 @@ async function handleClientesCreate(env, request) {
   const senhaPppoe = await hashSenhaCliente(body.senha_pppoe);
   const senhaRoteador = await hashSenhaCliente(body.senha_roteador);
   const senhaWifi = await hashSenhaCliente(body.senha_wifi);
+  // Senha inicial do app do cliente (papel "cliente"): sempre nasce exigindo
+  // troca no primeiro acesso.
+  const senhaPortal = await hashSenhaCliente(body.senha_portal);
   await db.prepare(`
     INSERT INTO cliente_cadastro(client_id,ixc_id,origem,nome,cpf_cnpj,telefone,email,endereco,bairro,cidade,uf,cep,
       lat,lon,plano,valor_mensal,vencimento_dia,status_faturamento,aparelhos_json,
       ont_serial,ont_modelo,ip_gerencia,login_pppoe,senha_pppoe_cipher,
-      login_roteador,senha_roteador_cipher,ssid,senha_wifi_cipher,observacao,updated_by)
-    VALUES (?,?,'manual',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      login_roteador,senha_roteador_cipher,ssid,senha_wifi_cipher,senha_portal_cipher,portal_must_change_password,observacao,updated_by)
+    VALUES (?,?,'manual',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)
   `).bind(clientId, dados.ixc_id, dados.nome, dados.cpf_cnpj, dados.telefone, dados.email, dados.endereco,
     dados.bairro, dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano,
     dados.valor_mensal, dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
-    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi, dados.observacao, gate.user.id).run();
+    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi, senhaPortal, dados.observacao, gate.user.id).run();
   const depois = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
   await audit(env, request, gate.user, "CLIENTE_CREATE", "cliente_cadastro", clientId, null, depois);
   return json({ ok: true, cliente: publicCadastro(depois) }, 201);
@@ -6602,6 +6850,13 @@ async function handleClientesUpdate(env, request, clientId) {
   if (body.senha_pppoe && String(body.senha_pppoe) !== "") senhaPppoe = await hashSenhaCliente(body.senha_pppoe);
   if (body.senha_roteador && String(body.senha_roteador) !== "") senhaRoteador = await hashSenhaCliente(body.senha_roteador);
   if (body.senha_wifi && String(body.senha_wifi) !== "") senhaWifi = await hashSenhaCliente(body.senha_wifi);
+  // Senha do app do cliente: só muda quando staff informa uma nova; ao mudar,
+  // volta a exigir troca no próximo login (mesmo padrão do primeiro acesso).
+  let senhaPortal = antes.senha_portal_cipher, portalMustChange = antes.portal_must_change_password;
+  if (body.senha_portal && String(body.senha_portal) !== "") {
+    senhaPortal = await hashSenhaCliente(body.senha_portal);
+    portalMustChange = 1;
+  }
   /* O código do IXC só é preenchido, nunca apagado: a tela de edição do mapa
      manda o cadastro inteiro de volta e um campo vazio ali não é motivo para
      perder o vínculo com o ERP. */
@@ -6610,14 +6865,16 @@ async function handleClientesUpdate(env, request, clientId) {
     UPDATE cliente_cadastro SET ixc_id=?,nome=?,cpf_cnpj=?,telefone=?,email=?,endereco=?,bairro=?,cidade=?,uf=?,cep=?,
       lat=?,lon=?,plano=?,valor_mensal=?,vencimento_dia=?,status_faturamento=?,aparelhos_json=?,
       ont_serial=?,ont_modelo=?,ip_gerencia=?,login_pppoe=?,senha_pppoe_cipher=?,
-      login_roteador=?,senha_roteador_cipher=?,ssid=?,senha_wifi_cipher=?,observacao=?,
+      login_roteador=?,senha_roteador_cipher=?,ssid=?,senha_wifi_cipher=?,
+      senha_portal_cipher=?,portal_must_change_password=?,observacao=?,
       updated_by=?,updated_at=CURRENT_TIMESTAMP
     WHERE client_id=?
   `).bind(ixcId, dados.nome, dados.cpf_cnpj, dados.telefone, dados.email, dados.endereco, dados.bairro,
     dados.cidade, dados.uf, dados.cep, dados.lat, dados.lon, dados.plano, dados.valor_mensal,
     dados.vencimento_dia, dados.status_faturamento, JSON.stringify(dados.aparelhos),
     dados.ont_serial, dados.ont_modelo, dados.ip_gerencia, dados.login_pppoe, senhaPppoe,
-    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi, dados.observacao, gate.user.id, clientId).run();
+    dados.login_roteador, senhaRoteador, dados.ssid, senhaWifi,
+    senhaPortal, portalMustChange, dados.observacao, gate.user.id, clientId).run();
   const depois = await db.prepare(`SELECT * FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
   await audit(env, request, gate.user, "CLIENTE_UPDATE", "cliente_cadastro", clientId, antes, depois);
   return json({ ok: true, cliente: publicCadastro(depois) });
@@ -7602,6 +7859,29 @@ export default {
           await audit(env,request,user,"PASSWORD_CHANGED","user",user.id);
           return json({ok:true});
         }
+
+        if (url.pathname === "/api/client/me" && request.method === "GET")
+          return await handleClientMe(env, request);
+
+        if (url.pathname === "/api/client/change-password" && request.method === "POST")
+          return await handleClientChangePassword(env, request);
+
+        if (url.pathname === "/api/client/router-status" && request.method === "GET")
+          return await handleClientRouterStatus(env, request);
+
+        if (url.pathname === "/api/client/conversations" && request.method === "GET")
+          return await handleClientConversations(env, request);
+
+        if (url.pathname === "/api/client/conversations" && request.method === "POST")
+          return await handleClientConversationCreate(env, request);
+
+        const clientMsgMatch = url.pathname.match(/^\/api\/client\/conversations\/(\d+)\/messages$/);
+        if (clientMsgMatch && request.method === "POST")
+          return await handleClientMessageSend(env, request, Number(clientMsgMatch[1]));
+
+        const clientConvMatch = url.pathname.match(/^\/api\/client\/conversations\/(\d+)$/);
+        if (clientConvMatch && request.method === "GET")
+          return await handleClientConversationDetail(env, request, Number(clientConvMatch[1]));
 
         if (url.pathname === "/api/access" && request.method === "GET")
           return await handleAccess(env,request);
