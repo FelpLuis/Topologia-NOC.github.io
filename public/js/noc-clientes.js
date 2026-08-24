@@ -308,7 +308,7 @@
                     <datalist id="clienteFeedList"></datalist>
                   </div>`}
                 <div class="field" style="max-width:180px"><label for="fDocumento">Documento (CPF/CNPJ)</label>
-                  <input class="input" id="fDocumento" type="text" value="${valor(corpoForm.documento)}" autocomplete="off">
+                  <input class="input" id="fDocumento" type="text" value="${valor(corpoForm.cpf_cnpj)}" autocomplete="off">
                 </div>
               </div>
               <div class="row wrap" style="gap:var(--s-3)">
