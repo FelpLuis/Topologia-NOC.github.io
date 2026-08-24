@@ -24,16 +24,14 @@
     "run_worker_first": true,
     "not_found_handling": "single-page-application"
   },
-  // Imagens trocadas no chat (app cliente e staff): bucket precisa existir
-  // antes do deploy — `npx wrangler r2 bucket create topologia-noc-media`.
-  // Sem binding público: as imagens só são lidas via GET /api/media/:key,
-  // que exige sessão (ver handleMediaGet em worker.js).
-  "r2_buckets": [
-    {
-      "binding": "MEDIA",
-      "bucket_name": "topologia-noc-media"
-    }
-  ],
+  // R2 desabilitado nesta conta: sem binding MEDIA, upload de imagem no chat
+  // responde MEDIA_NAO_CONFIGURADO em vez de quebrar o deploy (ver
+  // storeMediaUpload/handleMediaGet em worker.js, ambos já toleram
+  // env.MEDIA ausente). Pra reativar: criar o bucket
+  // (`npx wrangler r2 bucket create topologia-noc-media`) e devolver o
+  // bloco abaixo:
+  // "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "topologia-noc-media" }],
+  //
   // Sincronização automática do Zabbix a cada 5 minutos: é o que mantém o
   // painel de tráfego e o histórico atualizados sozinhos no telão do NOC.
   // Secrets do Chat WhatsApp (ver .env.example):
