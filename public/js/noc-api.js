@@ -1,6 +1,7 @@
 /* ============================================================
    UPDOWN NOC — acesso à API e regras de domínio compartilhadas
    Toda tela nova (topologia, POPs, dashboard) lê e grava por aqui.
+   
    Nada é gravado em localStorage: a fonte é o Worker + D1.
    ============================================================ */
 window.NOC = (() => {
