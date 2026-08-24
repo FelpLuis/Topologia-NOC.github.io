@@ -1017,6 +1017,10 @@ const ACTION_EQUIVALENCE = [
   ["settings.manage", ["roles.view"]]
 ];
 
+// "*" é seguro aqui porque a API não depende mais de cookie pra requisição
+// cross-origin: o app (mobile/webchat) autentica por Authorization: Bearer,
+// que só vai se o próprio cliente colocar — sem risco de CSRF por origem
+// não confiável poder "andar de carona" numa credencial ambient.
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -1026,7 +1030,20 @@ function json(data, status = 200, extraHeaders = {}) {
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
       "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "access-control-allow-origin": "*",
       ...extraHeaders
+    }
+  });
+}
+
+function corsPreflight() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      "access-control-allow-headers": "Content-Type, Authorization",
+      "access-control-max-age": "86400"
     }
   });
 }
@@ -1137,8 +1154,26 @@ function safeSqlIdentifier(value) {
   return identifier;
 }
 
+function bearerToken(request) {
+  const auth = request.headers.get("Authorization") || "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+}
+
+// Token da sessão: cookie __Host- pro navegador do NOC, ou Authorization:
+// Bearer pro app (mobile/webchat), que não tem como enviar Origin/
+// Sec-Fetch-Site — ver csrfFailure.
+function extractSessionToken(request) {
+  return bearerToken(request) || parseCookies(request)[COOKIE_NAME] || null;
+}
+
 function csrfFailure(request) {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return null;
+  // Bearer é credencial explícita, não ambient: diferente do cookie, o
+  // navegador nunca a anexa sozinho numa origem diferente, então uma página
+  // maliciosa não consegue forjar essa requisição. Sem risco de CSRF aqui —
+  // é assim que o app (mobile/webchat) autentica, já que ele não manda
+  // Origin nem Sec-Fetch-Site.
+  if (bearerToken(request)) return null;
   const site = request.headers.get("Sec-Fetch-Site");
   if (site === "cross-site") return json({ error: "CROSS_SITE_REQUEST_BLOCKED" }, 403);
   const origin = request.headers.get("Origin");
@@ -1455,6 +1490,19 @@ async function ensureDatabaseImpl(env) {
   /* O campo de identificação do cliente passou de `documento` para `cpf_cnpj`.
      Bancos antigos ganham o rename; bancos novos já nascem com `cpf_cnpj`. */
   await renameColumnIfExists(db, "cliente_cadastro", "documento", "cpf_cnpj");
+  /* Todo cliente cadastrado antes de senha_portal_cipher existir nasceu com
+     essa coluna vazia, e handleLogin recusa senha vazia — ou seja, ninguém
+     que já existia conseguia mais entrar no app. Como ponte, herdam a
+     própria senha PPPoE (mesmo formato pbkdf2$…, hash compatível com
+     verifyPassword) e são obrigados a trocá-la no próximo login — o acesso
+     volta sem abrir mão da separação entre as duas senhas daqui pra frente.
+     O WHERE torna isto seguro em todo boot: só preenche o que ainda está
+     vazio, nunca sobrescreve uma senha de portal já definida pela equipe. */
+  await db.prepare(`
+    UPDATE cliente_cadastro
+    SET senha_portal_cipher = senha_pppoe_cipher, portal_must_change_password = 1
+    WHERE senha_portal_cipher = '' AND senha_pppoe_cipher <> ''
+  `).run();
   /* Bancos criados antes dos canais externos (Opa!Suite Meta e Webchat)
      ganham as colunas com o mesmo default 'whatsapp' das conversas nativas
      já existentes, então nada muda para quem só usa o número da Meta. */
@@ -2070,6 +2118,7 @@ async function createSession(env, request, user, authenticationMethod = "passwor
 
   return {
     cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${durationSeconds}`,
+    token: rawToken,
     tokenHash
   };
 }
@@ -2095,6 +2144,7 @@ async function createClientSession(env, request, cliente) {
 
   return {
     cookie: `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${durationSeconds}`,
+    token: rawToken,
     tokenHash
   };
 }
@@ -2122,8 +2172,7 @@ async function recordFailedLogin(env, key) {
 
 async function getCurrentUser(env, request) {
   const db = getDB(env);
-  const cookies = parseCookies(request);
-  const rawToken = cookies[COOKIE_NAME];
+  const rawToken = extractSessionToken(request);
   if (!rawToken) return null;
 
   const tokenHash = await sha256Base64Url(rawToken);
@@ -2215,7 +2264,11 @@ async function handleLogin(env, request) {
         display_name: user.display_name,
         role: user.role,
         must_change_password: Boolean(user.must_change_password)
-      }
+      },
+      // Usado pelo app (mobile/webchat) como Authorization: Bearer — ele não
+      // consegue mandar Origin/Sec-Fetch-Site, então autenticar só por cookie
+      // cai no bloqueio de CSRF em toda requisição que muda estado.
+      token: session.token
     }, 200, {
       "Set-Cookie": session.cookie
     });
@@ -2253,7 +2306,8 @@ async function handleLogin(env, request) {
       display_name: cliente.nome,
       role: "cliente",
       must_change_password: Boolean(cliente.portal_must_change_password)
-    }
+    },
+    token: clientSession.token
   }, 200, {
     "Set-Cookie": clientSession.cookie
   });
@@ -3601,8 +3655,7 @@ async function handleMe(env, request) {
 async function handleLogout(env, request) {
   const db = getDB(env);
   const user = await getCurrentUser(env, request);
-  const cookies = parseCookies(request);
-  const rawToken = cookies[COOKIE_NAME];
+  const rawToken = extractSessionToken(request);
 
   if (rawToken) {
     const tokenHash = await sha256Base64Url(rawToken);
@@ -3661,7 +3714,7 @@ async function handleClientChangePassword(env, request) {
     UPDATE cliente_cadastro SET senha_portal_cipher=?, portal_must_change_password=0, updated_at=CURRENT_TIMESTAMP
     WHERE client_id=?
   `).bind(await hashSenhaCliente(String(body.newPassword)), gate.user.id).run();
-  const currentHash = await sha256Base64Url(parseCookies(request)[COOKIE_NAME] || "");
+  const currentHash = await sha256Base64Url(extractSessionToken(request) || "");
   await db.prepare(`DELETE FROM client_sessions WHERE client_id=? AND token_hash<>?`).bind(gate.user.id, currentHash).run();
   await audit(env, request, { username: gate.user.username }, "CLIENT_PASSWORD_CHANGED", "cliente_cadastro", gate.user.id);
   return json({ ok: true });
@@ -7741,6 +7794,11 @@ export default {
       }
 
       if (url.pathname.startsWith("/api/")) {
+        // Preflight do navegador pra POST/PUT/PATCH/DELETE com Authorization
+        // ou Content-Type custom (o app/webchat pode rodar numa origem
+        // diferente da API). Responde antes de tocar no banco.
+        if (request.method === "OPTIONS") return corsPreflight();
+
         await ensureDatabase(env);
 
         // Webhook da Meta chega cross-site e sem sessão: precisa entrar antes
@@ -7854,7 +7912,7 @@ export default {
           if(String(b.newPassword||"").length<8)return json({error:"SENHA_FRACA"},400);
           await getDB(env).prepare(`UPDATE users SET password_hash=?,must_change_password=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
             .bind(await hashPassword(String(b.newPassword)),user.id).run();
-          const currentHash = await sha256Base64Url(parseCookies(request)[COOKIE_NAME] || "");
+          const currentHash = await sha256Base64Url(extractSessionToken(request) || "");
           await getDB(env).prepare(`DELETE FROM sessions WHERE user_id=? AND token_hash<>?`).bind(user.id,currentHash).run();
           await audit(env,request,user,"PASSWORD_CHANGED","user",user.id);
           return json({ok:true});
