@@ -3485,7 +3485,10 @@ async function handleWhatsappSend(env, request, id) {
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const text = String(body.body || "").trim().slice(0, 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
-  const send = await omniSendText(env, conv, text);
+  // Conversa nascida no app não tem canal externo pra espelhar (ver
+  // handleClientMessageSend).
+  const isAppOnly = !conv.channel || conv.channel === "app";
+  const send = isAppOnly ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
     .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
   await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
@@ -3853,6 +3856,11 @@ async function handleClientConversationDetail(env, request, id) {
 // POST /api/client/conversations — sem setor: entra na fila de roteamento,
 // igual ao fluxo do bot de WhatsApp hoje. Telefone/nome vêm sempre do próprio
 // cadastro, nunca do corpo da requisição.
+//
+// Canal "app": a conversa nasce e vive só aqui dentro, sem depender de
+// WhatsApp/Opa!Suite configurados. E a mensagem é do cliente PARA o NOC —
+// direction 'in', igual a qualquer mensagem recebida por outro canal (nunca
+// 'out', que é reservado pra quando o atendente/bot fala).
 async function handleClientConversationCreate(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
@@ -3865,15 +3873,14 @@ async function handleClientConversationCreate(env, request) {
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
   const customerName = String(cadastro?.nome || "").trim() || phone;
   const result = await db.prepare(`
-    INSERT INTO wa_conversations(phone,customer_name,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
-    VALUES(?,?,NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    INSERT INTO wa_conversations(phone,customer_name,channel,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
+    VALUES(?,?,'app',NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
   `).bind(phone, customerName, text).run();
   const id = Number(result.meta.last_row_id);
-  const send = await waSendText(env, phone, text);
-  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
-    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", null, customerName).run();
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,sender_name) VALUES(?,?,?,?,?)`)
+    .bind(id, "in", "text", text, customerName).run();
   await audit(env, request, { username: gate.user.username }, "CLIENT_CONVERSATION_CREATE", "wa_conversation", id, null, { phone });
-  return json({ id, ok: true }, send.ok ? 201 : 502);
+  return json({ id, ok: true }, 201);
 }
 
 // POST /api/client/conversations/:id/messages
@@ -3882,15 +3889,21 @@ async function handleClientMessageSend(env, request, id) {
   if (gate.response) return gate.response;
   const db = getDB(env);
   const phone = await clientePhoneOf(db, gate.user.id);
-  const conv = await db.prepare(`SELECT id,status,phone,customer_name FROM wa_conversations WHERE id=?`).bind(id).first();
+  const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel FROM wa_conversations WHERE id=?`).bind(id).first();
   if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
   if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const text = String(body.body || "").trim().slice(0, 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
-  const send = await omniSendText(env, conv, text);
-  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
-    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", null, conv.customer_name).run();
+
+  // Conversa nascida no app não tem canal externo pra espelhar. As que vieram
+  // de fora (WhatsApp, Opa!Suite) continuam sendo retransmitidas, senão o
+  // histórico do lado de lá fica incompleto.
+  const isAppOnly = !conv.channel || conv.channel === "app";
+  const send = isAppOnly ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
+
+  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_name) VALUES(?,?,?,?,?,?,?)`)
+    .bind(id, "in", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", conv.customer_name).run();
   await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
   await audit(env, request, { username: gate.user.username }, "CLIENT_MESSAGE_SEND", "wa_conversation", id, null, { ok: send.ok });
   if (!send.ok) {

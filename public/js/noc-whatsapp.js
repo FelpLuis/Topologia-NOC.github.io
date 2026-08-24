@@ -33,7 +33,8 @@
   // chegam via webhook do Opa!Suite, ganham um selo pra distinguir na lista.
   const CHANNEL_LABELS = {
     opasuite_meta: { label: "Opa!Suite", color: "#7c5cff" },
-    opasuite_webchat: { label: "Webchat", color: "#22c55e" }
+    opasuite_webchat: { label: "Webchat", color: "#22c55e" },
+    app: { label: "App", color: "#2563eb" }
   };
   const channelBadge = c => {
     const info = c.channel && CHANNEL_LABELS[c.channel];
