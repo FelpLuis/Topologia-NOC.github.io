@@ -691,6 +691,24 @@ CREATE TABLE IF NOT EXISTS client_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_client_sessions_client ON client_sessions(client_id);
 
+/* Sessão "convidada" do app noc_cliente: telefone+CPF digitados pelo próprio
+   cliente na tela de identificação, sem FK para cliente_cadastro e sem
+   nenhuma validação contra o cadastro — ver handleClientLoginPhone. Serve só
+   pra abrir o chat já identificado; os dados viram a primeira mensagem, que
+   o atendente humano confere manualmente. */
+CREATE TABLE IF NOT EXISTS guest_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  guest_id TEXT NOT NULL,
+  telefone TEXT NOT NULL DEFAULT '',
+  cpf_cnpj TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ip TEXT,
+  user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_guest_sessions_guest ON guest_sessions(guest_id);
+
 /* Espelho relacional do IXC: cada entidade vira tabela própria, chaveada pelo
    código que o ERP usa, para reproduzir a mesma estrutura e permitir join a
    partir de cliente_cadastro. Alimentado por backend/scripts/ixc-clientes-sync.mjs. */
@@ -2213,7 +2231,27 @@ async function getCurrentUser(env, request) {
     LIMIT 1
   `).bind(tokenHash).first();
 
-  return cliente || null;
+  if (cliente) return cliente;
+
+  // Sessão "convidada" (app noc_cliente): telefone/CPF digitados pelo cliente,
+  // nunca validados contra cliente_cadastro — ver handleClientLoginPhone.
+  const guest = await db.prepare(`
+    SELECT
+      guest_id AS id,
+      cpf_cnpj AS username,
+      telefone AS display_name,
+      telefone,
+      1 AS is_guest,
+      1 AS active,
+      0 AS must_change_password,
+      'cliente' AS role
+    FROM guest_sessions
+    WHERE token_hash=?
+      AND expires_at > datetime('now')
+    LIMIT 1
+  `).bind(tokenHash).first();
+
+  return guest || null;
 }
 
 async function handleLogin(env, request) {
@@ -2313,15 +2351,15 @@ async function handleLogin(env, request) {
   });
 }
 
-// POST /api/auth/client-login — login sem senha para o app do cliente
-// (noc_cliente): telefone + CPF/CNPJ têm que bater com o MESMO cliente já
-// sincronizado do IXC em cliente_cadastro (backend/scripts/ixc-clientes-sync.mjs).
-// Não há verificação de posse do telefone (SMS/código): é o nível de
-// segurança aceito para abrir um chamado de suporte técnico, não para expor
-// dados financeiros — CPF sozinho não é segredo, mas o PAR telefone+CPF
-// precisa casar com um cadastro real, então não é um cadastro livre.
-// Mesmo rate limit de tentativas do login por senha, para não virar oráculo
-// de CPF+telefone válidos.
+// POST /api/auth/client-login — identificação do app do cliente (noc_cliente):
+// telefone + CPF/CNPJ digitados pelo próprio cliente, SEM validação/consulta
+// contra cliente_cadastro. Não é um login de verdade — é uma sessão
+// "convidada" (guest_sessions) cujo único propósito é abrir o chat de
+// suporte já identificado; os dados batem no atendente como texto da
+// primeira mensagem (ver AuthProvider no Flutter), pra ele confirmar quem é
+// o cliente manualmente. Mantém o rate limit por IP+CPF+telefone só pra não
+// virar vetor de flood de conversas falsas — nunca é limpo em caso de
+// "sucesso" porque aqui não existe falha a distinguir.
 async function handleClientLoginPhone(env, request) {
   let body;
   try {
@@ -2338,32 +2376,32 @@ async function handleClientLoginPhone(env, request) {
 
   const attempt = await isLoginRateLimited(env, request, `${cpfBusca}:${telefone}`);
   if (attempt.blocked) return json({ error: "TOO_MANY_ATTEMPTS" }, 429, { "Retry-After": "900" });
+  await recordFailedLogin(env, attempt.key);
 
   const db = getDB(env);
-  const cliente = await db.prepare(`
-    SELECT client_id, cpf_cnpj, nome, telefone
-    FROM cliente_cadastro
-    WHERE replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '')=?
-  `).bind(cpfBusca).first();
+  const rawToken = bytesToBase64Url(randomBytes(48));
+  const tokenHash = await sha256Base64Url(rawToken);
+  const durationSeconds = sessionDurationSeconds(true);
+  const expires = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
-  if (!cliente || telefoneNormalizado(cliente.telefone) !== telefone) {
-    await recordFailedLogin(env, attempt.key);
-    return json({ ok: false, error: "DADOS_NAO_ENCONTRADOS" }, 401);
-  }
+  await db.prepare(`
+    INSERT INTO guest_sessions(token_hash, guest_id, telefone, cpf_cnpj, expires_at, ip, user_agent)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(tokenHash, telefone, telefone, cpfBusca, expires, getClientIP(request), (request.headers.get("User-Agent") || "").slice(0, 512)).run();
 
-  await db.prepare(`DELETE FROM login_attempts WHERE attempt_key=?`).bind(attempt.key).run();
-  const clientSession = await createClientSession(env, request, cliente);
+  await audit(env, request, { username: cpfBusca }, "LOGIN", "auth", telefone, null, { role: "cliente_convidado" }, { method: "guest" });
+
   return json({
     ok: true,
     user: {
-      id: cliente.client_id,
-      displayName: cliente.nome,
-      telefone: cliente.telefone,
+      id: telefone,
+      displayName: telefone,
+      telefone,
       role: "cliente"
     },
-    token: clientSession.token
+    token: rawToken
   }, 200, {
-    "Set-Cookie": clientSession.cookie
+    "Set-Cookie": `${COOKIE_NAME}=${rawToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${durationSeconds}`
   });
 }
 
@@ -3734,6 +3772,7 @@ async function handleLogout(env, request) {
     const tokenHash = await sha256Base64Url(rawToken);
     await db.prepare(`DELETE FROM sessions WHERE token_hash=?`).bind(tokenHash).run();
     await db.prepare(`DELETE FROM client_sessions WHERE token_hash=?`).bind(tokenHash).run();
+    await db.prepare(`DELETE FROM guest_sessions WHERE token_hash=?`).bind(tokenHash).run();
   }
 
   if (user) {
@@ -3760,6 +3799,16 @@ async function handleLogout(env, request) {
 async function handleClientMe(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
+  // Sessão convidada: os dados já estão no próprio gate.user (guest_sessions),
+  // nunca em cliente_cadastro — ver getCurrentUser.
+  if (gate.user.is_guest) {
+    return json({
+      id: gate.user.id,
+      displayName: gate.user.display_name,
+      telefone: gate.user.telefone,
+      email: null
+    });
+  }
   const row = await getDB(env).prepare(`
     SELECT client_id, nome, telefone, email FROM cliente_cadastro WHERE client_id=?
   `).bind(gate.user.id).first();
@@ -3777,6 +3826,8 @@ async function handleClientMe(env, request) {
 async function handleClientChangePassword(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
+  // Sessão convidada não tem senha_portal_cipher — não existe senha pra trocar.
+  if (gate.user.is_guest) return json({ error: "FORBIDDEN" }, 403);
   const db = getDB(env);
   let body = {}; try { body = await readJson(request, 16384); } catch {}
   const cred = await db.prepare(`SELECT senha_portal_cipher FROM cliente_cadastro WHERE client_id=?`).bind(gate.user.id).first();
@@ -3913,8 +3964,12 @@ async function handleMediaGet(env, request, key) {
   return new Response(object.body, { headers });
 }
 
-async function clientePhoneOf(db, clientId) {
-  const row = await db.prepare(`SELECT telefone FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
+// Sessão convidada já traz o telefone digitado (nunca consultado em
+// cliente_cadastro); só cai pra query quando é um cliente "de verdade"
+// (login por senha do portal), que não carrega telefone no gate.user.
+async function clientePhoneOf(db, user) {
+  if (user?.telefone) return telefoneNormalizado(user.telefone);
+  const row = await db.prepare(`SELECT telefone FROM cliente_cadastro WHERE client_id=?`).bind(user.id).first();
   return telefoneNormalizado(row?.telefone);
 }
 
@@ -3954,7 +4009,7 @@ async function handleClientConversations(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user.id);
+  const phone = await clientePhoneOf(db, gate.user);
   if (!phone) return json({ conversations: [] });
   const rows = (await db.prepare(`
     SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
@@ -3968,7 +4023,7 @@ async function handleClientConversationDetail(env, request, id) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user.id);
+  const phone = await clientePhoneOf(db, gate.user);
   const conv = await db.prepare(`
     SELECT id,phone,customer_name,channel,status,last_message,last_message_at,unread,created_at,updated_at
     FROM wa_conversations WHERE id=?
@@ -3987,8 +4042,8 @@ async function handleClientConversationDetail(env, request, id) {
 }
 
 // POST /api/client/conversations — sem setor: entra na fila de roteamento,
-// igual ao fluxo do bot de WhatsApp hoje. Telefone/nome vêm sempre do próprio
-// cadastro, nunca do corpo da requisição.
+// igual ao fluxo do bot de WhatsApp hoje. Telefone/nome vêm sempre da sessão
+// (gate.user — cadastro real ou convidada), nunca do corpo da requisição.
 //
 // Canal "app": a conversa nasce e vive só aqui dentro, sem depender de
 // WhatsApp/Opa!Suite configurados. E a mensagem é do cliente PARA o NOC —
@@ -4004,13 +4059,12 @@ async function handleClientConversationCreate(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const cadastro = await db.prepare(`SELECT nome, telefone FROM cliente_cadastro WHERE client_id=?`).bind(gate.user.id).first();
-  const phone = telefoneNormalizado(cadastro?.telefone);
+  const phone = await clientePhoneOf(db, gate.user);
   if (!phone) return json({ error: "TELEFONE_NAO_CADASTRADO" }, 409);
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const text = String(body.body || "").trim().slice(0, 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
-  const customerName = String(cadastro?.nome || "").trim() || phone;
+  const customerName = String(gate.user.display_name || "").trim() || phone;
 
   const existing = await db.prepare(`
     SELECT id, status FROM wa_conversations WHERE phone=? AND channel='app' ORDER BY id DESC LIMIT 1
@@ -4048,7 +4102,7 @@ async function handleClientMessageSend(env, request, id) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const phone = await clientePhoneOf(db, gate.user.id);
+  const phone = await clientePhoneOf(db, gate.user);
   const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel FROM wa_conversations WHERE id=?`).bind(id).first();
   if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
   // Cliente só tem UMA conversa (ver handleClientConversationCreate): mandar
