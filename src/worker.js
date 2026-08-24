@@ -2313,6 +2313,60 @@ async function handleLogin(env, request) {
   });
 }
 
+// POST /api/auth/client-login — login sem senha para o app do cliente
+// (noc_cliente): telefone + CPF/CNPJ têm que bater com o MESMO cliente já
+// sincronizado do IXC em cliente_cadastro (backend/scripts/ixc-clientes-sync.mjs).
+// Não há verificação de posse do telefone (SMS/código): é o nível de
+// segurança aceito para abrir um chamado de suporte técnico, não para expor
+// dados financeiros — CPF sozinho não é segredo, mas o PAR telefone+CPF
+// precisa casar com um cadastro real, então não é um cadastro livre.
+// Mesmo rate limit de tentativas do login por senha, para não virar oráculo
+// de CPF+telefone válidos.
+async function handleClientLoginPhone(env, request) {
+  let body;
+  try {
+    body = await readJson(request, 4096);
+  } catch {
+    return json({ ok: false, error: "INVALID_REQUEST" }, 400);
+  }
+
+  const telefone = telefoneNormalizado(body.telefone);
+  const cpfBusca = String(body.cpf || "").replace(/\D/g, "");
+  if (!telefone || (cpfBusca.length !== 11 && cpfBusca.length !== 14)) {
+    return json({ ok: false, error: "MISSING_FIELDS" }, 400);
+  }
+
+  const attempt = await isLoginRateLimited(env, request, `${cpfBusca}:${telefone}`);
+  if (attempt.blocked) return json({ error: "TOO_MANY_ATTEMPTS" }, 429, { "Retry-After": "900" });
+
+  const db = getDB(env);
+  const cliente = await db.prepare(`
+    SELECT client_id, cpf_cnpj, nome, telefone
+    FROM cliente_cadastro
+    WHERE replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '')=?
+  `).bind(cpfBusca).first();
+
+  if (!cliente || telefoneNormalizado(cliente.telefone) !== telefone) {
+    await recordFailedLogin(env, attempt.key);
+    return json({ ok: false, error: "DADOS_NAO_ENCONTRADOS" }, 401);
+  }
+
+  await db.prepare(`DELETE FROM login_attempts WHERE attempt_key=?`).bind(attempt.key).run();
+  const clientSession = await createClientSession(env, request, cliente);
+  return json({
+    ok: true,
+    user: {
+      id: cliente.client_id,
+      displayName: cliente.nome,
+      telefone: cliente.telefone,
+      role: "cliente"
+    },
+    token: clientSession.token
+  }, 200, {
+    "Set-Cookie": clientSession.cookie
+  });
+}
+
 function oauthRedirectUri(env, request) {
   const uri = new URL(String(env.OAUTH_REDIRECT_URI || "/api/auth/oauth/callback"), new URL(request.url).origin);
   if (uri.protocol !== "https:" && uri.hostname !== "localhost" && uri.hostname !== "127.0.0.1") {
@@ -3100,10 +3154,13 @@ async function waStoreBotMessage(db, conversationId, body, waMessageId, ok) {
 }
 
 // Envio pela API do Opa!Suite, usado pelas conversas dos canais externos
-// (Meta via Opa!Suite e Webchat do Opa!Suite). Caminho e formato do corpo
-// ainda não confirmados com a documentação oficial (bloqueada sem login) —
-// ajustar OPASUITE_API_BASE/rota abaixo assim que o token estiver configurado
-// e o primeiro envio real puder ser conferido.
+// (Meta via Opa!Suite e Webchat do Opa!Suite). A rota /recebemensagem foi
+// confirmada pelo suporte do Opa!Suite ("Manuel"), mas nomes de campo do
+// corpo e formato exato de retorno não foram — o suporte só disse "token de
+// autenticação", sem especificar header vs. campo do corpo. Mandamos como
+// Authorization: Bearer (padrão já usado nas outras integrações deste
+// arquivo) por ser a opção mais comum; se o primeiro envio real voltar 401/403,
+// o `detail` abaixo captura a resposta crua do Opa!Suite para ajustar aqui.
 const OPASUITE_API_BASE_DEFAULT = "https://api.opasuite.com.br";
 
 async function oaSendText(env, externalId, body) {
@@ -3111,7 +3168,7 @@ async function oaSendText(env, externalId, body) {
   if (!token || !externalId) return { ok: false, error: "OPASUITE_NAO_CONFIGURADO" };
   const base = env.OPASUITE_API_BASE || OPASUITE_API_BASE_DEFAULT;
   try {
-    const res = await fetch(`${base}/v1/messages`, {
+    const res = await fetch(`${base}/recebemensagem`, {
       method: "POST",
       headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ conversation_id: externalId, type: "text", text: body })
@@ -3246,9 +3303,17 @@ function oaExtractMessage(payload) {
   const externalId = String(data.conversation_id || data.chat_id || data.conversationId || p.conversation_id || data.contact_id || contact.id || "").trim();
   const phone = String(data.phone || data.from || contact.phone || contact.number || "").replace(/\D/g, "").slice(0, 15);
   const contactName = String(data.contact_name || contact.name || data.name || "").trim().slice(0, 200);
-  const body = String(data.text || data.body || data.message || data.content || "").trim();
+  const typeRaw = String(data.type || "text").toLowerCase();
+  // Mensagem de imagem: nome do campo com a URL da mídia também não está
+  // confirmado com a doc oficial — mesma ressalva do resto deste parser.
+  // messageToCamel/Message.isImage (app) só olham `type`, então qualquer URL
+  // aqui já renderiza como imagem; se vier campo diferente, ajustar só isto.
+  const isImage = typeRaw.includes("image") || typeRaw.includes("imagem") || typeRaw === "photo";
+  const body = isImage
+    ? String(data.url || data.media_url || data.image_url || data.file_url || data.text || data.body || "").trim()
+    : String(data.text || data.body || data.message || data.content || "").trim();
   const externalMessageId = String(data.id || data.message_id || data.messageId || "").trim();
-  const type = String(data.type || "text");
+  const type = isImage ? "image" : "text";
   return { channel, phone, externalId, contactName, body, externalMessageId, type };
 }
 
@@ -3483,16 +3548,21 @@ async function handleWhatsappSend(env, request, id) {
   if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise"))
     return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
-  const text = String(body.body || "").trim().slice(0, 4096);
+  const isImage = body.type === "image";
+  const text = String(body.body || "").trim().slice(0, isImage ? 300 : 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  if (isImage && !text.startsWith(`/api/media/staff/${gate.user.id}/`)) {
+    return json({ error: "IMAGEM_INVALIDA" }, 400);
+  }
   // Conversa nascida no app não tem canal externo pra espelhar (ver
-  // handleClientMessageSend).
+  // handleClientMessageSend). Imagem nunca é retransmitida pro canal externo
+  // (path só funciona autenticado neste backend — ver handleClientMessageSend).
   const isAppOnly = !conv.channel || conv.channel === "app";
-  const send = isAppOnly ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
+  const send = isAppOnly || isImage ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
-    .bind(id, "out", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
-  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
-  await audit(env, request, gate.user, "WHATSAPP_MESSAGE_SEND", "wa_conversation", id, null, { body: text, ok: send.ok, error: send.error || null });
+    .bind(id, "out", isImage ? "image" : "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
+  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(isImage ? "📷 Imagem" : text, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_MESSAGE_SEND", "wa_conversation", id, null, { body: isImage ? "[imagem]" : text, ok: send.ok, error: send.error || null });
   if (!send.ok) {
     return json({ error: send.error || "WHATSAPP_ENVIO_FALHOU", status: send.status || null, detail: send.detail || null, message_id: result.meta.last_row_id }, 502);
   }
@@ -3780,6 +3850,69 @@ function telefoneNormalizado(valor) {
   return String(valor || "").replace(/\D/g, "");
 }
 
+// ---------------------------------------------------------------------------
+// Mídia do chat (imagens) — bucket R2 "MEDIA" (ver wrangler.jsonc). Sem
+// binding público: toda leitura passa por GET /api/media/:key, autenticada,
+// pra não expor foto de documento/roteador de cliente por URL adivinhável.
+// ---------------------------------------------------------------------------
+
+const MEDIA_MAX_BYTES = 8 * 1024 * 1024;
+const MEDIA_ALLOWED_TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+
+async function storeMediaUpload(env, request, keyPrefix) {
+  if (!env.MEDIA) return { ok: false, error: "MEDIA_NAO_CONFIGURADO" };
+  const contentType = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+  const ext = MEDIA_ALLOWED_TYPES[contentType];
+  if (!ext) return { ok: false, error: "TIPO_INVALIDO" };
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > MEDIA_MAX_BYTES) return { ok: false, error: "ARQUIVO_MUITO_GRANDE" };
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength === 0) return { ok: false, error: "ARQUIVO_VAZIO" };
+  if (bytes.byteLength > MEDIA_MAX_BYTES) return { ok: false, error: "ARQUIVO_MUITO_GRANDE" };
+  const key = `${keyPrefix}/${crypto.randomUUID()}.${ext}`;
+  await env.MEDIA.put(key, bytes, { httpMetadata: { contentType } });
+  return { ok: true, key };
+}
+
+// POST /api/client/uploads — corpo bruto (bytes da imagem), Content-Type
+// define a extensão. Devolve o path pra usar como `body` de uma mensagem
+// type=image em POST /api/client/conversations/:id/messages.
+async function handleClientUpload(env, request) {
+  const gate = await requireClient(env, request);
+  if (gate.response) return gate.response;
+  const result = await storeMediaUpload(env, request, `client/${gate.user.id}`);
+  if (!result.ok) return json({ error: result.error }, result.error === "ARQUIVO_MUITO_GRANDE" ? 413 : 400);
+  return json({ path: `/api/media/${result.key}` }, 201);
+}
+
+// POST /api/whatsapp/uploads — mesma coisa, pro lado do atendente (staff
+// também precisa mandar imagem de volta, ex.: print de configuração).
+async function handleStaffUpload(env, request) {
+  const gate = await requirePermission(env, request, "whatsapp.chat");
+  if (gate.response) return gate.response;
+  const result = await storeMediaUpload(env, request, `staff/${gate.user.id}`);
+  if (!result.ok) return json({ error: result.error }, result.error === "ARQUIVO_MUITO_GRANDE" ? 413 : 400);
+  return json({ path: `/api/media/${result.key}` }, 201);
+}
+
+// GET /api/media/:key — cliente só lê o próprio prefixo (client/<id>/...);
+// qualquer staff autenticado lê tudo, igual ao resto do painel.
+async function handleMediaGet(env, request, key) {
+  const user = await getCurrentUser(env, request);
+  if (!user) return json({ error: "AUTH_REQUIRED" }, 401);
+  if (user.role === "cliente" && !key.startsWith(`client/${user.id}/`)) {
+    return json({ error: "FORBIDDEN" }, 403);
+  }
+  if (!env.MEDIA) return json({ error: "MEDIA_NAO_CONFIGURADO" }, 500);
+  const object = await env.MEDIA.get(key);
+  if (!object) return json({ error: "NAO_ENCONTRADO" }, 404);
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("cache-control", "private, max-age=86400");
+  headers.set("access-control-allow-origin", "*");
+  return new Response(object.body, { headers });
+}
+
 async function clientePhoneOf(db, clientId) {
   const row = await db.prepare(`SELECT telefone FROM cliente_cadastro WHERE client_id=?`).bind(clientId).first();
   return telefoneNormalizado(row?.telefone);
@@ -3861,6 +3994,12 @@ async function handleClientConversationDetail(env, request, id) {
 // WhatsApp/Opa!Suite configurados. E a mensagem é do cliente PARA o NOC —
 // direction 'in', igual a qualquer mensagem recebida por outro canal (nunca
 // 'out', que é reservado pra quando o atendente/bot fala).
+//
+// Um único atendimento por cliente: telefone+CPF nunca abrem uma segunda
+// conversa em paralelo. Se já existir uma (aberta, na fila, ou encerrada),
+// reaproveita a mesma linha em vez de inserir outra — encerrada volta pra
+// fila de roteamento — assim o histórico inteiro fica numa thread só, nunca
+// fragmentado.
 async function handleClientConversationCreate(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
@@ -3872,6 +4011,27 @@ async function handleClientConversationCreate(env, request) {
   const text = String(body.body || "").trim().slice(0, 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
   const customerName = String(cadastro?.nome || "").trim() || phone;
+
+  const existing = await db.prepare(`
+    SELECT id, status FROM wa_conversations WHERE phone=? AND channel='app' ORDER BY id DESC LIMIT 1
+  `).bind(phone).first();
+
+  if (existing) {
+    if (existing.status === "closed") {
+      await db.prepare(`
+        UPDATE wa_conversations SET status='routing',routing_attempts=0,closed_at=NULL,closed_by=NULL,
+          last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
+      `).bind(text, existing.id).run();
+    } else {
+      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+        .bind(text, existing.id).run();
+    }
+    await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,sender_name) VALUES(?,?,?,?,?)`)
+      .bind(existing.id, "in", "text", text, customerName).run();
+    await audit(env, request, { username: gate.user.username }, "CLIENT_CONVERSATION_CREATE", "wa_conversation", existing.id, null, { phone, reopened: existing.status === "closed" });
+    return json({ id: existing.id, ok: true });
+  }
+
   const result = await db.prepare(`
     INSERT INTO wa_conversations(phone,customer_name,channel,sector_id,assigned_user_id,status,last_message,last_message_at,updated_at)
     VALUES(?,?,'app',NULL,NULL,'routing',?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
@@ -3891,21 +4051,38 @@ async function handleClientMessageSend(env, request, id) {
   const phone = await clientePhoneOf(db, gate.user.id);
   const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel FROM wa_conversations WHERE id=?`).bind(id).first();
   if (!conv || !phone || conv.phone !== phone) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
-  if (conv.status === "closed") return json({ error: "CONVERSA_ENCERRADA" }, 409);
+  // Cliente só tem UMA conversa (ver handleClientConversationCreate): mandar
+  // mensagem numa encerrada reabre pra fila em vez de rejeitar, senão o
+  // cliente ficaria travado sem conseguir voltar a falar com o suporte.
+  if (conv.status === "closed") {
+    await db.prepare(`
+      UPDATE wa_conversations SET status='routing',routing_attempts=0,closed_at=NULL,closed_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(id).run();
+    conv.status = "routing";
+  }
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
-  const text = String(body.body || "").trim().slice(0, 4096);
+  const isImage = body.type === "image";
+  const text = String(body.body || "").trim().slice(0, isImage ? 300 : 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
+  // Só aceita path de imagem que o próprio cliente subiu (ver handleClientUpload) —
+  // sem isso, ele poderia referenciar a foto de outro cliente ou de um
+  // atendente só sabendo o path.
+  if (isImage && !text.startsWith(`/api/media/client/${gate.user.id}/`)) {
+    return json({ error: "IMAGEM_INVALIDA" }, 400);
+  }
 
   // Conversa nascida no app não tem canal externo pra espelhar. As que vieram
   // de fora (WhatsApp, Opa!Suite) continuam sendo retransmitidas, senão o
-  // histórico do lado de lá fica incompleto.
+  // histórico do lado de lá fica incompleto. Imagem nunca é retransmitida:
+  // o path só funciona autenticado neste backend, sem valor pra um canal
+  // externo (WhatsApp/Opa!Suite exigiriam upload de mídia próprio, não feito).
   const isAppOnly = !conv.channel || conv.channel === "app";
-  const send = isAppOnly ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
+  const send = isAppOnly || isImage ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
 
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_name) VALUES(?,?,?,?,?,?,?)`)
-    .bind(id, "in", "text", text, send.wa_message_id, send.ok ? "sent" : "failed", conv.customer_name).run();
-  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, id).run();
-  await audit(env, request, { username: gate.user.username }, "CLIENT_MESSAGE_SEND", "wa_conversation", id, null, { ok: send.ok });
+    .bind(id, "in", isImage ? "image" : "text", text, send.wa_message_id, send.ok ? "sent" : "failed", conv.customer_name).run();
+  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(isImage ? "📷 Imagem" : text, id).run();
+  await audit(env, request, { username: gate.user.username }, "CLIENT_MESSAGE_SEND", "wa_conversation", id, null, { ok: send.ok, type: isImage ? "image" : "text" });
   if (!send.ok) {
     return json({ error: send.error || "WHATSAPP_ENVIO_FALHOU", messageId: result.meta.last_row_id }, 502);
   }
@@ -7908,6 +8085,9 @@ export default {
         if (url.pathname === "/api/auth/login" && request.method === "POST")
           return await handleLogin(env, request);
 
+        if (url.pathname === "/api/auth/client-login" && request.method === "POST")
+          return await handleClientLoginPhone(env, request);
+
         if (url.pathname === "/api/auth/me" && request.method === "GET")
           return await handleMe(env, request);
 
@@ -7930,6 +8110,15 @@ export default {
           await audit(env,request,user,"PASSWORD_CHANGED","user",user.id);
           return json({ok:true});
         }
+
+        if (url.pathname === "/api/client/uploads" && request.method === "POST")
+          return await handleClientUpload(env, request);
+
+        if (url.pathname === "/api/whatsapp/uploads" && request.method === "POST")
+          return await handleStaffUpload(env, request);
+
+        if (url.pathname.startsWith("/api/media/") && request.method === "GET")
+          return await handleMediaGet(env, request, url.pathname.slice("/api/media/".length));
 
         if (url.pathname === "/api/client/me" && request.method === "GET")
           return await handleClientMe(env, request);
