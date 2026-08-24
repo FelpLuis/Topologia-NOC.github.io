@@ -102,7 +102,10 @@
     const host = $("#convList");
     const conversations = (state.data?.conversations || []).filter(visibleConv);
     const filtered = conversations.filter(c =>
-      (!state.sector || String(c.sector_id) === state.sector) &&
+      // Conversa na fila de roteamento ainda não tem setor (sector_id null)
+      // — o filtro de setor não se aplica a ela, senão fica invisível assim
+      // que a tela abre com um setor pré-selecionado (ver load()).
+      (c.status === "routing" || !state.sector || String(c.sector_id) === state.sector) &&
       (state.status !== "open" || c.status === "open") &&
       (state.status !== "routing" || c.status === "routing") &&
       (state.status !== "closed" || c.status === "closed")
