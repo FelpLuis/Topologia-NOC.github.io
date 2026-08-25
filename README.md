@@ -28,6 +28,7 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `public/js/app.js`: topologia, equipamentos, portas e edição.
 - `public/js/noc-dashboard.js`: dashboard por POP.
 - `public/js/noc-trafego.js`: tela de tráfego das interfaces.
+- `public/js/noc-tempo.js`: fuso horário do sistema (America/Sao_Paulo) — toda data que a tela mostra ou lê passa por aqui.
 - `public/data/equipamentos.json`: cadastro dos equipamentos e portas.
 - `public/data/conexoes.json`: ligações entre equipamentos.
 - `public/data/pops.json`: cadastro dos POPs.
@@ -40,6 +41,44 @@ A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite mant
 - `src/turso-d1.js`: adaptador que mantém a API de consultas do Worker sobre o Turso.
 - `src/zabbix.js`, `src/zabbix-links.js`, `src/zabbix-topology.js`: integração Zabbix.
 - `wrangler.jsonc`: configuração do Worker.
+
+## Fuso horário
+
+O sistema inteiro trabalha em **America/Sao_Paulo**, e isso não depende do
+relógio de nenhuma máquina. São duas regras:
+
+1. **O banco guarda UTC.** O `CURRENT_TIMESTAMP` do SQLite grava
+   `2026-08-20 13:45:00` — UTC, mas sem o fuso declarado. O Worker roda em UTC,
+   e o coletor manda tudo em ISO com `Z`.
+2. **A tela mostra São Paulo.** Nada de `toLocaleString` solto: todo texto de
+   data sai de `public/js/noc-tempo.js` (`window.TEMPO`), que formata com
+   `timeZone` fixo em vez de usar o fuso do sistema operacional.
+
+Sem a primeira regra o navegador lê o carimbo do banco como hora local e mostra
+a coleta três horas no futuro. Sem a segunda, um telão do NOC com o fuso
+trocado — ou um Windows recém-instalado, que fica em UTC — desmente o painel
+inteiro sem avisar ninguém.
+
+```js
+TEMPO.dataHora("2026-08-20 13:45:00")  // "20/08/2026, 10:45"
+TEMPO.hora("2026-08-20T13:45:00Z")     // "10:45"
+TEMPO.deInput("2026-08-20T09:00")      // Date de 2026-08-20T12:00:00.000Z
+TEMPO.paraInput("2026-08-20T12:00:00Z")// "2026-08-20T09:00" (para <input type="datetime-local">)
+TEMPO.chaveDia("2026-08-21T02:30:00Z") // "2026-08-20" — o dia vira à meia-noite daqui
+```
+
+O caminho de volta é o `deInput`: um `<input type="datetime-local">` devolve
+hora de parede sem fuso, e é ele que decide que essa parede é a de São Paulo
+antes de virar UTC para o banco. Agenda e CRM gravam por aí.
+
+No servidor, o único lugar que precisa saber o fuso é a importação de `.ics`:
+hora "flutuante" (sem `TZID` e sem `Z`) vale no fuso de quem lê o calendário,
+que é o NOC — `FUSO_PADRAO` em `src/ics.js`.
+
+Trocar o fuso do sistema é mudar duas constantes: `ZONA` em
+`public/js/noc-tempo.js` e `FUSO_PADRAO` em `src/ics.js`. Os testes
+(`tests/tempo.test.mjs`) conferem o comportamento com carimbos em UTC, então
+passam igual em qualquer máquina — rode com `TZ=UTC npm test` para confirmar.
 
 ## Banco Turso
 

@@ -218,7 +218,7 @@
 
     const W = 1000, H = altura, PL = 70, PR = 14, PT = 16, PB = 28;
     const larg = W - PL - PR, alt = H - PT - PB;
-    const quando = (a) => new Date(String(a.taken_at).replace(" ", "T") + "Z");
+    const quando = (a) => TEMPO.instante(a.taken_at);
 
     const maximo = Math.max(...amostras.map((a) => Math.max(a.in_bps || 0, a.out_bps || 0)), 1);
     const escalaY = (v) => PT + alt - (v / maximo) * alt;
@@ -238,7 +238,7 @@
     const marcas = Math.min(6, amostras.length);
     const rotulosX = Array.from({ length: marcas }, (_, k) => {
       const i = Math.round((k / (marcas - 1)) * (amostras.length - 1));
-      const hora = quando(amostras[i]).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const hora = TEMPO.hora(amostras[i].taken_at);
       const ancora = k === 0 ? "start" : k === marcas - 1 ? "end" : "middle";
       return `<text class="chart-axis" x="${escalaX(i).toFixed(1)}" y="${H - 8}" text-anchor="${ancora}">${esc(hora)}</text>`;
     }).join("");
@@ -936,7 +936,7 @@
      em um telão parado, é ele que diz se o painel está vivo. */
   function atualizarFrescor() {
     const run = state.status?.last_run;
-    const quando = run ? new Date(String(run.finished_at || run.started_at).replace(" ", "T") + "Z") : null;
+    const quando = run ? TEMPO.instante(run.finished_at || run.started_at) : null;
     const segundos = quando ? Math.max(0, Math.round((Date.now() - quando.getTime()) / 1000)) : null;
     const texto = segundos === null
       ? "nunca sincronizado"
@@ -953,7 +953,7 @@
     const t = totais();
     $("#syncInfo").textContent = [
       run2
-        ? `Última sincronização: ${quando.toLocaleString("pt-BR")} • ${run2.hosts_count} hosts, ${run2.interfaces_count} interfaces (${run2.source === "cron" ? "automática" : run2.source === "realtime" ? "tempo real" : "manual"}).`
+        ? `Última sincronização: ${TEMPO.dataHoraSegundos(quando)} • ${run2.hosts_count} hosts, ${run2.interfaces_count} interfaces (${run2.source === "cron" ? "automática" : run2.source === "realtime" ? "tempo real" : "manual"}).`
         : "Nenhuma sincronização registrada ainda.",
       t.inconsistentes
         ? `${t.inconsistentes} interface(s) reportaram tráfego acima da capacidade da porta e ficaram fora dos totais.`
@@ -1558,7 +1558,7 @@
     const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `trafego-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`;
+    a.download = `trafego-${TEMPO.chaveDia(new Date())}-${TEMPO.hora(new Date()).replace(":", "-")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast("CSV gerado", { text: `${linhas.length - 1} interface(s) exportada(s) com os filtros atuais.`, type: "ok" });
@@ -1636,8 +1636,8 @@
     const agora = new Date();
     const relogio = $("#graficoClock");
     const data = $("#graficoDate");
-    if (relogio) relogio.textContent = agora.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    if (data) data.textContent = agora.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" });
+    if (relogio) relogio.textContent = TEMPO.hora(agora);
+    if (data) data.textContent = TEMPO.fmt(agora, { weekday: "short", day: "2-digit", month: "short" });
 
     const duracao = state.grafico.intervaloSegundos * 1000;
     const decorrido = state.grafico.pausado

@@ -157,7 +157,9 @@ test("o uptime é derivado na tela a partir do instante da conexão", () => {
   // Mandar o contador obrigaria todo cliente online a ocupar o delta a cada
   // ciclo; mandar o instante deixa o relógio vivo de graça.
   assert.match(runtime, /function duracao\(c\)/);
-  assert.match(runtime, /Date\.parse\(String\(c\.conn_since \|\| ""\)\.replace\(" ", "T"\)\)/);
+  // Pelo TEMPO, e não por um Date.parse solto: o coletor manda o instante em
+  // UTC, e lê-lo como hora local devolvia um uptime três horas maior.
+  assert.match(runtime, /const inicio = TEMPO\.instante\(c\.conn_since\);/);
 });
 
 test("o botão Atualizar força a releitura da OLT e do IXC", () => {

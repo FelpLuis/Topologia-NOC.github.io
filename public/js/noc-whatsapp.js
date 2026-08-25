@@ -23,12 +23,15 @@
     if (m) return `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`;
     return d || "—";
   };
-  const formatTime = t => t ? new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+  /* Hora da mensagem no fuso de São Paulo: o carimbo chega em UTC (ISO do
+     webhook ou "YYYY-MM-DD HH:MM:SS" do banco) e quem converte é TEMPO. */
+  const formatTime = t => TEMPO.hora(t, "");
   const timeLabel = t => {
     if (!t) return "";
-    const d = new Date(t), now = new Date();
-    if (d.toDateString() === now.toDateString()) return formatTime(t);
-    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) + " " + formatTime(t);
+    // "Hoje" é o dia de Brasília — senão, perto da meia-noite, a conversa de
+    // ontem aparece com hora seca e a de hoje com data.
+    if (TEMPO.hoje(t)) return formatTime(t);
+    return TEMPO.fmt(t, { day: "2-digit", month: "2-digit" }, "") + " " + formatTime(t);
   };
   // Canal nativo (Meta direto) não ganha selo — é o padrão. Os externos, que
   // chegam via webhook do Opa!Suite, ganham um selo pra distinguir na lista.

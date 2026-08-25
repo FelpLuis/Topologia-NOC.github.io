@@ -5,15 +5,16 @@
   const priorities = { low:"Baixa",normal:"Normal",high:"Alta",urgent:"Urgente" };
   const kinds = { note:"Nota",call:"Ligação",whatsapp:"WhatsApp",email:"E-mail",meeting:"Reunião",status:"Mudança de etapa",system:"Sistema" };
   const money = value => Number(value||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-  const dateTime = value => value ? new Date(value).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"}) : "Não agendado";
-  const localInput = value => {
-    if(!value)return ""; const d=new Date(value),pad=n=>String(n).padStart(2,"0");
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
+  /* O próximo contato é combinado com o cliente em horário de Brasília: é
+     nesse fuso que ele aparece na tela, que o campo é preenchido e que a hora
+     digitada vira UTC para o banco (TEMPO.deInput). */
+  const dateTime = value => TEMPO.fmt(value,{dateStyle:"short",timeStyle:"short"},"Não agendado");
+  const localInput = value => TEMPO.paraInput(value);
   const stagesOf = sectorId => (state.data?.stages||[]).filter(x=>String(x.sector_id)===String(sectorId));
   const usersOf = sectorId => (state.data?.users||[]).filter(x=>String(x.sector_id)===String(sectorId));
   const sectorOf = id => (state.data?.sectors||[]).find(x=>String(x.id)===String(id));
-  const overdue = item => item.next_contact_at && !item.is_closed && new Date(item.next_contact_at)<new Date();
+  // Carimbo ilegível não vira atraso: sem data confiável, o cartão fica neutro.
+  const overdue = item => { const d = item.is_closed?null:TEMPO.instante(item.next_contact_at); return Boolean(d)&&d<new Date(); };
 
   async function load(preferredCaseId=null){
     const content=$("#crmContent"); NOC.skeleton(content,5);
@@ -40,8 +41,9 @@
 
   function renderKpis(){
     const visible=(state.data?.cases||[]).filter(x=>state.sector==="all"||String(x.sector_id)===state.sector);
-    const open=visible.filter(x=>!x.is_closed), today=new Date(); today.setHours(0,0,0,0); const tomorrow=new Date(today);tomorrow.setDate(today.getDate()+1);
-    const dueToday=open.filter(x=>x.next_contact_at&&new Date(x.next_contact_at)>=today&&new Date(x.next_contact_at)<tomorrow).length;
+    const open=visible.filter(x=>!x.is_closed);
+    // "Para hoje" é o dia de Brasília, não o do computador de quem abriu a tela.
+    const dueToday=open.filter(x=>x.next_contact_at&&TEMPO.hoje(x.next_contact_at)).length;
     const value=open.reduce((sum,x)=>sum+Number(x.estimated_value||0),0);
     $("#crmKpis").innerHTML=[
       ["users",open.length,"Em aberto"],["alert",open.filter(overdue).length,"Contatos atrasados"],
@@ -117,7 +119,7 @@
         const choices=()=>{const sid=sector.value;stage.innerHTML=stagesOf(sid).map(s=>`<option value="${s.id}" ${String(s.id)===String(item?.stage_id)?"selected":""}>${esc(s.name)}</option>`).join("");owner.innerHTML='<option value="">Sem responsável</option>'+usersOf(sid).map(u=>`<option value="${u.id}" ${String(u.id)===String(item?.assigned_user_id)?"selected":""}>${esc(u.display_name)}</option>`).join("")};
         choices();sector.onchange=choices;
         $("[data-save]",host).onclick=async()=>{const error=$("#caseError",host),next=$("#caseNext",host).value;const payload={
-          title:$("#caseTitle",host).value.trim(),customer_name:$("#customerName",host).value.trim(),customer_document:$("#customerDocument",host).value.trim(),sector_id:Number(sector.value),stage_id:Number(stage.value),assigned_user_id:owner.value?Number(owner.value):null,priority:$("#casePriority",host).value,phone:$("#casePhone",host).value.trim(),email:$("#caseEmail",host).value.trim(),city:$("#caseCity",host).value.trim(),address:$("#caseAddress",host).value.trim(),source:$("#caseSource",host).value.trim(),estimated_value:Number($("#caseValue",host).value||0),next_contact_at:next?new Date(next).toISOString():null,tags:$("#caseTags",host).value,details:$("#caseDetails",host).value.trim()};
+          title:$("#caseTitle",host).value.trim(),customer_name:$("#customerName",host).value.trim(),customer_document:$("#customerDocument",host).value.trim(),sector_id:Number(sector.value),stage_id:Number(stage.value),assigned_user_id:owner.value?Number(owner.value):null,priority:$("#casePriority",host).value,phone:$("#casePhone",host).value.trim(),email:$("#caseEmail",host).value.trim(),city:$("#caseCity",host).value.trim(),address:$("#caseAddress",host).value.trim(),source:$("#caseSource",host).value.trim(),estimated_value:Number($("#caseValue",host).value||0),next_contact_at:next?TEMPO.deInput(next)?.toISOString()??null:null,tags:$("#caseTags",host).value,details:$("#caseDetails",host).value.trim()};
           if(!payload.title||!payload.customer_name||!payload.stage_id){error.hidden=false;error.textContent="Informe o assunto, o cliente e a etapa.";return}
           try{const saved=await NOC.api(item?`/api/crm/cases/${item.id}`:"/api/crm/cases",{method:item?"PATCH":"POST",body:JSON.stringify(payload)});close();state.sector=String(saved.sector_id);await load();toast(item?"Registro atualizado":"Registro criado",{type:"ok"})}catch(err){error.hidden=false;error.textContent=err.message}
         };

@@ -32,16 +32,9 @@
 
   const pct = (parte, total) => (total > 0 ? Math.round((parte / total) * 100) : 0);
 
-  /* O servidor devolve tanto ISO quanto o "YYYY-MM-DD HH:MM:SS" do SQLite,
-     que é UTC sem fuso declarado. Sem o Z, o navegador leria como hora local
-     e o alerta apareceria com três horas de diferença. */
-  function instante(valor) {
-    const texto = String(valor || "").trim();
-    if (!texto) return null;
-    const iso = texto.includes("T") ? texto : `${texto.replace(" ", "T")}Z`;
-    const d = new Date(/Z$|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
+  /* Ler e escrever data fica em TEMPO (noc-tempo.js): é ele que sabe que o
+     "YYYY-MM-DD HH:MM:SS" do SQLite é UTC e que a tela fala São Paulo. */
+  const instante = TEMPO.instante;
 
   function desde(valor) {
     const d = instante(valor);
@@ -50,13 +43,10 @@
     if (minutos < 1) return "agora";
     if (minutos < 60) return `há ${minutos} min`;
     if (minutos < 60 * 24) return `há ${Math.round(minutos / 60)} h`;
-    return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return TEMPO.fmt(d, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
-  const relogio = (valor) => {
-    const d = instante(valor);
-    return d ? d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—";
-  };
+  const relogio = (valor) => TEMPO.hora(valor);
 
   function semPermissao(mensagem) {
     return `<div class="empty" style="padding:var(--s-6) 0">
@@ -362,7 +352,7 @@
     renderClientes(state.dados.clientes);
     renderTrafego(state.dados.trafego);
     renderAlertas(state.dados.alertas);
-    $("#lastUpdate").textContent = new Date().toLocaleTimeString("pt-BR");
+    $("#lastUpdate").textContent = TEMPO.horaCompleta(new Date());
   }
 
   async function carregar({ silencioso = false } = {}) {
@@ -383,7 +373,7 @@
   }
 
   function saudacao(nome) {
-    const h = new Date().getHours();
+    const h = TEMPO.partes(new Date()).hora;
     const parte = h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
     const primeiro = String(nome || "").trim().split(/\s+/)[0];
     return primeiro ? `${parte}, ${primeiro}` : parte;

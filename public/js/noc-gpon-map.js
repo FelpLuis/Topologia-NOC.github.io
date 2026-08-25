@@ -58,13 +58,13 @@
   /* "há 8 s" diz na hora se a coleta está no ritmo prometido; um carimbo de
      data completo obriga o operador a fazer a conta de cabeça. */
   function relativo(iso) {
-    const instante = Date.parse(String(iso || ""));
-    if (!Number.isFinite(instante)) return "—";
-    const s = Math.max(0, Math.round((Date.now() - instante) / 1000));
+    const d = TEMPO.instante(iso);
+    if (!d) return "—";
+    const s = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
     if (s < 60) return `há ${s}s`;
     if (s < 3600) return `há ${Math.round(s / 60)}min`;
     if (s < 86400) return `há ${Math.round(s / 3600)}h`;
-    return new Date(instante).toLocaleString("pt-BR");
+    return TEMPO.dataHoraSegundos(d);
   }
   const short = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(".0", "")}k` : String(n));
 
@@ -109,8 +109,8 @@
      começou, que é estático, e a tela faz a conta. Mandar o contador em si
      obrigaria todo cliente online a ocupar uma linha do delta a cada ciclo. */
   function duracao(c) {
-    const inicio = Date.parse(String(c.conn_since || "").replace(" ", "T"));
-    const s = Number.isFinite(inicio) ? Math.max(0, Math.round((Date.now() - inicio) / 1000))
+    const inicio = TEMPO.instante(c.conn_since);
+    const s = inicio ? Math.max(0, Math.round((Date.now() - inicio.getTime()) / 1000))
       : Number.isFinite(Number(c.uptime_s)) ? Number(c.uptime_s) : null;
     if (s === null) return "";
     const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
@@ -775,8 +775,8 @@
        o telão parecer travado depois de meia hora de rede estável. */
     const sync = $("#syncTime");
     sync.textContent = f.synced_at ? `Alteração ${relativo(f.synced_at)}` : "Sem sincronização da OLT";
-    sync.title = [f.synced_at ? `Última alteração de estado: ${new Date(f.synced_at).toLocaleString("pt-BR")}` : "",
-      state.checkedAt ? `Última verificação da coleta: ${new Date(state.checkedAt).toLocaleString("pt-BR")}` : ""]
+    sync.title = [f.synced_at ? `Última alteração de estado: ${TEMPO.dataHoraSegundos(f.synced_at)}` : "",
+      state.checkedAt ? `Última verificação da coleta: ${TEMPO.dataHoraSegundos(state.checkedAt)}` : ""]
       .filter(Boolean).join(" • ");
     const message = $("#mapMessage");
     const semLocal = state.rows.length - state.rows.filter((r) => r.located).length;
@@ -1169,10 +1169,9 @@
     if (!host) return;
     host.hidden = !medidas.length;
     if (!medidas.length) return;
-    const bruto = TRAF.coletadoEm();
-    const d = bruto && new Date(String(bruto).includes("T") ? bruto : `${String(bruto).replace(" ", "T")}Z`);
+    const medidoAs = TEMPO.hora(TRAF.coletadoEm(), "");
     const quando = TRAF.erro() ? "sem leitura nova do Zabbix"
-      : d && !Number.isNaN(d.getTime()) ? `medido às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+      : medidoAs ? `medido às ${medidoAs}`
         : "aguardando o Zabbix";
     host.innerHTML = `
       <div class="traf-legenda-titulo">
@@ -1516,7 +1515,7 @@
         <div>
           <b>${de}${esc(e.status_after)}</b>
           <small>${esc(e.detail_after || EVENTO_ROTULO[e.event] || e.event)}${sinal}</small>
-          <small class="mono">${esc(new Date(e.created_at.replace(" ", "T") + (e.created_at.endsWith("Z") ? "" : "Z")).toLocaleString("pt-BR"))} • ${esc(ORIGEM_ROTULO[e.origin] || e.origin)}</small>
+          <small class="mono">${esc(TEMPO.dataHoraSegundos(e.created_at))} • ${esc(ORIGEM_ROTULO[e.origin] || e.origin)}</small>
         </div>
       </div>`;
     }).join("");
@@ -1622,8 +1621,7 @@
   };
 
   function linhaRadiusLog(ev) {
-    const quando = new Date(String(ev.created_at || "").replace(" ", "T"));
-    const horario = Number.isFinite(quando.getTime()) ? quando.toLocaleString("pt-BR") : String(ev.created_at || "—");
+    const horario = TEMPO.dataHoraSegundos(ev.created_at, String(ev.created_at || "—"));
     const transicao = ev.status_before ? `${esc(ev.status_before)} → ${esc(ev.status_after)}` : esc(ev.status_after || "—");
     return `<tr>
       <td class="mono dim">${esc(horario)}</td>
@@ -1777,8 +1775,8 @@
       rl.loading = true;
       try {
         const ultimo = rl.map.get(rl.maxId);
-        const marca = ultimo?.created_at ? Date.parse(`${String(ultimo.created_at).replace(" ", "T")}Z`) : NaN;
-        const extra = Number.isFinite(marca) ? { since: new Date(marca - 2000).toISOString() } : {};
+        const marca = TEMPO.instante(ultimo?.created_at);
+        const extra = marca ? { since: new Date(marca.getTime() - 2000).toISOString() } : {};
         const lote = await pedir(extra);
         if (geracao !== rl.geracao) return;
         if (acrescentar(lote)) {

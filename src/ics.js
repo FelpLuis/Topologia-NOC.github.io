@@ -1,6 +1,12 @@
 const MAX_EVENTS = 5000;
 const DAY_MS = 86400000;
 
+/* O fuso do sistema. Um .ics pode trazer hora "flutuante" — sem TZID e sem Z —
+   e o RFC 5545 diz que ela vale no fuso de quem lê o calendário. Quem lê aqui é
+   o NOC, em São Paulo. Sem isso o Worker (que roda em UTC) tratava 09:00 como
+   09:00 UTC e o compromisso importado entrava na agenda três horas cedo. */
+export const FUSO_PADRAO = "America/Sao_Paulo";
+
 function unfold(text) {
   return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n[ \t]/g, "");
 }
@@ -54,9 +60,11 @@ function parseDateValue(property) {
     year: Number(match[1]), month: Number(match[2]), day: Number(match[3]),
     hour: Number(match[4] || 0), minute: Number(match[5] || 0), second: Number(match[6] || 0)
   };
+  /* Compromisso de dia inteiro não tem hora para converter: fica na meia-noite
+     UTC, e quem mostra o dia na tela é que o lê no fuso de São Paulo. */
   const date = match[7]
     ? new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second))
-    : zonedDate(parts, allDay ? null : property.params.TZID);
+    : zonedDate(parts, allDay ? null : (property.params.TZID || FUSO_PADRAO));
   return Number.isFinite(date.getTime()) ? { date, allDay } : null;
 }
 

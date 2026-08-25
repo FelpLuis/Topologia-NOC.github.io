@@ -174,7 +174,7 @@
     renderIntegration();
     renderPops();
     renderPendentes();
-    $("#lastUpdate").textContent = new Date().toLocaleTimeString("pt-BR");
+    $("#lastUpdate").textContent = TEMPO.horaCompleta(new Date());
   }
 
   /* ---------------- início ---------------- */

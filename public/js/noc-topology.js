@@ -1392,11 +1392,7 @@
       ${TRAF.legendaHTML(medidas)}`;
   }
 
-  const horaLegenda = (iso) => {
-    const bruto = String(iso);
-    const d = new Date(bruto.includes("T") ? bruto : `${bruto.replace(" ", "T")}Z`);
-    return Number.isNaN(d.getTime()) ? bruto : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  };
+  const horaLegenda = (iso) => TEMPO.hora(iso, String(iso));
 
   /* Estado operacional do POP, do jeito que a caixa e o alfinete precisam.
      POP com todos os equipamentos fora do ar pisca em vermelho: é a única

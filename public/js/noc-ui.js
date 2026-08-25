@@ -671,8 +671,7 @@ window.UI = (() => {
 
   function formatAppointmentStart(event) {
     if (event.all_day) return "Hoje, dia inteiro";
-    const date = new Date(event.start);
-    return date.toLocaleString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return TEMPO.fmt(event.start, { weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
   function showAppointmentPopup(events) {
@@ -714,8 +713,7 @@ window.UI = (() => {
       const end = new Date(now + 24 * 60 * 60_000).toISOString();
       const data = await calendarApi(`/api/agenda?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
       const seen = seenCalendarAlerts();
-      const current = new Date();
-      const today = `${current.getFullYear()}-${String(current.getMonth()+1).padStart(2,"0")}-${String(current.getDate()).padStart(2,"0")}`;
+      const today = TEMPO.chaveDia(new Date());
       const due = (data.events || []).filter(event => {
         if (!event.alert_popup) return false;
         const key = `${event.source || "updown"}:${event.id}:${event.start}`;
@@ -723,7 +721,7 @@ window.UI = (() => {
         if (event.all_day) {
           if (String(event.start).slice(0, 10) !== today) return false;
         } else {
-          const starts = new Date(event.start).getTime();
+          const starts = TEMPO.instante(event.start)?.getTime();
           const lead = Math.max(0, Number(event.alert_minutes || 0)) * 60_000;
           if (!Number.isFinite(starts) || starts < now - 5 * 60_000 || starts > now + lead) return false;
         }
@@ -1013,12 +1011,15 @@ window.UI = (() => {
     });
   }
 
+  /* O relógio do cabeçalho mostra o horário de Brasília, e não o do
+     computador: num telão com o fuso trocado, a hora errada no topo põe em
+     dúvida todo o resto do painel. */
   function clock(strongSel, smallSel) {
     const s = $(strongSel), d = $(smallSel);
     const tick = () => {
       const now = new Date();
-      if (s) s.textContent = now.toLocaleTimeString("pt-BR");
-      if (d) d.textContent = now.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+      if (s) s.textContent = TEMPO.horaCompleta(now);
+      if (d) d.textContent = TEMPO.fmt(now, { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
     };
     tick();
     setInterval(tick, 1000);

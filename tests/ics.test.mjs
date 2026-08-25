@@ -75,6 +75,22 @@ END:VCALENDAR`, { now: "2026-08-01T00:00:00Z" });
   ]);
 });
 
+test("hora sem fuso no .ics é hora de São Paulo", () => {
+  /* Hora flutuante: sem TZID e sem Z. O RFC 5545 diz que ela vale no fuso de
+     quem lê o calendário — e quem lê é o NOC. Antes o Worker, que roda em UTC,
+     importava a reunião das 9h para as 6h da manhã. */
+  const [event] = parseIcsCalendar(`BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:reuniao-flutuante
+DTSTART:20260820T090000
+DTEND:20260820T100000
+SUMMARY:Reunião
+END:VEVENT
+END:VCALENDAR`, { now: "2026-08-18T12:00:00Z" });
+  assert.equal(event.start_at, "2026-08-20T12:00:00.000Z");
+  assert.equal(event.end_at, "2026-08-20T13:00:00.000Z");
+});
+
 test("rejeita arquivo que não é um calendário ICS", () => {
   assert.throws(() => parseIcsCalendar("texto qualquer"), /ARQUIVO_ICS_INVALIDO/);
 });

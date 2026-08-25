@@ -1013,7 +1013,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `auditoria-updown-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `auditoria-updown-${TEMPO.chaveDia(new Date())}.csv`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast("Auditoria exportada", { text: `${state.audit.length} registros em CSV.`, type: "ok" });

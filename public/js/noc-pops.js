@@ -679,10 +679,8 @@
     if (TRAF.erro()) return "sem leitura nova do Zabbix";
     const bruto = TRAF.coletadoEm();
     if (!bruto) return "aguardando o Zabbix";
-    const d = new Date(String(bruto).includes("T") ? bruto : `${String(bruto).replace(" ", "T")}Z`);
-    return Number.isNaN(d.getTime())
-      ? esc(String(bruto))
-      : `medido às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    const hora = TEMPO.hora(bruto, "");
+    return hora ? `medido às ${hora}` : esc(String(bruto));
   }
 
   function renderRingBar() {

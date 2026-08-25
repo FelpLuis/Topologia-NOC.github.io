@@ -228,14 +228,12 @@ window.TRAF = (() => {
      valendo quando a dica flutuante não está ligada na tela. */
   const dica = (m, titulo, extra) => linhasDica(m, titulo, extra).join(" — ");
 
-  /* O espelho grava "2026-08-20 13:45:00" (UTC, sem fuso). Sem o Z o navegador
-     leria como hora local e mostraria a coleta no futuro. */
+  /* O espelho grava "2026-08-20 13:45:00" (UTC, sem fuso) e a tela mostra a
+     hora de São Paulo: quem faz as duas conversões é TEMPO (noc-tempo.js).
+     Carimbo que ele não entende volta cru — melhor que uma hora inventada. */
   function horaCurta(iso) {
     const bruto = String(iso);
-    const t = bruto.includes("T") ? bruto : `${bruto.replace(" ", "T")}Z`;
-    const d = new Date(t);
-    return Number.isNaN(d.getTime()) ? bruto
-      : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return TEMPO.hora(bruto, bruto);
   }
 
   /* ---------------- legenda ---------------- */
