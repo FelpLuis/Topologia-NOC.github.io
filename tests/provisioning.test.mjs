@@ -4,6 +4,8 @@ import fs from "node:fs";
 
 const worker = fs.readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
 const provision = fs.readFileSync(new URL("../collector/provision.mjs", import.meta.url), "utf8");
+const env = fs.readFileSync(new URL("../collector/env.mjs", import.meta.url), "utf8");
+const collector = fs.readFileSync(new URL("../collector/server.mjs", import.meta.url), "utf8");
 const topology = fs.readFileSync(new URL("../public/js/noc-topology.js", import.meta.url), "utf8");
 const platform = fs.readFileSync(new URL("../public/js/noc-platform.js", import.meta.url), "utf8");
 
@@ -41,6 +43,19 @@ test("Coletor cria comandos por fabricante e reporta ao Worker", () => {
   assert.match(provision, /\/api\/provisioning\/pending/);
   assert.match(provision, /\/report/);
   assert.match(provision, /AbortSignal\.timeout/);
+});
+
+test("coletor e provisionamento falam do mesmo objeto de configuração", () => {
+  // O objeto que server.mjs entrega é o "provisioning" de env.mjs — {url,
+  // pushToken, intervalMs}. Ler outro nome dentro de provision.mjs não é erro
+  // de sintaxe nem de tipo: vira undefined, e o provisionamento morre a cada
+  // ciclo alegando configuração ausente enquanto o log de partida jura que
+  // está ativo. Só conferir os nomes dos dois lados pega isso.
+  assert.match(env, /provisioning: \{/);
+  assert.match(env, /url: provisioningUrl,/);
+  assert.match(collector, /provisionPendingJobs\(config\.provisioning,/);
+  assert.match(provision, /const base = String\(config\.url \|\| ""\)/);
+  assert.doesNotMatch(provision, /config\.provisioningUrl/);
 });
 
 test("Frontend de topologia coleta fabricante e credencial bootstrap do destino", () => {

@@ -256,7 +256,15 @@ export async function provisionJob(job) {
 
 /* ---------------- integração com o Worker ---------------- */
 export async function provisionPendingJobs(config, onLog = () => {}) {
-  const base = String(config.provisioningUrl || "").replace(/\/+$/, "");
+  /* Este `config` é o objeto `provisioning` montado em env.mjs —
+     {url, pushToken, intervalMs}, o mesmo de onde `pushToken` sai logo abaixo.
+     Procurar aqui um `provisioningUrl` — nome que este objeto nunca teve —
+     derrubava toda chamada em "PROVISIONING_URL não configurado" mesmo com a
+     URL correta, e o log de partida (que confere o campo certo) anunciava o
+     provisionamento como ativo: o erro parecia de configuração, não de
+     leitura de campo. O teste de nomes em tests/provisioning.test.mjs existe
+     para que os dois lados não voltem a divergir em silêncio. */
+  const base = String(config.url || "").replace(/\/+$/, "");
   if (!base) throw new Error("PROVISIONING_URL não configurado no coletor");
   const headers = {
     Authorization: `Bearer ${config.pushToken}`,
