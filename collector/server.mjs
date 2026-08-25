@@ -75,11 +75,37 @@ async function pushSnapshot() {
 
    O consumo entra arredondado a MiB pelo mesmo motivo: em bytes crus, qualquer
    cliente passando tráfego reescreveria a própria linha todo ciclo. */
-const mib = (bytes) => (Number.isFinite(Number(bytes)) ? Math.round(Number(bytes) / 1048576) : null);
-const statusSignature = (client) => JSON.stringify([
-  client.status || "unknown", client.state_detail || "", client.rx_power ?? null, client.tx_power ?? null,
-  client.ip || "", client.down_kbps ?? null, client.up_kbps ?? null,
-  client.conn_since || "", client.nas_id || "", mib(client.down_bytes), mib(client.up_bytes)
+/* `Number(null)` é 0, então o consumo ausente virava "zerado" aqui — e a
+   assinatura era calculada ora sobre o cliente (campo ausente → `undefined` →
+   null) ora sobre a linha publicada (campo ausente → `null` → 0). As duas
+   nunca batiam para quem o IXC não informa consumo, e essas ONUs voltavam no
+   delta a cada 10 s sem ter mudado nada. */
+const mib = (bytes) => {
+  if (bytes === null || bytes === undefined || bytes === "") return null;
+  const valor = Number(bytes);
+  return Number.isFinite(valor) ? Math.round(valor / 1048576) : null;
+};
+
+/* A linha como ela vai no fio. A assinatura é calculada sobre ela, e não sobre
+   o cliente: assim comparar e publicar enxergam exatamente o mesmo dado, e
+   qualquer normalização feita aqui vale para os dois lados por construção. */
+const linhaStatus = (client) => ({
+  id: client.id, status: client.status, state_detail: client.state_detail,
+  rx_power: client.rx_power ?? null, tx_power: client.tx_power ?? null,
+  olt_id: client.olt_id || "", onu_index: client.onu_index || "",
+  serial: client.serial || "", name: client.name || "",
+  /* Tráfego e conexão viajam no mesmo delta do estado: é uma leitura só do
+     Radius e uma escrita só no Worker, em vez de um segundo canal com o
+     mesmo custo de paginação. */
+  ip: client.ip || "", down_kbps: client.down_kbps ?? null, up_kbps: client.up_kbps ?? null,
+  down_bytes: client.down_bytes ?? null, up_bytes: client.up_bytes ?? null,
+  uptime_s: client.uptime_s ?? null, conn_since: client.conn_since || "", nas_id: client.nas_id || "",
+});
+
+const statusSignature = (linha) => JSON.stringify([
+  linha.status || "unknown", linha.state_detail || "", linha.rx_power ?? null, linha.tx_power ?? null,
+  linha.ip || "", linha.down_kbps ?? null, linha.up_kbps ?? null,
+  linha.conn_since || "", linha.nas_id || "", mib(linha.down_bytes), mib(linha.up_bytes)
 ]);
 
 async function enviarStatus(body) {
@@ -95,25 +121,13 @@ async function enviarStatus(body) {
    do tempo a partir daqui, então cada mudança leva junto a identidade da ONU —
    sem ela o histórico seria uma lista de ids sem quem, onde nem em qual OLT. */
 async function pushStatus(origem) {
-  const changes = state.clients
-    .filter((client) => state.publishedStatus.get(client.id) !== statusSignature(client))
-    .map((client) => ({
-      id: client.id, status: client.status, state_detail: client.state_detail,
-      rx_power: client.rx_power ?? null, tx_power: client.tx_power ?? null,
-      olt_id: client.olt_id || "", onu_index: client.onu_index || "",
-      serial: client.serial || "", name: client.name || "",
-      /* Tráfego e conexão viajam no mesmo delta do estado: é uma leitura só do
-         Radius e uma escrita só no Worker, em vez de um segundo canal com o
-         mesmo custo de paginação. */
-      ip: client.ip || "", down_kbps: client.down_kbps ?? null, up_kbps: client.up_kbps ?? null,
-      down_bytes: client.down_bytes ?? null, up_bytes: client.up_bytes ?? null,
-      uptime_s: client.uptime_s ?? null, conn_since: client.conn_since || "", nas_id: client.nas_id || "",
-    }));
+  const changes = state.clients.map(linhaStatus)
+    .filter((linha) => state.publishedStatus.get(linha.id) !== statusSignature(linha));
   /* Um ciclo sem mudança ainda precisa chegar ao Worker: é ele que registra o
      batimento na auditoria e distingue "a rede está estável" de "o coletor
      parou". O corpo vazio é barato. */
   await enviarStatus({ synced_at: state.syncedAt, origin: origem, changes });
-  changes.forEach((change) => state.publishedStatus.set(change.id, statusSignature(change)));
+  changes.forEach((linha) => state.publishedStatus.set(linha.id, statusSignature(linha)));
   return changes.length;
 }
 
@@ -171,7 +185,12 @@ function radiusTransicoes(anterior, atual) {
    de um cliente sem serviço. */
 async function enviarRadiusLogs(events) {
   if (!events.length) return { sent: 0 };
-  const radiusIngestUrl = config.pushUrl.replace(/\/ingest$/, "/radius/ingest");
+  /* A rota do Worker é /api/radius/ingest, irmã de /api/gpon/ingest e não
+     filha dela: recortar só o "/ingest" final montava /api/gpon/radius/ingest,
+     que não existe. Todo ciclo com transição de PPPoE levava 404 e nenhum
+     evento chegava a radius_logs — a tabela ficou vazia desde que passou a ser
+     alimentada. O recorte inclui o "/gpon" justamente para trocar de irmã. */
+  const radiusIngestUrl = config.pushUrl.replace(/\/gpon\/ingest$/, "/radius/ingest");
   const response = await fetch(radiusIngestUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.pushToken}`, "Content-Type": "application/json" },
@@ -285,7 +304,7 @@ async function syncFull(forcar = false) {
 
     try {
       await pushSnapshot();
-      state.publishedStatus = new Map(state.clients.map((client) => [client.id, statusSignature(client)]));
+      state.publishedStatus = new Map(state.clients.map((client) => [client.id, statusSignature(linhaStatus(client))]));
       state.hasSnapshot = true;
       limparErro("Worker GPON");
     } catch (error) {

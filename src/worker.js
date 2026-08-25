@@ -622,6 +622,8 @@ CREATE TABLE IF NOT EXISTS wa_webhook_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   channel TEXT NOT NULL,
   payload TEXT NOT NULL DEFAULT '',
+  method TEXT NOT NULL DEFAULT '',
+  headers TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1535,6 +1537,12 @@ async function ensureDatabaseImpl(env) {
     ["client_id", "TEXT"]
   ]);
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
+  /* method/headers: adicionados depois pra diagnosticar o handshake do
+     webhook do Opa!Suite (formato de autenticação ainda não confirmado). */
+  await ensureColumns(db, "wa_webhook_log", [
+    ["method", "TEXT NOT NULL DEFAULT ''"],
+    ["headers", "TEXT NOT NULL DEFAULT ''"]
+  ]);
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -3177,6 +3185,11 @@ function waMessageText(msg) {
   return `[${labels[msg.type] || msg.type}]`;
 }
 
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function hmacSha256Hex(secret, data) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
@@ -3370,22 +3383,55 @@ function oaExtractMessage(payload) {
   return { channel, phone, externalId, contactName, body, externalMessageId, type };
 }
 
+// Confirmado em 2026-08-24 comparando 3 chamadas reais (User-Agent
+// "Opa-Suite") no wa_webhook_log: o Opa!Suite NÃO assina o corpo (a mesma
+// assinatura se repetiu em requisições com timestamps/corpos diferentes) —
+// ele manda X-Signature-Sha256 = SHA256(token) em hex, uma "impressão
+// digital" fixa do token cadastrado no painel, não um HMAC por requisição.
+// Mantém os formatos antigos (header/query) como fallback, caso outro canal
+// (ex.: Meta via Opa!Suite) chame diferente do Webchat testado.
 async function oaVerifyToken(env, request, url) {
   const secret = env.OPASUITE_WEBHOOK_SECRET;
   if (!secret) return true; // ainda sem segredo configurado — aceita para permitir o primeiro teste
+  const signature = request.headers.get("X-Signature-Sha256") || request.headers.get("X-Signature-SHA256") || "";
+  if (signature && (await timingSafeEqual(signature.toLowerCase(), await sha256Hex(secret)))) return true;
   const token = request.headers.get("X-Opasuite-Token") || request.headers.get("X-Webhook-Token") || url.searchParams.get("token") || "";
-  return timingSafeEqual(token, secret);
+  return !!token && timingSafeEqual(token, secret);
+}
+
+// Cabeçalhos "sensíveis" de verdade (cookie de sessão) nunca deveriam chegar
+// numa chamada servidor-a-servidor do Opa!Suite, mas ficam de fora do log
+// por precaução — o resto ajuda a descobrir o formato real de autenticação.
+function safeHeadersJson(request) {
+  const obj = {};
+  for (const [k, v] of request.headers.entries()) {
+    if (k.toLowerCase() === "cookie") continue;
+    obj[k] = v;
+  }
+  return JSON.stringify(obj).slice(0, 4000);
+}
+
+async function logOpasuiteAttempt(env, request, method, raw) {
+  try {
+    const db = getDB(env);
+    await db.prepare(`INSERT INTO wa_webhook_log(channel,payload,method,headers) VALUES(?,?,?,?)`)
+      .bind("opasuite", String(raw || "").slice(0, 32000), method, safeHeadersJson(request)).run();
+  } catch { /* diagnóstico best-effort: nunca deve derrubar o webhook real */ }
 }
 
 async function handleOpasuiteWebhook(env, request) {
   const url = new URL(request.url);
   const raw = await request.text();
+  // Log ANTES da checagem de token: se o Opa!Suite estiver mandando a
+  // autenticação num formato que ainda não reconhecemos (header diferente,
+  // Bearer, etc.), essa é a única forma de ver o que chegou de verdade —
+  // uma chamada rejeitada por TOKEN_INVALIDO nunca batia aqui antes.
+  await logOpasuiteAttempt(env, request, "POST", raw);
   if (new TextEncoder().encode(raw).byteLength > 1024 * 1024) return json({ error: "BODY_TOO_LARGE" }, 413);
   if (!(await oaVerifyToken(env, request, url))) return json({ error: "TOKEN_INVALIDO" }, 403);
   let payload;
   try { payload = JSON.parse(raw); } catch { return json({ error: "INVALID_JSON" }, 400); }
   const db = getDB(env);
-  await db.prepare(`INSERT INTO wa_webhook_log(channel,payload) VALUES(?,?)`).bind("opasuite", raw.slice(0, 32000)).run();
   const parsed = oaExtractMessage(payload);
   if (!parsed.phone && !parsed.externalId) return json({ ok: true, ignored: true });
   const settings = await loadWhatsappSettings(db);
@@ -3792,7 +3838,7 @@ async function handleWaWebhookLog(env, request) {
   const gate = await requirePermission(env, request, "whatsapp.manage");
   if (gate.response) return gate.response;
   const db = getDB(env);
-  const rows = (await db.prepare(`SELECT id,channel,payload,created_at FROM wa_webhook_log ORDER BY id DESC LIMIT 20`).all()).results || [];
+  const rows = (await db.prepare(`SELECT id,channel,payload,method,headers,created_at FROM wa_webhook_log ORDER BY id DESC LIMIT 20`).all()).results || [];
   return json({ rows });
 }
 
@@ -6987,7 +7033,10 @@ async function aplicarCadastroClientes(env, feed) {
    escrever dezenas de milhares de linhas dentro de uma única requisição; o que
    sobrar entra no ciclo seguinte, que roda a cada leitura completa. */
 const CLIENTE_IMPORT_MAX_PER_RUN = 2000;
-const CLIENTE_IMPORT_BATCH = 25;
+/* Mesmo teto de subrequisições do histórico: com lotes de 25, os 2000 do teto
+   por ciclo viravam 80 idas ao banco só para os inserts e outras 80 para os
+   updates — sozinhos, mais que o orçamento inteiro da invocação. */
+const CLIENTE_IMPORT_BATCH = 400;
 
 /* O endereço vem do IXC montado como "rua, número — bairro — cidade". Só
    separamos quando as três partes estão lá; com menos, a divisão seria adivinhação
@@ -7553,7 +7602,13 @@ async function loadGponSnapshot(env) {
    dezenas de milhares de linhas e estouraria o tempo da ingestão. O total
    observado fica no run, então o corte aparece na auditoria em vez de sumir. */
 const GPON_HISTORY_MAX_PER_RUN = 4000;
-const GPON_HISTORY_BATCH = 25;
+/* Um `batch` custa UMA subrequisição, não uma por statement — e o Worker tem
+   um teto duro de subrequisições por invocação. Com lotes de 25, um ciclo com
+   poucas centenas de transições já gastava dezenas de idas ao banco sozinho, e
+   a ingestão estourava o teto ("Too many subrequests") depois de ter gravado a
+   fotografia: o coletor recebia 500 e parava de publicar. O lote grande troca
+   N idas por uma requisição de algumas centenas de KB. */
+const GPON_HISTORY_BATCH = 400;
 
 /* O RX oscila décimos de dBm o tempo todo. Registrar cada respiro afogaria as
    quedas reais em ruído; 2 dB é a menor variação que muda a leitura operacional
@@ -7608,16 +7663,25 @@ async function gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes) {
   return recortadas.length;
 }
 
+/* O registro do ciclo é auditoria: descreve uma ingestão que a esta altura já
+   está gravada. Deixá-lo propagar transformava um problema de telemetria em
+   500 para o coletor — que então tratava a fotografia inteira como perdida e
+   parava de publicar, exatamente o que aconteceu quando esta escrita passou a
+   cair no teto de subrequisições. */
 async function registrarCicloGpon(db, dados) {
-  await db.prepare(`
-    INSERT INTO gpon_sync_runs
-      (id,kind,origin,source,synced_at,clients_count,boxes_count,alerts_count,changes_count,
-       transitions_count,online_count,offline_count,data_bytes,lag_ms,ip,error)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(dados.id, dados.kind, dados.origin, dados.source, dados.synced_at,
-    dados.clients_count | 0, dados.boxes_count | 0, dados.alerts_count | 0, dados.changes_count | 0,
-    dados.transitions_count | 0, dados.online_count | 0, dados.offline_count | 0,
-    dados.data_bytes | 0, dados.lag_ms, textoGpon(dados.ip, 60), textoGpon(dados.error, 300)).run();
+  try {
+    await db.prepare(`
+      INSERT INTO gpon_sync_runs
+        (id,kind,origin,source,synced_at,clients_count,boxes_count,alerts_count,changes_count,
+         transitions_count,online_count,offline_count,data_bytes,lag_ms,ip,error)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(dados.id, dados.kind, dados.origin, dados.source, dados.synced_at,
+      dados.clients_count | 0, dados.boxes_count | 0, dados.alerts_count | 0, dados.changes_count | 0,
+      dados.transitions_count | 0, dados.online_count | 0, dados.offline_count | 0,
+      dados.data_bytes | 0, dados.lag_ms, textoGpon(dados.ip, 60), textoGpon(dados.error, 300)).run();
+  } catch (error) {
+    console.error(JSON.stringify({ message: "Falha ao registrar ciclo GPON", error: error?.message || String(error) }));
+  }
 }
 
 /* A defasagem entre o instante da coleta e o da gravação é o número que diz se
@@ -7702,23 +7766,30 @@ async function handleGponIngest(env, request) {
     });
   }
 
-  await db.prepare(`
-    INSERT INTO gpon_snapshot_state(id,version,source,synced_at,chunk_count,data_bytes,clients_count,boxes_count,alerts_count,updated_at)
-    VALUES (1,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(id) DO UPDATE SET version=excluded.version,source=excluded.source,synced_at=excluded.synced_at,
-      chunk_count=excluded.chunk_count,data_bytes=excluded.data_bytes,clients_count=excluded.clients_count,
-      boxes_count=excluded.boxes_count,alerts_count=excluded.alerts_count,updated_at=CURRENT_TIMESTAMP
-  `).bind(version, source, syncedAt, chunks.length, bytes, clients.length, boxes.length, alerts.length).run();
-  await db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version).run();
-  await db.prepare(`DELETE FROM gpon_client_status`).run();
+  /* Quatro escritas que descrevem a MESMA troca de versão: apontar o estado
+     para a fotografia nova, descartar os pedaços da anterior, zerar a tabela de
+     status legada e publicar a leitura compacta — que passa a cobrir o parque
+     inteiro, e não só quem mudou desde a última fotografia, para servir o
+     estado atual sem reabrir os pedaços do snapshot.
 
-  /* A leitura compacta passa a cobrir o parque inteiro, e não só quem mudou
-     desde a última fotografia. É o que permite servir o estado atual — e
-     comparar o próximo delta — sem reabrir os pedaços do snapshot. */
-  await db.prepare(`
-    INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
-  `).bind(JSON.stringify(compacto), syncedAt).run();
+     Juntas num `batch` custam uma subrequisição em vez de quatro e passam a
+     valer ou falhar como uma coisa só: antes, uma falha no meio deixava o
+     estado apontando para uma versão sem a leitura compacta correspondente. */
+  await db.batch([
+    db.prepare(`
+      INSERT INTO gpon_snapshot_state(id,version,source,synced_at,chunk_count,data_bytes,clients_count,boxes_count,alerts_count,updated_at)
+      VALUES (1,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET version=excluded.version,source=excluded.source,synced_at=excluded.synced_at,
+        chunk_count=excluded.chunk_count,data_bytes=excluded.data_bytes,clients_count=excluded.clients_count,
+        boxes_count=excluded.boxes_count,alerts_count=excluded.alerts_count,updated_at=CURRENT_TIMESTAMP
+    `).bind(version, source, syncedAt, chunks.length, bytes, clients.length, boxes.length, alerts.length),
+    db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version),
+    db.prepare(`DELETE FROM gpon_client_status`),
+    db.prepare(`
+      INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
+    `).bind(JSON.stringify(compacto), syncedAt)
+  ]);
 
   const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
   /* A coleta completa é o momento em que a base de clientes do IXC chega
@@ -8149,6 +8220,14 @@ export default {
         // também chega cross-site, sem cookie de sessão.
         if (url.pathname === "/api/opasuite/webhook" && request.method === "POST")
           return await handleOpasuiteWebhook(env, request);
+        // Painéis de webhook costumam testar a URL com GET/HEAD antes de
+        // aceitar o cadastro; sem isso o teste de conectividade do Opa!Suite
+        // batia 404 (só existia rota POST) e a UI deles reportava "não
+        // conseguimos nos conectar".
+        if (url.pathname === "/api/opasuite/webhook" && (request.method === "GET" || request.method === "HEAD")) {
+          await logOpasuiteAttempt(env, request, request.method, "");
+          return json({ ok: true });
+        }
 
         // O app noc_cliente (Cloudflare Pages) roda numa origem diferente
         // desta API: essa é a PRIMEIRA chamada que ele faz, então ainda não

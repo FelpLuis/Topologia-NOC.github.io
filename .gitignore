@@ -18,3 +18,6 @@ node_modules/
 # Dumps gerados pela sincronização com o Zabbix (contêm inventário da rede).
 backend/data/zabbix-*.sql
 backend/data/zabbix-*.json
+
+# Log do coletor GPON rodando como Tarefa Agendada.
+logs/

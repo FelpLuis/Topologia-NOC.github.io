@@ -39,8 +39,25 @@ test("uptime fica fora da assinatura do delta e o consumo entra arredondado", ()
     collector.indexOf("async function enviarStatus"));
   assert.ok(!/uptime_s/.test(assinatura), "uptime não pode entrar na assinatura");
   assert.match(assinatura, /conn_since/, "o instante da conexão é o substituto estático do uptime");
-  assert.match(assinatura, /mib\(client\.down_bytes\), mib\(client\.up_bytes\)/);
+  assert.match(assinatura, /mib\(linha\.down_bytes\), mib\(linha\.up_bytes\)/);
   assert.match(collector, /const mib = \(bytes\)/);
+});
+
+test("a assinatura é calculada sobre a linha publicada, não sobre o cliente", () => {
+  // Assinar o cliente e publicar uma projeção dele deixava as duas leituras
+  // divergirem: Number(null) é 0, então o consumo ausente valia null de um lado
+  // e 0 do outro, e toda ONU sem consumo no IXC voltava no delta a cada 10 s
+  // sem ter mudado nada — o parque inteiro no fio, que é exatamente o que o
+  // delta existe para evitar.
+  assert.match(collector, /const linhaStatus = \(client\) => \(\{/);
+  assert.match(collector, /const changes = state\.clients\.map\(linhaStatus\)/);
+  assert.match(collector, /\.filter\(\(linha\) => state\.publishedStatus\.get\(linha\.id\) !== statusSignature\(linha\)\);/);
+  assert.match(collector, /state\.publishedStatus\.set\(linha\.id, statusSignature\(linha\)\)/);
+  // A semeadura do ciclo completo passa pela mesma projeção: sem ela o primeiro
+  // ciclo rápido reenviaria o parque inteiro de novo.
+  assert.match(collector, /statusSignature\(linhaStatus\(client\)\)/);
+  // Ausência de dado não é zero: o consumo que o IXC não informa segue null.
+  assert.match(collector, /if \(bytes === null \|\| bytes === undefined \|\| bytes === ""\) return null;/);
 });
 
 test("mudança só de conexão não vira transição, mas ainda é dado novo para servir", () => {
