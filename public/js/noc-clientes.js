@@ -139,8 +139,7 @@
         </td>
         <td data-label="Status"><span class="badge ${STATUS_CLASS[r.status_faturamento] || ""}">${esc(STATUS_LABEL[r.status_faturamento] || r.status_faturamento)}</span></td>
         
-        <td data-label="Ações" 
-        <button class="btn btn-ghost btn-sm" data-editar="${esc(r.client_id)}" type="button" data-action="clientes.edit">Editar</button>
+        <td data-label="Ações"><button class="btn btn-ghost btn-sm" data-editar="${esc(r.client_id)}" type="button" data-action="clientes.edit">Editar</button>
         <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.client_id)}" type="button" title="Excluir cadastro" aria-label="Excluir cadastro" data-action="clientes.delete">${icon("trash")}</button>
 
       </tr>`;
