@@ -1601,20 +1601,20 @@
   /* ---------------- log RADIUS (monitoramento da autenticação PPPoE) ----------------
 
      Botão do cabeçalho: abre um monitor das transições que o coletor grava em
-     radius_logs (GET /api/radius/logs, permissão radius.view). Essa tabela
-     não tem prazo de retenção — ao contrário do histórico GPON —, então "log
-     completo" pede paginação de verdade: a abertura varre a tabela inteira,
-     do mais novo ao mais antigo, em lotes de 500 (o teto por requisição do
-     servidor) usando before_id como cursor. Só depois de completar essa
-     varredura a tela entra em modo de acompanhamento ao vivo, buscando a
-     cada 2 s (o ritmo pedido) só o que é mais novo que o último id visto —
-     reler a tabela inteira nesse ritmo sobrecarregaria o banco à toa.
-     Cliente, usuário, serial e OLT são filtrados no navegador sobre o que já
-     foi carregado; status vai para o servidor porque troca de filtro refaz a
-     varredura completa. */
+     radius_logs (GET /api/radius/logs, permissão radius.view). Essa tabela não
+     tem prazo de retenção — ao contrário do histórico GPON — e passa fácil das
+     centenas de milhares de linhas, então a tela abre pela página mais recente
+     e nada além dela: 100 eventos, que é o que o operador de fato olha ao
+     abrir o log. O passado entra sob demanda — rolar até o fim da tabela ou
+     clicar em "carregar mais antigos" pede o lote seguinte de 100, usando
+     before_id como cursor. Em paralelo, um poll de 2 s busca só o que é mais
+     novo que o último id visto; reler a tabela inteira nesse ritmo
+     sobrecarregaria o banco à toa. Cliente, usuário, serial e OLT são
+     filtrados no navegador sobre o que já foi carregado; status vai para o
+     servidor porque troca de filtro recomeça a paginação. */
   const RADIUS_POLL_MS = 2000;
-  const RADIUS_PAGE = 500;
-  const RADIUS_PAGE_CAP = 400; // 400 × 500 = 200 mil eventos: só para nunca travar o navegador
+  const RADIUS_PAGE = 100;      // eventos por página: a primeira e cada lote seguinte
+  const RADIUS_NEAR_END = 240;  // px do fim da rolagem que já disparam o próximo lote
 
   const radiusBadge = (status) => {
     const s = String(status || "").toLowerCase();
@@ -1638,8 +1638,15 @@
   function abrirLogRadius() {
     const rl = {
       query: "", status: "all", map: new Map(), events: [],
-      loading: false, full: false, auto: true, checkedAt: null,
-      minId: null, maxId: 0, timer: 0,
+      /* `loading` é o mutex de uma requisição por vez (poll, paginação e
+         recarga mexem na mesma lista); `antigos` é só a paginação do passado,
+         em voo ou pendente — é ela que o botão do rodapé mostra. */
+      loading: false, antigos: false, ready: false, done: false, auto: true, checkedAt: null,
+      minId: null, maxId: 0, timer: 0, scroller: null,
+      /* Recomeçar a lista (troca de filtro, recarga) invalida o que estiver em
+         voo: a resposta de uma geração anterior traria eventos do filtro
+         antigo para dentro da lista nova. */
+      geracao: 0,
     };
 
     function reconstruir() { rl.events = [...rl.map.values()].sort((a, b) => Number(b.id) - Number(a.id)); }
@@ -1664,10 +1671,22 @@
       const rows = q ? rl.events.filter((ev) => [ev.username, ev.client_name, ev.client_id, ev.serial, ev.olt_id, ev.detail]
         .some((v) => String(v || "").toLowerCase().includes(q))) : rl.events;
       body.innerHTML = rows.length ? rows.map(linhaRadiusLog).join("")
-        : `<tr><td colspan="6" class="dim">${rl.full ? "Nenhum evento encontrado." : "Carregando histórico completo…"}</td></tr>`;
-      $("#radiusLogCount", host).textContent = rl.full
-        ? `${nb(rows.length)} de ${nb(rl.events.length)} eventos • log completo de todas as OLTs • atualizado ${relativo(rl.checkedAt)}`
-        : `Carregando histórico completo… ${nb(rl.events.length)} eventos até agora`;
+        : `<tr><td colspan="6" class="dim">${rl.ready ? "Nenhum evento encontrado." : "Carregando os eventos mais recentes…"}</td></tr>`;
+
+      /* O botão espelha `antigos`, não `loading`: o poll de 2 s também ocupa o
+         mutex, e amarrar o rótulo a ele deixava o botão preso em "Carregando…"
+         — o poll só redesenha quando chega evento novo, então ninguém
+         desfazia o estado.
+         `hidden` não resolve aqui: .btn declara display, e a regra do agente
+         de usuário para [hidden] perde para ela. */
+      const mais = $("#radiusLogMore", host);
+      mais.style.display = rl.ready && !rl.done ? "" : "none";
+      mais.disabled = rl.antigos;
+      mais.textContent = rl.antigos ? "Carregando…" : `Carregar ${RADIUS_PAGE} mais antigos`;
+
+      $("#radiusLogCount", host).textContent = !rl.ready
+        ? "Carregando os eventos mais recentes…"
+        : `${nb(rows.length)}${q ? ` de ${nb(rl.events.length)}` : ""} eventos carregados • ${rl.done ? "início do log" : "role para carregar mais antigos"} • atualizado ${relativo(rl.checkedAt)}`;
     }
 
     async function pedir(extra) {
@@ -1677,46 +1696,102 @@
       return Array.isArray(data?.events) ? data.events : [];
     }
 
-    async function carregarCompleto(host) {
-      rl.loading = true; rl.full = false;
+    /* Abertura, recarga e troca de filtro: só a página mais recente. */
+    async function carregarPrimeira(host) {
+      const geracao = ++rl.geracao;
+      rl.loading = true; rl.ready = false; rl.done = false; rl.antigos = false;
       rl.map = new Map(); rl.events = []; rl.minId = null; rl.maxId = 0;
       render(host);
       try {
-        let cursor = null, pagina = 0;
-        for (;;) {
-          const lote = await pedir(cursor ? { before_id: String(cursor) } : {});
-          acrescentar(lote);
-          render(host);
-          pagina++;
-          if (lote.length < RADIUS_PAGE || pagina >= RADIUS_PAGE_CAP) break;
-          cursor = lote.reduce((menor, ev) => Math.min(menor, Number(ev.id)), Infinity);
-        }
-        rl.full = true;
+        const lote = await pedir({});
+        if (geracao !== rl.geracao) return;
+        acrescentar(lote);
+        rl.done = lote.length < RADIUS_PAGE;
+        rl.ready = true;
         rl.checkedAt = new Date().toISOString();
-        render(host);
       } catch (err) {
         toast("Não foi possível carregar o log RADIUS", { text: err.message, type: "danger", timeout: 6000 });
         $("#radiusLogBody", host).innerHTML = `<tr><td colspan="6" class="dim">Falha ao carregar: ${esc(err.message)}</td></tr>`;
+        return;
       } finally {
         rl.loading = false;
       }
+      if (rl.scroller) rl.scroller.scrollTop = 0;
+      render(host);
+      liberado(host);
+    }
+
+    /* Chamado assim que o mutex é devolvido. Um pedido de página antiga que
+       tenha caído no meio de outra requisição fica pendente em `antigos` e é
+       atendido aqui; fora isso, a proximidade do fim é reavaliada. Sem essa
+       reavaliação a lista travava: parado no fim da tabela, o operador gera um
+       único evento de `scroll`, e se ele coincidir com o poll de 2 s não sobra
+       nada para disparar o próximo lote. */
+    function liberado(host) {
+      if (rl.antigos) { carregarAntigos(host); return; }
+      const s = rl.scroller;
+      if (!s || rl.loading || rl.done || !rl.ready) return;
+      /* Só conta como "chegou ao fim" quem de fato rolou até lá. Sem esta
+         condição, uma busca que deixa três linhas na tela derruba a rolagem,
+         o fim passa a estar sempre à vista e a lista se auto-pagina até o
+         começo do log — o oposto de carregar sob demanda. Quem quer ir além
+         do que está em tela tem o botão do rodapé. */
+      if (s.scrollTop <= 0 || s.scrollHeight <= s.clientHeight) return;
+      if (s.scrollHeight - s.scrollTop - s.clientHeight < RADIUS_NEAR_END) carregarAntigos(host);
+    }
+
+    /* Página seguinte do passado: o que vem antes do id mais antigo em tela. */
+    async function carregarAntigos(host) {
+      if (rl.done || !rl.ready || rl.minId === null) {
+        if (rl.antigos) { rl.antigos = false; render(host); }
+        return;
+      }
+      /* Outra requisição em voo: a intenção fica pendente em vez de sumir —
+         um clique do operador não pode virar nada. */
+      if (rl.loading) { if (!rl.antigos) { rl.antigos = true; render(host); } return; }
+      const geracao = rl.geracao;
+      rl.loading = true; rl.antigos = true;
+      render(host);
+      try {
+        const lote = await pedir({ before_id: String(rl.minId) });
+        if (geracao !== rl.geracao) return;
+        acrescentar(lote);
+        if (lote.length < RADIUS_PAGE) rl.done = true;
+      } catch (err) {
+        toast("Não foi possível carregar mais eventos", { text: err.message, type: "danger", timeout: 6000 });
+      } finally {
+        rl.loading = false; rl.antigos = false;
+      }
+      render(host);
+      liberado(host);
     }
 
     /* Acompanhamento ao vivo: só pede o que é mais novo que o último id
        conhecido. Uma folga de 2 s no `since` evita perder um evento gravado
-       no mesmo segundo do corte; o dedupe por id absorve a sobreposição. */
+       no mesmo segundo do corte; o dedupe por id absorve a sobreposição.
+       Os novos entram no topo, então quem está lendo o passado teria o texto
+       empurrado para baixo — a altura ganha volta para o scrollTop. */
     async function buscarNovos(host) {
-      if (rl.loading || !rl.full) return;
+      if (rl.loading || !rl.ready) return;
+      const geracao = rl.geracao;
       rl.loading = true;
       try {
         const ultimo = rl.map.get(rl.maxId);
         const marca = ultimo?.created_at ? Date.parse(`${String(ultimo.created_at).replace(" ", "T")}Z`) : NaN;
         const extra = Number.isFinite(marca) ? { since: new Date(marca - 2000).toISOString() } : {};
         const lote = await pedir(extra);
-        if (acrescentar(lote)) render(host);
+        if (geracao !== rl.geracao) return;
+        if (acrescentar(lote)) {
+          const scroller = rl.scroller;
+          const alturaAntes = scroller ? scroller.scrollHeight : 0;
+          const topoAntes = scroller ? scroller.scrollTop : 0;
+          render(host);
+          if (scroller && topoAntes > 0) scroller.scrollTop = topoAntes + (scroller.scrollHeight - alturaAntes);
+        }
         rl.checkedAt = new Date().toISOString();
       } catch { /* silencioso: a próxima rodada de 2 s tenta de novo */ }
       finally { rl.loading = false; }
+      liberado(host);
     }
 
     modal({
@@ -1724,14 +1799,14 @@
       labelledBy: "radiusLogTitle",
       html: `
         <div class="modal-head">
-          <div><span class="kicker">MONITORAMENTO</span><h2 id="radiusLogTitle">Log RADIUS</h2><p class="dim" style="margin-top:4px">Histórico completo de autenticação PPPoE dos clientes GPON, direto do servidor RADIUS.</p></div>
+          <div><span class="kicker">MONITORAMENTO</span><h2 id="radiusLogTitle">Log RADIUS</h2><p class="dim" style="margin-top:4px">Autenticação PPPoE dos clientes GPON, direto do servidor RADIUS. Abre nos ${RADIUS_PAGE} eventos mais recentes; role a lista para carregar os anteriores.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack" style="gap:var(--s-4)">
           <div class="row wrap" style="gap:var(--s-3);align-items:center">
             <div class="input-affix" style="min-width:240px;flex:1 1 240px">
               <span class="affix-icon">${icon("search")}</span>
-              <input class="input" id="radiusLogSearch" type="search" placeholder="Cliente, usuário, serial ou OLT…" aria-label="Filtrar eventos do log RADIUS">
+              <input class="input" id="radiusLogSearch" type="search" placeholder="Cliente, usuário, serial ou OLT…" aria-label="Filtrar os eventos já carregados do log RADIUS">
             </div>
             <div class="gpon-filters" role="group" aria-label="Estado da autenticação">
               <button class="chip" type="button" data-rstatus="all" aria-pressed="true">Todos</button>
@@ -1741,32 +1816,38 @@
             <label class="row" style="gap:var(--s-2);align-items:center;font-size:var(--fs-12);white-space:nowrap">
               <input type="checkbox" id="radiusLogAuto" checked> Atualizar a cada 2s
             </label>
-            <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Recarregar histórico completo">${icon("refresh")}</button>
+            <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Recarregar os eventos mais recentes">${icon("refresh")}</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap" id="radiusLogScroll" style="max-height:min(56vh,520px)">
             <table class="table" aria-label="Eventos de autenticação RADIUS">
               <thead><tr><th>Horário</th><th>Cliente</th><th>Usuário PPPoE</th><th>Transição</th><th>Detalhe</th><th>OLT / PON</th></tr></thead>
-              <tbody id="radiusLogBody"><tr><td colspan="6" class="dim">Carregando histórico completo…</td></tr></tbody>
+              <tbody id="radiusLogBody"><tr><td colspan="6" class="dim">Carregando os eventos mais recentes…</td></tr></tbody>
             </table>
           </div>
-          <div class="row" style="justify-content:flex-end">
-            <span class="dim mono" id="radiusLogCount" style="font-size:var(--fs-11)">—</span>
+          <div class="row" style="gap:var(--s-3);align-items:center">
+            <button class="btn btn-ghost btn-sm" id="radiusLogMore" type="button" style="display:none">Carregar ${RADIUS_PAGE} mais antigos</button>
+            <span class="dim mono" id="radiusLogCount" style="font-size:var(--fs-11);margin-left:auto">—</span>
           </div>
         </div>
         <div class="modal-foot"><span class="dim" style="font-size:var(--fs-11)">Fonte: coletor GPON → RADIUS do IXC.</span><span class="row"><button class="btn btn-primary" data-close type="button">Fechar</button></span></div>`,
       onMount: (mountedHost) => {
-        carregarCompleto(mountedHost);
+        rl.scroller = $("#radiusLogScroll", mountedHost);
+        carregarPrimeira(mountedHost);
         $("#radiusLogSearch", mountedHost).oninput = (e) => { rl.query = e.target.value; render(mountedHost); };
+        /* Sem trava por requisição em voo: o poll de 2 s segura o mutex parte
+           do tempo, e ignorar o clique nessas frestas fazia o chip não
+           responder. A geração descarta a resposta que ficou para trás. */
         $$("[data-rstatus]", mountedHost).forEach((btn) => {
           btn.onclick = () => {
-            if (rl.loading) return;
             $$("[data-rstatus]", mountedHost).forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
             rl.status = btn.dataset.rstatus;
-            carregarCompleto(mountedHost);
+            carregarPrimeira(mountedHost);
           };
         });
-        $("#radiusLogRefresh", mountedHost).onclick = () => { if (!rl.loading) carregarCompleto(mountedHost); };
+        $("#radiusLogRefresh", mountedHost).onclick = () => carregarPrimeira(mountedHost);
+        $("#radiusLogMore", mountedHost).onclick = () => carregarAntigos(mountedHost);
         $("#radiusLogAuto", mountedHost).onchange = (e) => { rl.auto = e.target.checked; };
+        rl.scroller.addEventListener("scroll", () => liberado(mountedHost), { passive: true });
         rl.timer = setInterval(() => {
           if (!document.contains(mountedHost)) { clearInterval(rl.timer); return; }
           if (rl.auto) buscarNovos(mountedHost);
