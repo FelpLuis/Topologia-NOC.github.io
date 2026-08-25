@@ -141,7 +141,6 @@
         <td data-label="Ações" class="row" style="gap:6px;justify-content:flex-end">
         <button class="btn btn-ghost btn-sm" data-editar="${esc(r.client_id)}" type="button" data-action="clientes.edit">Editar</button>
         <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.client_id)}" type="button" title="Excluir cadastro" aria-label="Excluir cadastro" data-action="clientes.delete">${icon("trash")}</button>
-        </span></td>
       </tr>`;
     }).join("");
     aplicarAcoes(corpo);
