@@ -67,20 +67,64 @@ test("mudança só de conexão não vira transição, mas ainda é dado novo par
   assert.equal(transicaoGpon({ ...base, ip: "10.0.0.1" }, { ...base, ip: "10.0.0.9" }), null);
 
   // Mas o synced_at precisa andar, senão a tela nunca volta para buscar.
-  assert.match(worker, /let conexoesMudadas = 0;/);
-  assert.match(worker, /CONEXAO_GPON\.some\(campo => anterior\[campo\] !== atual\[campo\]\)/);
-  assert.match(worker, /if \(transicoes\.length \|\| conexoesMudadas\) await db\.batch/);
+  assert.match(worker, /const conexaoNova = !anterior \|\| CONEXAO_GPON\.some\(campo => anterior\[campo\] !== atual\[campo\]\)/);
+  assert.match(worker, /if \(mudadas\.length\) await db\.batch/);
+  // A recíproca também importa: linha reenviada idêntica não pode ser gravada.
+  // Escrever sem mudar nada faria o synced_at dela andar, e a leitura
+  // incremental traria de volta uma ONU que não mexeu.
+  assert.match(worker, /if \(mudanca \|\| conexaoNova\) mudadas\.push\(atual\);/);
 });
 
-test("os três caminhos do Worker produzem os mesmos campos de conexão", () => {
-  // Snapshot completo, delta e leitura de estado passam pelo mesmo
-  // normalizador: divergir faria a ficha do cliente mudar de forma conforme o
-  // ciclo que chegou por último.
+test("o delta de 10 s não abre o parque inteiro", () => {
+  // O estado corrente virou linha por cliente justamente para que a ingestão
+  // custe o tamanho da mudança e não o do parque: com o blob JSON, cada ciclo
+  // parseava ~2,5 MB, montava um Map de ~8,9 mil entradas e reescrevia tudo —
+  // acima do teto de CPU do Worker, e o isolate morrendo levava junto login e
+  // páginas em voo.
+  assert.ok(!/gpon_status_snapshot/.test(worker.slice(worker.indexOf("async function handleGponStatusIngest"))),
+    "o delta não pode voltar a tocar no blob de estado");
+  assert.match(worker, /const anteriores = await lerEstadoGpon\(db, rows\.map\(row => row\.id\)\)/);
+  // Um statement grava N clientes: o array vai como parâmetro e o json_each o
+  // abre dentro do banco. Um statement por cliente estouraria as duas contas —
+  // CPU no Worker e subrequisições por invocação.
+  // O WHERE não é decorativo: sem ele o parser do SQLite lê o ON CONFLICT como
+  // o ON de um join e recusa a instrução inteira.
+  assert.match(worker, /FROM json_each\(\?1\) AS j WHERE json_extract\(j\.value,'\$\.client_id'\)<>''\s*\n\s*ON CONFLICT\(client_id\) DO UPDATE/);
+  assert.match(worker, /JOIN json_each\(\?1\) j ON j\.value=s\.client_id/);
+  // Os totais do ciclo saem de uma contagem no banco: contar em JavaScript
+  // exigiria trazer o parque de volta, que é o que se está evitando.
+  assert.match(worker, /SUM\(CASE WHEN status IN \(\$\{lista\}\) THEN 1 ELSE 0 END\) AS online/);
+});
+
+test("a leitura de estado é montada pelo SQLite, não pelo Worker", () => {
+  // json_group_array devolve o array pronto como UMA string: nem a leitura
+  // completa materializa milhares de objetos JavaScript no isolate.
+  assert.match(worker, /const ESTADO_GPON_JSON = `json_group_array\(json_object\(/);
+  assert.match(worker, /FROM gpon_client_status WHERE synced_at>\?/);
+  // E o corpo é concatenado como texto: parsear o array só para reserializá-lo
+  // pagaria duas vezes o único custo que a rota tem.
+  assert.match(worker, /"partial":\$\{desde \? "true" : "false"\},"clients":\$\{clientes\}\}/);
+});
+
+test("os caminhos de escrita do Worker produzem os mesmos campos de conexão", () => {
+  // Snapshot completo e delta passam pelo mesmo normalizador: divergir faria a
+  // ficha do cliente mudar de forma conforme o ciclo que chegou por último.
   assert.match(worker, /const conexaoGpon = \(c\) => \(\{/);
   assert.match(worker, /const CONEXAO_GPON = \["ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"\]/);
-  assert.equal(worker.match(/conexaoGpon\(/g).length, 4,
-    "normalizador do cliente, compacto da fotografia, delta e leitura de estado");
+  assert.equal(worker.match(/conexaoGpon\(/g).length, 3,
+    "normalizador do cliente, compacto da fotografia e delta");
   assert.match(worker, /conexao: conexaoGpon\(change\)/, "o delta normaliza antes de comparar");
+
+  // A LEITURA não normaliza mais: desde que o estado virou linha por cliente,
+  // ela devolve as colunas como estão. Normalizar na saída obrigaria o Worker a
+  // percorrer o parque a cada leitura — o custo que a mudança existe para
+  // eliminar. Em troca, a lista de campos precisa bater nos dois lugares.
+  const gravados = worker.match(/const ESTADO_GPON_CAMPOS = \[([^\]]+)\]/)[1];
+  const lidos = worker.match(/const ESTADO_GPON_JSON = `json_group_array\(json_object\(([\s\S]*?)\)\)`/)[1];
+  for (const campo of ["ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"]) {
+    assert.ok(gravados.includes(`"${campo}"`), `${campo} precisa ser gravado`);
+    assert.ok(lidos.includes(`'${campo}',${campo}`), `${campo} precisa ser lido`);
+  }
 });
 
 test("a tela aplica tráfego e conexão sem redesenhar o parque", () => {

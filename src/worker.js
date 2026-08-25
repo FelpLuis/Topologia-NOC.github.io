@@ -221,6 +221,22 @@ CREATE TABLE IF NOT EXISTS gpon_snapshot_chunks (
   PRIMARY KEY(version, chunk_index)
 );
 
+/* Estado corrente de cada ONU, uma linha por cliente.
+
+   Até 25/08/2026 isto vivia como um JSON só em gpon_status_snapshot. O blob
+   trocava custo de escrita por custo de leitura e ganhava enquanto era pequeno;
+   quando os campos de conexão entraram ele passou de ~1,0 MB para ~2,5 MB e a
+   conta virou: cada delta de 10 s fazia JSON.parse do parque inteiro, montava
+   um Map de ~8,9 mil entradas e reescrevia tudo com JSON.stringify — dentro do
+   teto de CPU do Worker. Metade dos ciclos se perdia com exceededCpu, e o
+   isolate morrendo derrubava junto qualquer login ou página que estivesse em
+   voo nele (com "hung", cpuTime 0, que engana o diagnóstico).
+
+   Em linha por cliente o delta escreve só o que mudou e a leitura filtra por
+   synced_at: as duas pontas passam a custar o tamanho da mudança, não o do
+   parque. synced_at guarda o carimbo da coleta que produziu a linha — é por
+   ele que a tela pede "o que mudou desde o que eu já tenho", e comparar contra
+   updated_at não serviria (CURRENT_TIMESTAMP tem outro formato). */
 CREATE TABLE IF NOT EXISTS gpon_client_status (
   client_id TEXT PRIMARY KEY,
   status TEXT NOT NULL,
@@ -230,6 +246,9 @@ CREATE TABLE IF NOT EXISTS gpon_client_status (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+/* Vazia desde 25/08/2026: o estado corrente mora em gpon_client_status. A
+   tabela fica para não quebrar banco antigo no meio de um rollback — a linha 1
+   é apagada uma vez pela migração, para não guardar 2,5 MB mortos. */
 CREATE TABLE IF NOT EXISTS gpon_status_snapshot (
   id INTEGER PRIMARY KEY CHECK(id=1),
   data_json TEXT NOT NULL,
@@ -292,6 +311,10 @@ CREATE INDEX IF NOT EXISTS idx_gpon_history_client ON gpon_status_history(client
 CREATE INDEX IF NOT EXISTS idx_gpon_history_created ON gpon_status_history(created_at);
 CREATE INDEX IF NOT EXISTS idx_gpon_history_run ON gpon_status_history(run_id);
 CREATE INDEX IF NOT EXISTS idx_gpon_runs_received ON gpon_sync_runs(received_at DESC);
+/* A leitura de estado da tela é sempre "o que mudou desde o carimbo que eu já
+   tenho": sem este índice ela varre o parque inteiro para achar as poucas
+   dezenas de linhas do ciclo. */
+CREATE INDEX IF NOT EXISTS idx_gpon_client_status_synced ON gpon_client_status(synced_at);
 
 /* Log dedicado a eventos RADIUS — autenticação PPPoE que o coletor lê do IXC.
    O estado combinado (ONU + Radius) continua em gpon_status_history; esta
@@ -1342,7 +1365,7 @@ async function ensureColumns(db, table, columns) {
   for (const [name, ddl] of columns) {
     if (existentes.has(name)) continue;
     const safeName = safeSqlIdentifier(name);
-    if (!/^(?:TEXT|INTEGER)(?:\s+NOT NULL)?(?:\s+DEFAULT\s+(?:'[^']*'|\d+))?$/.test(ddl)) {
+    if (!/^(?:TEXT|INTEGER|REAL)(?:\s+NOT NULL)?(?:\s+DEFAULT\s+(?:'[^']*'|\d+))?$/.test(ddl)) {
       throw new Error("Definição de coluna não permitida.");
     }
     await db.prepare(`ALTER TABLE ${safeTable} ADD COLUMN ${safeName} ${ddl}`).run();
@@ -1543,6 +1566,25 @@ async function ensureDatabaseImpl(env) {
     ["method", "TEXT NOT NULL DEFAULT ''"],
     ["headers", "TEXT NOT NULL DEFAULT ''"]
   ]);
+  /* Estado corrente saiu do blob JSON para linha por cliente: a tabela já
+     existia com o estado da ONU, mas não com os campos de conexão do Radius
+     nem com o carimbo da coleta que a leitura incremental usa como marco. */
+  await ensureColumns(db, "gpon_client_status", [
+    ["ip", "TEXT NOT NULL DEFAULT ''"],
+    ["down_kbps", "REAL"],
+    ["up_kbps", "REAL"],
+    ["down_bytes", "REAL"],
+    ["up_bytes", "REAL"],
+    ["uptime_s", "REAL"],
+    ["conn_since", "TEXT NOT NULL DEFAULT ''"],
+    ["nas_id", "TEXT NOT NULL DEFAULT ''"],
+    ["synced_at", "TEXT NOT NULL DEFAULT ''"]
+  ]);
+  /* O blob de estado ficou obsoleto e são ~2,5 MB que nenhuma leitura abre
+     mais. Uma vez só: apagar em todo boot seria escrita à toa. */
+  await seedOnce(db, "gpon.status.blob.descartado", async () => {
+    await db.prepare(`DELETE FROM gpon_status_snapshot`).run();
+  });
 
   const auditInfo = (await db.prepare(`PRAGMA table_info(audit_logs)`).all()).results || [];
   const auditColumns = new Set(auditInfo.map(column => column.name));
@@ -3971,9 +4013,11 @@ async function handleClientRouterStatus(env, request) {
   if (gate.response) return gate.response;
   const db = getDB(env);
 
-  const compacto = await db.prepare(`SELECT data_json, synced_at FROM gpon_status_snapshot WHERE id=1`).first();
-  const linhas = lerStatusCompactoGpon(compacto);
-  const linha = linhas.find(l => String(l.client_id) === String(gate.user.id)) || null;
+  /* Uma linha, não o parque: a ficha do cliente no aplicativo abria o estado
+     inteiro só para achar a própria ONU. */
+  const linha = await db.prepare(`
+    SELECT ${ESTADO_GPON_COLUNAS} FROM gpon_client_status WHERE client_id=?
+  `).bind(String(gate.user.id)).first();
 
   const radiusUltimo = await db.prepare(`
     SELECT status_after, detail, olt_id, onu_index, serial, synced_at, created_at
@@ -5066,6 +5110,10 @@ const PESO_GRAU = { critico: 0, atencao: 1, info: 2 };
    offline, powerfail) é ausência de serviço e entra em offline — assim os três
    números continuam somando o total, que é como o NOC lê o painel. */
 const CLIENTE_ONLINE = /^(online|up|ativo|ativa|working|ok|conectado)$/;
+/* Mesma lista, na forma que o SQLite consome: os totais da home são contados
+   dentro do banco, e as duas leituras precisam concordar sobre o que é "no ar".
+   Divergir aqui faria a home discordar do mapa sem que nada estivesse errado. */
+const CLIENTE_ONLINE_SQL = ["online", "up", "ativo", "ativa", "working", "ok", "conectado"];
 
 export function resumirClientesGpon(clientes = []) {
   const total = clientes.length;
@@ -5405,10 +5453,10 @@ async function comentariosDosAlertas(db, ids) {
 /**
  * Clientes autenticados por status, sem abrir o snapshot inteiro da OLT.
  *
- * O caminho barato é a leitura compacta de status, que o coletor atualiza a
- * cada ciclo. Enquanto ela ainda não cobre todos os clientes — o intervalo
- * entre uma sincronização completa e o primeiro delta — o snapshot completo
- * responde, porque um total certo vale o custo dessa leitura ocasional.
+ * A contagem é feita pelo SQLite sobre gpon_client_status: uma consulta que não
+ * traz linha nenhuma para o Worker. Antes disto a home abria a leitura compacta
+ * inteira — e, quando ela ainda não cobria o parque, caía no snapshot completo
+ * de vários megabytes só para dizer três números.
  */
 async function resumoClientesGpon(env) {
   const db = getDB(env);
@@ -5417,31 +5465,19 @@ async function resumoClientesGpon(env) {
   `).first();
 
   if (estado) {
-    const total = Number(estado.clients_count) || 0;
-    const compacto = await db.prepare(`SELECT data_json, synced_at FROM gpon_status_snapshot WHERE id=1`).first();
-    let linhas = [];
-    if (compacto?.data_json) {
-      try {
-        const lido = JSON.parse(compacto.data_json);
-        if (Array.isArray(lido)) linhas = lido;
-      } catch { /* leitura corrompida cai no snapshot completo */ }
-    }
-
     const base = {
       configurado: true,
       fonte: estado.source || "Coletor GPON",
-      sincronizado_em: compacto?.synced_at || estado.synced_at || null
+      sincronizado_em: estado.synced_at || null
     };
-
-    if (linhas.length >= total && total > 0) return { ...base, ...resumirClientesGpon(linhas) };
-
-    try {
-      const snapshot = await loadGponSnapshot(env);
-      if (snapshot) return { ...base, ...resumirClientesGpon(snapshot.clients || []) };
-    } catch (error) {
-      console.error(JSON.stringify({ message: "Snapshot GPON indisponível para a home", error: error?.message || String(error) }));
+    const totais = await contarEstadoGpon(db);
+    /* Estado ainda vazio logo depois de um deploy, antes da primeira coleta:
+       o total declarado pela última fotografia é mais honesto que zero. */
+    if (!totais.total) {
+      const declarado = Number(estado.clients_count) || 0;
+      return { ...base, parcial: declarado > 0, total: declarado, online: 0, offline: declarado };
     }
-    return { ...base, parcial: true, ...resumirClientesGpon(linhas) };
+    return { ...base, ...totais };
   }
 
   // Sem snapshot no banco, resta a fonte direta — quando ela existe.
@@ -7566,19 +7602,20 @@ async function loadGponSnapshot(env) {
   `).bind(meta.version).all()).results || [];
   if (rows.length !== Number(meta.chunk_count)) throw new Error("GPON_SNAPSHOT_INCOMPLETE");
   const data = JSON.parse(rows.map(row => row.data_text).join(""));
-  const compactStatus = await db.prepare(`SELECT data_json FROM gpon_status_snapshot WHERE id=1`).first();
-  let statusRows = [];
-  if (compactStatus?.data_json) {
-    try { statusRows = JSON.parse(compactStatus.data_json); } catch {}
-  } else statusRows = (await db.prepare(`
-      SELECT client_id,status,state_detail,rx_power,tx_power FROM gpon_client_status
-    `).all()).results || [];
+  /* A fotografia guardada nos pedaços tem a idade da última sincronização
+     completa (10 min); o estado por cliente tem a do último ciclo (10 s). Quem
+     manda sobre estado e conexão é o segundo — os pedaços entram com o cadastro,
+     que é o que só eles têm. */
+  const statusRows = (await db.prepare(`
+    SELECT ${ESTADO_GPON_COLUNAS} FROM gpon_client_status
+  `).all()).results || [];
   if (statusRows.length && Array.isArray(data.clients)) {
     const byId = new Map(statusRows.map(row => [String(row.client_id), row]));
     data.clients = data.clients.map(client => {
       const status = byId.get(String(client.id));
-      return status ? { ...client, status: status.status, state_detail: status.state_detail,
-        rx_power: status.rx_power, tx_power: status.tx_power } : client;
+      if (!status) return client;
+      const { client_id, ...campos } = status;
+      return { ...client, ...campos };
     });
     data.alerts = data.clients.filter(client => String(client.status).toLowerCase() !== "online").map(client => ({
       level: "warning", client_id: client.id, title: `${client.name} — ${client.state_detail || client.status}`,
@@ -7693,12 +7730,68 @@ function atrasoGpon(syncedAt) {
   return atraso >= 0 && atraso < 24 * 60 * 60 * 1000 ? atraso : null;
 }
 
-function lerStatusCompactoGpon(linha) {
-  if (!linha?.data_json) return [];
-  try {
-    const lido = JSON.parse(linha.data_json);
-    return Array.isArray(lido) ? lido : [];
-  } catch { return []; }
+/* ---- estado corrente em linha por cliente ----
+
+   Todo o acesso a gpon_client_status passa por aqui, e nenhuma destas funções
+   materializa o parque inteiro em JavaScript: quem faz o trabalho por linha é o
+   SQLite, via json_each na escrita e json_group_array na leitura completa. O
+   Worker só transporta uma string.
+
+   Isso não é preciosismo — é o que faz a ingestão caber no teto de CPU. A forma
+   "natural" (um statement por cliente, ou um objeto JS por linha lida) custa
+   milhares de alocações por ciclo de 10 s, que foi exatamente o que derrubava o
+   isolate e, com ele, as requisições de tela em voo. */
+
+/* Campos do estado, na ordem em que entram no INSERT. `conn_since` e `nas_id`
+   fecham a lista porque vêm do Radius, não da OLT. */
+const ESTADO_GPON_CAMPOS = ["status", "state_detail", "rx_power", "tx_power",
+  "ip", "down_kbps", "up_kbps", "down_bytes", "up_bytes", "uptime_s", "conn_since", "nas_id"];
+
+const ESTADO_GPON_COLUNAS = ["client_id", ...ESTADO_GPON_CAMPOS].join(",");
+
+/* Um único statement grava N clientes: o array vai inteiro como parâmetro e o
+   json_each o abre dentro do banco. Custa uma subrequisição e um JSON.stringify,
+   em vez de N statements preparados um a um.
+
+   O WHERE é obrigatório, não decorativo: num INSERT...SELECT o parser do SQLite
+   precisa dele para saber onde o SELECT termina — sem isso ele tenta ler o
+   `ON CONFLICT` como o `ON` de um join e recusa a instrução. Aproveitamos o
+   filtro que já faria sentido de qualquer forma: cliente sem id é descartado. */
+function upsertEstadoGpon(db, linhas, syncedAt) {
+  const atribuicoes = ESTADO_GPON_CAMPOS.map(campo => `${campo}=excluded.${campo}`).join(",");
+  const extracoes = ESTADO_GPON_CAMPOS.map(campo => `json_extract(j.value,'$.${campo}')`).join(",");
+  return db.prepare(`
+    INSERT INTO gpon_client_status (${ESTADO_GPON_COLUNAS},synced_at,updated_at)
+    SELECT json_extract(j.value,'$.client_id'),${extracoes},?2,CURRENT_TIMESTAMP
+    FROM json_each(?1) AS j WHERE json_extract(j.value,'$.client_id')<>''
+    ON CONFLICT(client_id) DO UPDATE SET ${atribuicoes},synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
+  `).bind(JSON.stringify(linhas), syncedAt);
+}
+
+/* O estado anterior APENAS dos clientes que o delta menciona. É o coração da
+   correção: o delta traz algumas dezenas de linhas, então o diff passa a custar
+   o tamanho da mudança e não o do parque. Os ids viajam como um array JSON só —
+   um IN (?,?,?…) com milhares de parâmetros esbarraria no teto de variáveis. */
+async function lerEstadoGpon(db, ids) {
+  if (!ids.length) return new Map();
+  const { results } = await db.prepare(`
+    SELECT s.${ESTADO_GPON_COLUNAS}
+    FROM gpon_client_status s JOIN json_each(?1) j ON j.value=s.client_id
+  `).bind(JSON.stringify(ids)).all();
+  return new Map((results || []).map(linha => [String(linha.client_id), linha]));
+}
+
+/* Totais sem trazer uma linha sequer para o Worker. */
+async function contarEstadoGpon(db) {
+  const lista = CLIENTE_ONLINE_SQL.map(() => "?").join(",");
+  const row = await db.prepare(`
+    SELECT COUNT(*) AS total,
+           SUM(CASE WHEN status IN (${lista}) THEN 1 ELSE 0 END) AS online
+    FROM gpon_client_status
+  `).bind(...CLIENTE_ONLINE_SQL).first();
+  const total = Number(row?.total) || 0;
+  const online = Number(row?.online) || 0;
+  return { total, online, offline: total - online };
 }
 
 async function handleGponIngest(env, request) {
@@ -7732,25 +7825,33 @@ async function handleGponIngest(env, request) {
     `).bind(version, index + position, chunk)));
   }
 
-  /* A leitura compacta anterior é o último estado conhecido de cada cliente.
-     Ela precisa ser lida antes de ser substituída: é contra ela que a
-     fotografia nova vira histórico. */
-  const anteriores = new Map(lerStatusCompactoGpon(
-    await db.prepare(`SELECT data_json FROM gpon_status_snapshot WHERE id=1`).first()
-  ).map(linha => [String(linha.client_id), linha]));
-  const primeiraCarga = anteriores.size === 0;
-
-  const compacto = [], transicoes = [];
+  /* O estado guardado é o último conhecido de cada cliente. Ele precisa ser
+     lido antes de ser substituído: é contra ele que a fotografia nova vira
+     histórico. Aqui, diferente do delta de 10 s, a fotografia cobre o parque
+     inteiro — então a leitura também cobre. É o custo próprio da sincronização
+     completa, que roda a cada 10 min e não a cada 10 s. */
+  const compacto = [], origens = [], transicoes = [];
   let online = 0;
   for (const cliente of clients) {
     const id = textoGpon(cliente?.id);
     if (!id) continue;
-    const linha = {
+    compacto.push({
       client_id: id, status: normalStatusGpon(cliente?.status), state_detail: textoGpon(cliente?.state_detail),
       rx_power: numeroGpon(cliente?.rx_power), tx_power: numeroGpon(cliente?.tx_power),
       ...conexaoGpon(cliente)
-    };
-    compacto.push(linha);
+    });
+    /* Guardado em paralelo porque o histórico precisa de campos que o estado
+       não guarda (OLT, índice da ONU, serial, nome) e cliente sem id é
+       descartado — os dois vetores só andam juntos se o descarte for o mesmo. */
+    origens.push(cliente);
+  }
+  const anteriores = await lerEstadoGpon(db, compacto.map(linha => linha.client_id));
+  const primeiraCarga = anteriores.size === 0;
+
+  for (let i = 0; i < compacto.length; i += 1) {
+    const cliente = origens[i];
+    const linha = compacto[i];
+    const id = linha.client_id;
     if (onlineGpon(linha.status)) online += 1;
     const mudanca = transicaoGpon(anteriores.get(id), linha);
     /* Na primeira fotografia o parque inteiro seria "novo". Registrar 30 mil
@@ -7767,14 +7868,17 @@ async function handleGponIngest(env, request) {
   }
 
   /* Quatro escritas que descrevem a MESMA troca de versão: apontar o estado
-     para a fotografia nova, descartar os pedaços da anterior, zerar a tabela de
-     status legada e publicar a leitura compacta — que passa a cobrir o parque
-     inteiro, e não só quem mudou desde a última fotografia, para servir o
-     estado atual sem reabrir os pedaços do snapshot.
+     para a fotografia nova, descartar os pedaços da anterior, publicar o estado
+     de cada cliente e remover quem saiu do parque.
 
      Juntas num `batch` custam uma subrequisição em vez de quatro e passam a
      valer ou falhar como uma coisa só: antes, uma falha no meio deixava o
-     estado apontando para uma versão sem a leitura compacta correspondente. */
+     estado apontando para uma versão sem a leitura de estado correspondente.
+
+     A remoção é por diferença, não `DELETE FROM` seguido de reinserção: apagar
+     a tabela inteira deixaria uma janela — curta, mas real — em que a tela leria
+     um parque vazio. */
+  const idsJson = JSON.stringify(compacto.map(linha => linha.client_id));
   await db.batch([
     db.prepare(`
       INSERT INTO gpon_snapshot_state(id,version,source,synced_at,chunk_count,data_bytes,clients_count,boxes_count,alerts_count,updated_at)
@@ -7784,11 +7888,8 @@ async function handleGponIngest(env, request) {
         boxes_count=excluded.boxes_count,alerts_count=excluded.alerts_count,updated_at=CURRENT_TIMESTAMP
     `).bind(version, source, syncedAt, chunks.length, bytes, clients.length, boxes.length, alerts.length),
     db.prepare(`DELETE FROM gpon_snapshot_chunks WHERE version<>?`).bind(version),
-    db.prepare(`DELETE FROM gpon_client_status`),
-    db.prepare(`
-      INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
-    `).bind(JSON.stringify(compacto), syncedAt)
+    upsertEstadoGpon(db, compacto, syncedAt),
+    db.prepare(`DELETE FROM gpon_client_status WHERE client_id NOT IN (SELECT value FROM json_each(?1))`).bind(idsJson)
   ]);
 
   const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
@@ -7838,26 +7939,29 @@ async function handleGponStatusIngest(env, request) {
   const db = getDB(env), syncedAt = String(data.synced_at || new Date().toISOString()).slice(0, 40);
   const origem = textoGpon(data.origin || "ont+ixc", 30);
   const runId = bytesToBase64Url(randomBytes(12));
-  const current = await db.prepare(`SELECT data_json FROM gpon_status_snapshot WHERE id=1`).first();
-  const byId = new Map(lerStatusCompactoGpon(current).map(row => [String(row.client_id), row]));
+  /* Só o estado anterior de quem aparece no delta. O parque inteiro não é
+     lido, nem parseado, nem reescrito — é isso que faz o ciclo caber no teto
+     de CPU do Worker. */
+  const anteriores = await lerEstadoGpon(db, rows.map(row => row.id));
 
   /* O delta é comparado com o estado guardado antes de sobrescrevê-lo: é essa
      comparação — e não o fato de o coletor ter enviado a linha — que define o
      que virou transição. O coletor pode reenviar o mesmo valor sem que nada
      tenha acontecido de fato na rede. */
-  const transicoes = [];
-  /* Tráfego e conexão mudam sem que o estado mude — o cliente reconecta com
-     outro IP, o plano é reajustado, o consumo avança. Isso não é transição
-     (o histórico ficaria ilegível), mas é dado novo para servir: sem contar
-     estas mudanças à parte, o `synced_at` não andaria e a tela nunca voltaria
-     para buscá-las. */
-  let conexoesMudadas = 0;
+  const transicoes = [], mudadas = [];
   for (const row of rows) {
-    const anterior = byId.get(row.id);
+    const anterior = anteriores.get(row.id);
     const atual = { client_id: row.id, status: row.status, state_detail: row.detail, rx_power: row.rx, tx_power: row.tx, ...row.conexao };
-    if (!anterior || CONEXAO_GPON.some(campo => anterior[campo] !== atual[campo])) conexoesMudadas += 1;
+    /* Tráfego e conexão mudam sem que o estado mude — o cliente reconecta com
+       outro IP, o plano é reajustado, o consumo avança. Isso não é transição
+       (o histórico ficaria ilegível), mas é dado novo para servir: sem contar
+       estas mudanças à parte, o synced_at não andaria e a tela nunca voltaria
+       para buscá-las. */
+    const conexaoNova = !anterior || CONEXAO_GPON.some(campo => anterior[campo] !== atual[campo]);
     const mudanca = transicaoGpon(anterior, atual);
-    byId.set(row.id, atual);
+    /* Linha reenviada idêntica não é gravada: escrever para não mudar nada faria
+       o synced_at dela andar e a tela viria buscá-la de novo por engano. */
+    if (mudanca || conexaoNova) mudadas.push(atual);
     if (!mudanca) continue;
     transicoes.push({
       client_id: row.id, event: mudanca.event, status_before: mudanca.statusAntes, status_after: mudanca.statusDepois,
@@ -7867,27 +7971,22 @@ async function handleGponStatusIngest(env, request) {
     });
   }
 
-  const compacto = [...byId.values()];
-  const online = compacto.filter(linha => onlineGpon(linha.status)).length;
-
   /* Sem transição nem conexão nova, o estado servido não mudou: mexer em
      synced_at faria cada tela reabrir a leitura a cada 10 s sem um único dado
      novo. updated_at avança sempre — é o batimento que prova que a coleta está
      viva mesmo numa madrugada em que nada oscilou. */
-  if (transicoes.length || conexoesMudadas) await db.batch([
-    db.prepare(`
-      INSERT INTO gpon_status_snapshot(id,data_json,synced_at,updated_at) VALUES (1,?,?,CURRENT_TIMESTAMP)
-      ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json,synced_at=excluded.synced_at,updated_at=CURRENT_TIMESTAMP
-    `).bind(JSON.stringify(compacto), syncedAt),
+  if (mudadas.length) await db.batch([
+    upsertEstadoGpon(db, mudadas, syncedAt),
     db.prepare(`UPDATE gpon_snapshot_state SET synced_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=1`).bind(syncedAt)
   ]);
   else await db.prepare(`UPDATE gpon_snapshot_state SET updated_at=CURRENT_TIMESTAMP WHERE id=1`).run();
 
   const gravadas = await gravarHistoricoGpon(db, runId, origem, syncedAt, transicoes);
+  const totais = await contarEstadoGpon(db);
   await registrarCicloGpon(db, {
     id: runId, kind: "status", origin: origem, source: textoGpon(data.source || "", 120), synced_at: syncedAt,
-    clients_count: compacto.length, changes_count: rows.length, transitions_count: transicoes.length,
-    online_count: online, offline_count: compacto.length - online, lag_ms: atrasoGpon(syncedAt),
+    clients_count: totais.total, changes_count: rows.length, transitions_count: transicoes.length,
+    online_count: totais.online, offline_count: totais.offline, lag_ms: atrasoGpon(syncedAt),
     ip: getClientIP(request),
     error: transicoes.length > gravadas ? `histórico truncado: ${gravadas} de ${transicoes.length}` : ""
   });
@@ -7903,26 +8002,87 @@ async function handleGponRevision(env, request) {
   return json(row || { version: null, synced_at: null, updated_at: null });
 }
 
+/* Projeção do estado no formato que a tela consome. Montada pelo SQLite, não
+   pelo Worker: json_group_array devolve o array pronto como UMA string, então
+   nem a leitura completa materializa milhares de objetos JavaScript. O Worker
+   só concatena os campos de cabeçalho em volta. */
+const ESTADO_GPON_JSON = `json_group_array(json_object(
+  'id',client_id,'status',status,'state_detail',state_detail,
+  'rx_power',rx_power,'tx_power',tx_power,'ip',ip,
+  'down_kbps',down_kbps,'up_kbps',up_kbps,'down_bytes',down_bytes,'up_bytes',up_bytes,
+  'uptime_s',uptime_s,'conn_since',conn_since,'nas_id',nas_id))`;
+
+/* A leitura completa é a mesma resposta para todo mundo enquanto o carimbo da
+   coleta não anda: com várias telas do NOC abertas, só a primeira paga o preço.
+   O corpo guardado é só o array de clientes — version e updated_at continuam
+   vindo frescos do banco, senão o selo de "coleta viva" congelaria junto.
+
+   ATENÇÃO: em domínio *.workers.dev a Cache API é inerte — put e match não
+   falham, simplesmente não guardam nada. Enquanto a aplicação estiver servida
+   pelo subdomínio workers.dev isto não economiza uma única leitura, e quem
+   sustenta o custo da tela é a leitura incremental (`?since`) logo abaixo. O
+   cache só passa a valer quando houver domínio próprio na frente. */
+async function clientesEstadoGpon(db, syncedAt) {
+  const chave = syncedAt ? new Request(`https://gpon-status.cache/clients?v=${encodeURIComponent(syncedAt)}`) : null;
+  /* Nada aqui pode derrubar a leitura: cache é otimização, e um ambiente sem
+     Cache API só significa pagar a consulta. */
+  const cache = chave && typeof caches !== "undefined"
+    ? await caches.open("gpon-status").catch(() => null) : null;
+  if (cache) {
+    const guardado = await cache.match(chave).catch(() => null);
+    if (guardado) return await guardado.text();
+  }
+  const linha = await db.prepare(`SELECT COALESCE(${ESTADO_GPON_JSON},'[]') AS clients FROM gpon_client_status`).first();
+  const corpo = String(linha?.clients || "[]");
+  /* A janela é curta de propósito: ela existe para absorver as telas que pedem
+     o mesmo carimbo ao mesmo tempo, não para servir dado velho. */
+  if (cache) await cache.put(chave, new Response(corpo, { headers: { "cache-control": "max-age=30" } })).catch(() => {});
+  return corpo;
+}
+
 /* Estado atual sem o cadastro junto. A tela recarrega o snapshot completo —
    nomes, endereços, coordenadas, caixas — só quando a versão muda; a cada 10 s
    ela quer apenas saber quem mudou de estado, e isso é uma ordem de grandeza
-   menos dado no fio. */
-async function handleGponStatusRead(env, request) {
+   menos dado no fio.
+
+   Com `?since=<carimbo>` a resposta encolhe outra ordem de grandeza: só as
+   linhas que a coleta tocou depois daquele carimbo. A tela já aplica o
+   resultado cliente a cliente sobre o que tem em mãos, então uma lista parcial
+   é exatamente o que ela precisa — e é o que tira do caminho o custo de servir
+   o parque inteiro a cada oscilação de três ONUs. Sem o parâmetro a resposta
+   segue completa: é dela que uma tela recém-aberta parte. */
+async function handleGponStatusRead(env, request, url) {
   const gate = await requirePermission(env, request, "topology.view");
   if (gate.response) return gate.response;
   const db = getDB(env);
   const estado = await db.prepare(`SELECT version,synced_at,updated_at FROM gpon_snapshot_state WHERE id=1`).first();
   if (!estado) return json({ version: null, synced_at: null, updated_at: null, clients: [] });
-  const compacto = await db.prepare(`SELECT data_json,synced_at FROM gpon_status_snapshot WHERE id=1`).first();
-  const linhas = lerStatusCompactoGpon(compacto);
-  return json({
-    version: estado.version, synced_at: compacto?.synced_at || estado.synced_at,
-    updated_at: estado.updated_at,
-    clients: linhas.map(linha => ({
-      id: linha.client_id, status: linha.status, state_detail: linha.state_detail,
-      rx_power: linha.rx_power ?? null, tx_power: linha.tx_power ?? null,
-      ...conexaoGpon(linha)
-    }))
+
+  const desde = textoGpon(url?.searchParams.get("since") || "", 40);
+  let clientes;
+  if (desde) {
+    const linha = await db.prepare(`
+      SELECT COALESCE(${ESTADO_GPON_JSON},'[]') AS clients FROM gpon_client_status WHERE synced_at>?
+    `).bind(desde).first();
+    clientes = String(linha?.clients || "[]");
+  } else {
+    clientes = await clientesEstadoGpon(db, estado.synced_at);
+  }
+
+  /* Montado como texto, não com JSON.stringify de um objeto: o array já chegou
+     serializado do banco e voltar a parseá-lo só para reserializar seria pagar
+     duas vezes o único custo que esta rota tem. */
+  return new Response(`{"version":${JSON.stringify(estado.version ?? null)},` +
+    `"synced_at":${JSON.stringify(estado.synced_at ?? null)},` +
+    `"updated_at":${JSON.stringify(estado.updated_at ?? null)},` +
+    `"partial":${desde ? "true" : "false"},"clients":${clientes}}`, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+      "access-control-allow-origin": "*"
+    }
   });
 }
 
@@ -8404,7 +8564,7 @@ export default {
           return await handleGponStatusIngest(env,request);
 
         if (url.pathname === "/api/gpon/status" && request.method === "GET")
-          return await handleGponStatusRead(env,request);
+          return await handleGponStatusRead(env,request,url);
 
         if (url.pathname === "/api/gpon/history" && request.method === "GET")
           return await handleGponHistory(env,request,url);

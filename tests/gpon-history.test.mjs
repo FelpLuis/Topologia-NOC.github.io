@@ -121,7 +121,12 @@ test("a ONU acesa e o cliente autenticado aparecem na mesma linha", () => {
 
 test("a tela aplica o delta de estado sem rebaixar o snapshot inteiro", () => {
   assert.match(runtime, /async function patchStatus\(\)/);
-  assert.match(runtime, /NOC\.api\("\/api\/gpon\/status"\)/);
+  // Nem o parque inteiro: a leitura pede só o que a coleta tocou depois do
+  // carimbo que a tela já tem. Sem o `since` o Worker teria de montar o estado
+  // de todas as ONUs a cada oscilação de três — que foi o que estourou o teto
+  // de CPU e derrubou junto as requisições de tela em voo no mesmo isolate.
+  assert.match(runtime, /\/api\/gpon\/status\$\{desde \? `\?since=\$\{encodeURIComponent\(desde\)\}` : ""\}/);
+  assert.match(runtime, /const desde = state\.feed\?\.synced_at;/);
   // A versão do snapshot é o que separa "mudou cadastro" de "mudou estado".
   assert.match(runtime, /revision\.version !== state\.revision\) return load\(false\)/);
   assert.match(runtime, /setInterval\(refreshIfChanged, 10000\)/);

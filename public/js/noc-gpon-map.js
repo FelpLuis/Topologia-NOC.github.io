@@ -655,7 +655,15 @@
      as marcas derivadas deles. */
   async function patchStatus() {
     let delta;
-    try { delta = await NOC.api("/api/gpon/status"); }
+    /* Pede só o que a coleta tocou depois do carimbo que já temos. O laço
+       abaixo sempre foi incremental — casa cliente a cliente pelo índice e
+       ignora quem não está na lista —, então receber o parque inteiro a cada
+       oscilação de três ONUs era peso puro: megabytes no fio e, do outro lado,
+       o Worker montando o parque todo dentro do orçamento de CPU de uma
+       requisição. Sem carimbo em mãos (primeira volta) a resposta vem completa,
+       que é de onde a tela parte. */
+    const desde = state.feed?.synced_at;
+    try { delta = await NOC.api(`/api/gpon/status${desde ? `?since=${encodeURIComponent(desde)}` : ""}`); }
     catch { return; }
     if (!Array.isArray(delta.clients)) return;
     let mudou = 0, conexao = 0;
