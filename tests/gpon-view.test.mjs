@@ -115,3 +115,22 @@ test("a linha da caixa traz bolinha de estado, código, nome e porta", () => {
   assert.match(css, /\.gpon-dot\.is-off \{ background: var\(--danger-500\)/);
   assert.match(css, /\.gpon-dot\.is-low \{ background: var\(--warn-500\)/);
 });
+
+test("o log RADIUS mostra que está vivo mesmo sem evento novo", () => {
+  // O poll de 2 s só redesenhava quando chegava evento. Numa madrugada de
+  // poucas transições o "atualizado há Xs" envelhecia na tela e o log parecia
+  // ter parado — sem ter parado. O rodapé é separado do corpo justamente para
+  // poder andar a cada volta sem reescrever centenas de <tr>.
+  assert.match(runtime, /function renderRodape\(host\)/);
+  assert.match(runtime, /function filtrados\(\)/);
+  assert.match(runtime, /if \(rl\.ready\) renderRodape\(mountedHost\);/);
+});
+
+test("uma falha do poll do log RADIUS aparece na tela, não vira imobilidade", () => {
+  // Continua sem toast (a cada 2 s seria insuportável), mas o catch vazio
+  // fazia "servidor fora do ar" e "rede calma" ficarem idênticos para quem
+  // olha. Hoje ~20% das requisições ao Worker falham, então o caso é real.
+  assert.match(runtime, /rl\.erro = err\?\.message \|\| "falha na consulta"/);
+  assert.match(runtime, /sem resposta do servidor • última leitura/);
+  assert.doesNotMatch(runtime, /\} catch \{ \/\* silencioso: a próxima rodada de 2 s tenta de novo \*\/ \}/);
+});

@@ -1640,6 +1640,10 @@
          recarga mexem na mesma lista); `antigos` é só a paginação do passado,
          em voo ou pendente — é ela que o botão do rodapé mostra. */
       loading: false, antigos: false, ready: false, done: false, auto: true, checkedAt: null,
+      /* Última falha do poll. O poll é silencioso de propósito (uma falha
+         isolada não merece um toast a cada 2 s), mas silêncio total fazia
+         "servidor fora do ar" e "rede calma" ficarem idênticos na tela. */
+      erro: null,
       minId: null, maxId: 0, timer: 0, scroller: null,
       /* Recomeçar a lista (troca de filtro, recarga) invalida o que estiver em
          voo: a resposta de uma geração anterior traria eventos do filtro
@@ -1663,18 +1667,22 @@
       return novos;
     }
 
-    function render(host) {
-      const body = $("#radiusLogBody", host);
+    function filtrados() {
       const q = rl.query.trim().toLowerCase();
-      const rows = q ? rl.events.filter((ev) => [ev.username, ev.client_name, ev.client_id, ev.serial, ev.olt_id, ev.detail]
-        .some((v) => String(v || "").toLowerCase().includes(q))) : rl.events;
-      body.innerHTML = rows.length ? rows.map(linhaRadiusLog).join("")
-        : `<tr><td colspan="6" class="dim">${rl.ready ? "Nenhum evento encontrado." : "Carregando os eventos mais recentes…"}</td></tr>`;
+      if (!q) return rl.events;
+      return rl.events.filter((ev) => [ev.username, ev.client_name, ev.client_id, ev.serial, ev.olt_id, ev.detail]
+        .some((v) => String(v || "").toLowerCase().includes(q)));
+    }
+
+    /* O rodapé é a única parte que muda quando NADA chega — e é a parte que
+       responde "isto ainda está vivo?". Fica separado do corpo porque o poll
+       de 2 s o reescreve a cada volta, e refazer as linhas da tabela nesse
+       ritmo seria trocar centenas de <tr> para não mudar nenhum. */
+    function renderRodape(host) {
+      const rows = filtrados(), q = rl.query.trim();
 
       /* O botão espelha `antigos`, não `loading`: o poll de 2 s também ocupa o
-         mutex, e amarrar o rótulo a ele deixava o botão preso em "Carregando…"
-         — o poll só redesenha quando chega evento novo, então ninguém
-         desfazia o estado.
+         mutex, e amarrar o rótulo a ele deixava o botão preso em "Carregando…".
          `hidden` não resolve aqui: .btn declara display, e a regra do agente
          de usuário para [hidden] perde para ela. */
       const mais = $("#radiusLogMore", host);
@@ -1682,9 +1690,26 @@
       mais.disabled = rl.antigos;
       mais.textContent = rl.antigos ? "Carregando…" : `Carregar ${RADIUS_PAGE} mais antigos`;
 
-      $("#radiusLogCount", host).textContent = !rl.ready
+      /* "Atualizado há Xs" só dizia a verdade quando um evento novo chegava:
+         era o evento que disparava o desenho. Numa madrugada de poucas
+         transições o carimbo envelhecia na tela e o log parecia ter parado de
+         atualizar — sem ter parado. Agora o carimbo anda a cada volta do poll,
+         e uma falha aparece como falha em vez de virar imobilidade. */
+      const conta = $("#radiusLogCount", host);
+      const estado = rl.erro ? `sem resposta do servidor • última leitura ${relativo(rl.checkedAt)}`
+        : `atualizado ${relativo(rl.checkedAt)}`;
+      conta.textContent = !rl.ready
         ? "Carregando os eventos mais recentes…"
-        : `${nb(rows.length)}${q ? ` de ${nb(rl.events.length)}` : ""} eventos carregados • ${rl.done ? "início do log" : "role para carregar mais antigos"} • atualizado ${relativo(rl.checkedAt)}`;
+        : `${nb(rows.length)}${q ? ` de ${nb(rl.events.length)}` : ""} eventos carregados • ${rl.done ? "início do log" : "role para carregar mais antigos"} • ${estado}`;
+      conta.style.color = rl.ready && rl.erro ? "var(--danger-text)" : "";
+      conta.title = rl.erro ? `Última falha do poll: ${rl.erro}` : "";
+    }
+
+    function render(host) {
+      const rows = filtrados();
+      $("#radiusLogBody", host).innerHTML = rows.length ? rows.map(linhaRadiusLog).join("")
+        : `<tr><td colspan="6" class="dim">${rl.ready ? "Nenhum evento encontrado." : "Carregando os eventos mais recentes…"}</td></tr>`;
+      renderRodape(host);
     }
 
     async function pedir(extra) {
@@ -1787,8 +1812,15 @@
           if (scroller && topoAntes > 0) scroller.scrollTop = topoAntes + (scroller.scrollHeight - alturaAntes);
         }
         rl.checkedAt = new Date().toISOString();
-      } catch { /* silencioso: a próxima rodada de 2 s tenta de novo */ }
+        rl.erro = null;
+      } catch (err) {
+        /* Continua sem toast — a cada 2 s seria insuportável —, mas a falha
+           passa a existir para a tela: o rodapé a mostra e a próxima volta
+           limpa sozinha se voltar a responder. */
+        rl.erro = err?.message || "falha na consulta";
+      }
       finally { rl.loading = false; }
+      renderRodape(host);
       liberado(host);
     }
 
@@ -1849,6 +1881,9 @@
         rl.timer = setInterval(() => {
           if (!document.contains(mountedHost)) { clearInterval(rl.timer); return; }
           if (rl.auto) buscarNovos(mountedHost);
+          /* Fora do `if`: com o auto desligado o carimbo continua envelhecendo,
+             que é a leitura honesta — "ninguém está buscando desde X". */
+          if (rl.ready) renderRodape(mountedHost);
         }, RADIUS_POLL_MS);
       },
     });
