@@ -179,13 +179,30 @@
   const sinalCritico = (c) => Number.isFinite(Number(c.rx_power)) && Number(c.rx_power) <= SINAL_CRITICO_DBM;
 
   /* Ocupação "para exibição" na Topologia: soma o enlace formal (NOC.portaEmUso,
-     usado por todo o resto do app) com o que só existe aqui — nome digitado numa
-     porta comum, ou clientes reais numa porta PON de OLT. Não mexe na verdade
-     global (dashboards, tráfego, status degradado continuam só no enlace formal). */
+     usado por todo o resto do app) com o que só existe aqui — o status que o
+     operador marcou na porta, ou clientes reais numa porta PON de OLT. Não mexe
+     na verdade global (dashboards, tráfego, status degradado continuam só no
+     enlace formal).
+     Antes valia "tem nome, logo está ocupada". O nome da porta, porém, é a
+     interface física — o Zabbix escreve o if_name em toda porta que sincroniza —,
+     então todo equipamento sincronizado aparecia ocupado por inteiro e nenhuma
+     porta podia mais receber enlace. Quem diz se a porta está conectada agora é
+     o status, que é justamente o que o operador edita. */
   function portaOcupadaView(e, p) {
     if (NOC.portaEmUso(e.id, p.numero)) return true;
     if (isOLT(e) && p.tecnologia === "GBIC/GPON") return onusDaPorta(e, p).length > 0;
-    return !!(p.nome && p.nome.trim());
+    return p.status === "conectada";
+  }
+
+  /* Disponibilidade para receber um enlace novo — outra pergunta, outra regra.
+     O que impede de verdade é já existir enlace documentado naquela porta, ou
+     ela ser uma porta PON com clientes (ponto-multiponto: quem manda nela é o
+     gerenciador de OLT). "Reservada" e "manutenção" continuam sendo ofertadas,
+     com a marcação na própria opção: são estados operacionais, não ocupação. */
+  function portaLivreParaEnlace(e, p) {
+    if (NOC.portaEmUso(e.id, p.numero)) return false;
+    if (isOLT(e) && p.tecnologia === "GBIC/GPON") return onusDaPorta(e, p).length === 0;
+    return true;
   }
 
   const device = (id) => (NOC.data()?.equipamentos || []).find((e) => e.id === id);
@@ -2137,7 +2154,22 @@
   const portasDisponiveis = async (destId, manter) => {
     const d = await findDeviceCrossScope(destId);
     if (!d) return [];
-    return (d.portas || []).filter((x) => !portaOcupadaView(d, x) || Number(x.numero) === Number(manter));
+    return (d.portas || [])
+      .filter((x) => portaLivreParaEnlace(d, x) || Number(x.numero) === Number(manter))
+      .sort((a, b) => Number(a.numero) - Number(b.numero));
+  };
+
+  /* Rótulo da porta do outro lado. Mostra a interface e o status porque a lista
+     agora inclui portas já documentadas: sem isso o operador escolheria
+     "Porta 07" sem saber que ela está reservada ou é o uplink de um cliente. */
+  const rotuloPortaRemota = (p) => {
+    const partes = [`Porta ${String(p.numero).padStart(2, "0")}`];
+    if (p.nome) partes.push(p.nome);
+    if (p.capacidade) partes.push(p.capacidade);
+    const marca = p.status === "reservada" ? "reservada"
+      : p.status === "manutencao" ? "em manutenção"
+      : p.status === "conectada" ? "marcada como conectada" : "";
+    return `${partes.join(" — ")}${marca ? ` (${marca})` : ""}`;
   };
 
   const STATUS_PORTA = [["livre", "Livre"], ["conectada", "Conectada"], ["reservada", "Reservada"], ["manutencao", "Manutenção"]];
@@ -2166,7 +2198,10 @@
 
         const paint = async () => {
           const c = NOC.portConnection(e.id, numero);
-          const remoto = c ? device(c.origem === e.id ? c.destino : c.origem) : null;
+          /* O outro lado pode estar em outro recorte (um equipamento da PARTE
+             ISP, por exemplo). Resolvendo só no recorte atual, um enlace já
+             gravado sumia da tela e a porta voltava a se dizer livre. */
+          const remoto = c ? await findDeviceCrossScope(c.origem === e.id ? c.destino : c.origem) : null;
           const remotaPorta = c ? (c.origem === e.id ? c.portaDestino : c.portaOrigem) : null;
           /* Alterar ou apagar um enlace existente conta como remoção na API;
              documentar um enlace novo exige a ação de criação de enlace. */
@@ -2191,9 +2226,15 @@
                     <span class="badge badge-info">${esc(c.tipo || "Enlace")}</span>
                     <span class="badge">${esc(c.capacidade || "A confirmar")}</span>
                   </div>
-                </div>` : `
+                </div>` : p.status === "conectada" ? `
+                <div class="alert alert-warn" style="animation:none">${icon("info")}
+                  <span>Porta marcada como conectada, sem enlace documentado: a outra ponta não está na
+                  topologia (cliente, equipamento de terceiro). Para ligá-la a um equipamento daqui, use
+                  <b>Editar porta → O que está conectado nesta porta</b>.</span></div>` : `
                 <div class="alert alert-info" style="animation:none">${icon("info")}
-                  <span>Porta livre e disponível para novo cliente ou expansão do anel.</span></div>`}
+                  <span>${p.status === "reservada" ? "Porta reservada, ainda sem enlace documentado."
+                    : p.status === "manutencao" ? "Porta em manutenção, sem enlace documentado."
+                    : "Porta livre e disponível para novo cliente ou expansão do anel."}</span></div>`}
               ${m && m.estado === "up" ? `
                 <div class="card" style="padding:var(--s-4);border-left:3px solid ${TRAF.cor(m)}">
                   <span class="kicker">${icon("trafego")} Tráfego agora</span>
@@ -2232,19 +2273,24 @@
 
           /* -------- modo de edição -------- */
           const destinoAtual = remoto?.id || "";
-          
-          // Carregar equipamentos de todos os recortes (BACKBONE, ISP, etc.)
-          let todosEquipamentos = [];
+
+          /* Equipamentos de todos os recortes (BACKBONE, ISP…). O recorte ISP
+             já enxerga os equipamentos de backbone vinculados aos POPs dele,
+             então o mesmo id aparece nas duas listas — sem juntar por id o
+             seletor mostrava o equipamento duas vezes. */
+          const porIdTodos = new Map();
           try {
             const allScopes = await NOC.loadAllScopesEquipment();
             for (const scopeEquip of Object.values(allScopes)) {
-              todosEquipamentos.push(...scopeEquip);
+              for (const x of scopeEquip) if (!porIdTodos.has(x.id)) porIdTodos.set(x.id, x);
             }
           } catch (err) {
-            // Fallback: apenas equipamentos do recorte atual
-            todosEquipamentos = (NOC.data()?.equipamentos || []);
+            // Sem os outros recortes, o que vale é o recorte aberto na tela.
           }
-          const outros = todosEquipamentos.filter((x) => x.id !== e.id);
+          for (const x of (NOC.data()?.equipamentos || [])) porIdTodos.set(x.id, x);
+          const outros = [...porIdTodos.values()]
+            .filter((x) => x.id !== e.id)
+            .sort((a, b) => String(a.nome || a.id).localeCompare(String(b.nome || b.id), "pt-BR"));
           body.innerHTML = `
             <form class="stack" id="portForm">
               <div class="row" style="gap:var(--s-3);align-items:flex-start">
@@ -2277,7 +2323,7 @@
                     <option value="">— Nenhum (porta livre) —</option>
                     ${outros.map((x) => `<option value="${esc(x.id)}" ${destinoAtual === x.id ? "selected" : ""}>${esc(x.nome)}${x.modelo ? ` — ${esc(x.modelo)}` : ""}</option>`).join("")}
                   </select>
-                  <span class="field-hint">Só aparecem as portas livres do equipamento escolhido.</span>
+                  <span class="field-hint">Aparecem as portas do equipamento escolhido que ainda não têm enlace documentado.</span>
                 </div>
                 <div class="field" style="width:210px"><label for="pDestPorta">Porta do outro lado</label>
                   <select class="select" id="pDestPorta" ${travado ? "disabled" : ""}></select></div>
@@ -2315,8 +2361,8 @@
             const manter = selDest.value === (remoto?.id || "") ? remotaPorta : null;
             const lista = await portasDisponiveis(selDest.value, manter);
             selPorta.innerHTML = lista.length
-              ? lista.map((x) => `<option value="${x.numero}" ${Number(selecionada) === Number(x.numero) ? "selected" : ""}>Porta ${String(x.numero).padStart(2, "0")}${x.capacidade ? ` — ${esc(x.capacidade)}` : ""}</option>`).join("")
-              : `<option value="">Sem portas livres</option>`;
+              ? lista.map((x) => `<option value="${x.numero}" ${Number(selecionada) === Number(x.numero) ? "selected" : ""}>${esc(rotuloPortaRemota(x))}</option>`).join("")
+              : `<option value="">Sem porta livre neste equipamento</option>`;
             selPorta.disabled = travado || !selDest.value || !lista.length;
           };
           await pintarPortas(remotaPorta);
@@ -2379,12 +2425,13 @@
             p.observacao = $("#pObs", form).value.trim();
             const escolhido = $("#pStatus", form).value;
             const temEnlace = !!NOC.portConnection(e.id, numero);
-            /* "Conectada" sem enlace formal só é aceita quando a porta tem nome
-               documentado (cliente, circuito etc.) — sem isso, viraria um status
-               fantasma que nada mais na tela sabe explicar, e por isso volta
-               para "livre". */
-            p.status = temEnlace ? "conectada"
-              : (escolhido === "conectada" && !p.nome ? "livre" : escolhido);
+            /* O status é do operador: marcar uma porta como conectada sem enlace
+               documentado é como se registra a ponta que não está na topologia
+               (cliente, equipamento de terceiro, circuito de trânsito). Antes
+               isso voltava sozinho para "livre" e a alteração parecia não gravar.
+               A única coerção que resta é a inversa: porta com enlace documentado
+               não pode ficar "livre" — para isso existe "Remover enlace". */
+            p.status = temEnlace && (!escolhido || escolhido === "livre") ? "conectada" : (escolhido || "livre");
 
             const ok = await persist(
               remover ? "TOPOLOGY_DELETE_CONEXAO" : "TOPOLOGY_UPDATE_PORTA",
@@ -2423,12 +2470,12 @@
 
   function connTab(e) {
     const list = NOC.connectionsOf(e.id);
-    const livres = (e.portas || []).filter((p) => !portaOcupadaView(e, p));
+    const livres = (e.portas || []).filter((p) => portaLivreParaEnlace(e, p));
     const cabeca = `
       <div class="row-between wrap" style="gap:var(--s-3);margin-bottom:var(--s-4)">
         <div><span class="kicker">Vínculos deste equipamento</span>
           <p class="dim" style="font-size:var(--fs-11);margin-top:4px">${list.length} enlace(s) documentado(s) •
-            ${livres.length} porta(s) livre(s) para novos vínculos.</p></div>
+            ${livres.length} porta(s) sem enlace, disponíveis para novos vínculos.</p></div>
         <button class="btn btn-sm btn-primary" type="button" data-newlink
           ${podeCriarEnlace() && livres.length ? "" : `disabled title='${podeCriarEnlace() ? "Nenhuma porta livre neste equipamento" : "Requer as ações topology.edit + topology.link.create"}'`}>${icon("plus")} Documentar enlace</button>
       </div>`;
@@ -2468,7 +2515,7 @@
     if (novo) novo.onclick = () => {
       /* Documentar um enlace é preencher uma porta livre: a primeira delas já
          abre em modo de edição, com o seletor do outro lado pronto. */
-      const livre = (e.portas || []).find((p) => !portaOcupadaView(e, p));
+      const livre = (e.portas || []).find((p) => portaLivreParaEnlace(e, p));
       if (!livre) return toast("Sem porta livre", { text: "Cadastre ou libere uma porta antes de documentar o enlace.", type: "warn" });
       openPort(e, Number(livre.numero), { edit: true });
     };
@@ -3546,7 +3593,7 @@
             <td><input class="input mono" data-c="nome" value="${esc(p.nome || "")}" placeholder="10GE0/1/1" aria-label="Nome da interface"></td>
             <td><input class="input" data-c="tipo" value="${esc(p.tipo || "")}" placeholder="GE / 10GE" aria-label="Tipo da porta"></td>
             <td><input class="input" data-c="capacidade" value="${esc(p.capacidade || "")}" placeholder="10 Gbps" aria-label="Capacidade da porta"></td>
-            <td><select class="select" data-c="status" aria-label="Status da porta" ${c ? "disabled" : ""}>
+            <td><select class="select" data-c="status" aria-label="Status da porta"${c ? ` title="Porta com enlace documentado: para liberá-la, remova o enlace."` : ""}>
               ${STATUS_PORTA.map(([v, l]) => `<option value="${v}" ${(p.status || "livre") === v ? "selected" : ""}>${l}</option>`).join("")}
             </select></td>
             <td><input class="input" data-c="descricao" value="${esc(p.descricao || "")}" placeholder="Descrição no equipamento" aria-label="Descrição da porta"></td>
@@ -3667,11 +3714,13 @@
             .sort((a, b) => a.numero - b.numero);
           e.portas.forEach((p) => {
             limparVazios(p, ["nome", "tipo", "capacidade", "descricao", "observacao"]);
-            // “conectada” é consequência do enlace, nunca uma escolha solta.
+            /* Marcar "conectada" à mão é escolha legítima do operador (a ponta
+               que não está na topologia). O enlace documentado só impede o
+               inverso: porta ligada não pode ser gravada como livre. */
             const ligada = (t.conexoes || []).some((c) =>
               (c.origem === e.id && Number(c.portaOrigem) === p.numero)
               || (c.destino === e.id && Number(c.portaDestino) === p.numero));
-            p.status = ligada ? "conectada" : (p.status === "conectada" ? "livre" : (p.status || "livre"));
+            p.status = ligada && (!p.status || p.status === "livre") ? "conectada" : (p.status || "livre");
           });
 
           const restaurar = () => { e.portas = backupPortas; t.conexoes = backupConexoes; };
