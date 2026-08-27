@@ -1179,6 +1179,18 @@ lista fixa no front.
 `topology.edit` e `topology.delete` continuam sendo a base de qualquer gravação
 ou remoção na topologia; as ações granulares são exigidas **além** delas.
 
+Uma exceção, e só uma: **`topology.port.edit` implica `topology.link.create` e
+`topology.link.delete`** (`ACTION_IMPLICATIONS`, em `src/worker.js`). A porta e o
+enlace que chega nela são a mesma tarefa na tela — quem documenta a porta é
+justamente quem sabe o que está ligado ali. Sem isso sobrava o perfil que
+renomeia a porta mas não pode dizer para onde ela vai, com os campos do enlace
+travados e nada a fazer a respeito.
+
+A implicação vale a cada requisição (não é concessão gravada no perfil, como
+`ACTION_EQUIVALENCE`) e **não** alcança `topology.delete`: desfazer um enlace
+deixou de passar por esse portão, mas apagar equipamento, POP, fibra ou caixa
+continua exigindo a ação explícita.
+
 ### Como a ação é verificada
 
 A topologia é gravada inteira em `PUT /api/topology`, então o Worker deduz as

@@ -49,7 +49,10 @@
   const podeExcluirEquipamento = () => NOC.canAll(["topology.delete", "topology.equipment.delete"]);
   const podeEditarPorta = () => NOC.canAll(["topology.edit", "topology.port.edit"]);
   const podeCriarEnlace = () => NOC.canAll(["topology.edit", "topology.link.create"]);
-  const podeRemoverEnlace = () => NOC.canAll(["topology.delete", "topology.link.delete"]);
+  /* Desfazer um enlace acompanha a edição da porta, e não a chave de remoção
+     de cadastro (`topology.delete`, que apaga equipamento e POP): o Worker
+     concede `topology.link.delete` a quem tem `topology.port.edit`. */
+  const podeRemoverEnlace = () => NOC.canAll(["topology.edit", "topology.link.delete"]);
   const podeVincularPop = () => NOC.canAll(["topology.edit", "topology.pop.link"]);
   const podeCriarPop = () => NOC.canAll(["topology.edit", "pops.create"]);
   /* Nome, endereço e localização são cadastro do POP; as rotas têm ação
@@ -2311,10 +2314,10 @@
               <hr>
               <div class="row-between">
                 <h3 style="font-size:var(--fs-13)">${icon("link")} O que está conectado nesta porta</h3>
-                ${c ? `<button class="btn btn-danger btn-sm" type="button" data-unlink ${canDelete ? "" : "disabled title='Requer as ações topology.delete + topology.link.delete'"}>${icon("trash")} Remover enlace</button>` : ""}
+                ${c ? `<button class="btn btn-danger btn-sm" type="button" data-unlink ${canDelete ? "" : "disabled title='Requer as ações topology.edit + topology.link.delete'"}>${icon("trash")} Remover enlace</button>` : ""}
               </div>
               ${semRemover ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
-                <span>Esta porta já tem enlace. Alterar ou remover um enlace existente exige as ações <b>topology.delete</b> e <b>topology.link.delete</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
+                <span>Esta porta já tem enlace. Alterar ou remover um enlace existente exige as ações <b>topology.edit</b> e <b>topology.link.delete</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
               ${semCriar ? `<div class="alert alert-warn" style="animation:none">${icon("alert")}
                 <span>Documentar um enlace novo exige as ações <b>topology.edit</b> e <b>topology.link.create</b>; seu perfil só pode editar os dados da porta.</span></div>` : ""}
               <div class="row" style="gap:var(--s-3);align-items:flex-start">
@@ -2500,7 +2503,7 @@
             <button class="btn btn-sm" type="button" data-editlink="${saida ? c.portaOrigem : c.portaDestino}"
               ${podeEditarPorta() ? "" : "disabled title='Requer as ações topology.edit + topology.port.edit'"}>${icon("edit")} Editar</button>
             <button class="btn btn-danger btn-sm" type="button" data-dellink="${i}"
-              ${podeRemoverEnlace() ? "" : "disabled title='Requer as ações topology.delete + topology.link.delete'"}>${icon("trash")} Remover</button>
+              ${podeRemoverEnlace() ? "" : "disabled title='Requer as ações topology.edit + topology.link.delete'"}>${icon("trash")} Remover</button>
           </div>
         </div>
       </div>`;
@@ -3620,7 +3623,7 @@
             const enlaces = p._orig == null ? [] : enlacesDaPorta(e.id, p._orig);
             if (enlaces.length && !canDelete) {
               toast("Porta com enlace documentado", {
-                text: "Remover uma porta ligada desfaz o enlace, e isso exige as ações topology.delete + topology.link.delete.",
+                text: "Remover uma porta ligada desfaz o enlace, e isso exige as ações topology.edit + topology.link.delete.",
                 type: "warn",
               });
               return;
@@ -3689,7 +3692,7 @@
           const perdidos = removidas.flatMap((n) => enlacesDaPorta(e.id, n));
           if (perdidos.length && !canDelete) {
             toast("Sem permissão para desfazer enlaces", {
-              text: "As portas removidas têm enlace documentado. São necessárias as ações topology.delete + topology.link.delete.",
+              text: "As portas removidas têm enlace documentado. São necessárias as ações topology.edit + topology.link.delete.",
               type: "warn",
             });
             return;

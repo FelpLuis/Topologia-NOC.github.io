@@ -887,8 +887,8 @@ const ACTIONS = [
   ["topology.equipment.edit", "Editar equipamento", "Alterar nome, modelo, categoria e demais dados", "network", "Topologia", 50],
   ["topology.equipment.delete", "Excluir equipamento", "Remover equipamentos da topologia", "network", "Topologia", 60],
   ["topology.port.edit", "Editar portas", "Criar, alterar e remover portas de um equipamento", "network", "Topologia", 70],
-  ["topology.link.create", "Criar enlace", "Documentar enlaces entre portas", "network", "Topologia", 80],
-  ["topology.link.delete", "Remover enlace", "Desfazer enlaces já documentados", "network", "Topologia", 90],
+  ["topology.link.create", "Criar enlace", "Documentar enlaces entre portas. Quem tem \"Editar portas\" já recebe esta ação", "network", "Topologia", 80],
+  ["topology.link.delete", "Remover enlace", "Desfazer enlaces já documentados. Quem tem \"Editar portas\" já recebe esta ação", "network", "Topologia", 90],
   ["topology.pop.link", "Vincular equipamento ao POP", "Definir ou desfazer o POP de um equipamento", "network", "Topologia", 100],
   ["topology.layout", "Salvar posições do mapa", "Gravar o posicionamento manual dos POPs no mapa", "network", "Topologia", 110],
   ["topology.config", "Alterar configurações do mapa", "Títulos e demais parâmetros de exibição da topologia", "network", "Topologia", 120],
@@ -1063,6 +1063,35 @@ const ACTION_EQUIVALENCE = [
   ["audit.view", ["audit.export"]],
   ["settings.manage", ["roles.view"]]
 ];
+
+/* Ações que outra ação já carrega em si, resolvidas a cada requisição —
+   diferente de ACTION_EQUIVALENCE, que é uma concessão única na migração e
+   depois pertence ao administrador.
+
+   Porta e enlace são a mesma tarefa: quem documenta a porta é justamente quem
+   sabe o que está ligado nela. Separadas, sobrava o perfil que renomeia a porta
+   mas não pode dizer para onde ela vai — na tela, os campos do enlace apareciam
+   travados sem que houvesse o que fazer a respeito. */
+const ACTION_IMPLICATIONS = [
+  ["topology.port.edit", ["topology.link.create", "topology.link.delete"]]
+];
+
+/* Devolve o conjunto acrescido das ações implicadas pelas que ele já tem. */
+export function comAcoesImplicadas(codes) {
+  const set = codes instanceof Set ? codes : new Set(codes);
+  for (const [origem, derivadas] of ACTION_IMPLICATIONS) {
+    if (!set.has(origem)) continue;
+    for (const code of derivadas) set.add(code);
+  }
+  return set;
+}
+
+/* Códigos que satisfazem uma ação: ela mesma e as que a implicam. */
+export function acoesQueSatisfazem(code) {
+  return [code, ...ACTION_IMPLICATIONS
+    .filter(([, derivadas]) => derivadas.includes(code))
+    .map(([origem]) => origem)];
+}
 
 // "*" é seguro aqui porque a API não depende mais de cookie pra requisição
 // cross-origin: o app (mobile/webchat) autentica por Authorization: Bearer,
@@ -1340,21 +1369,24 @@ async function permissionsOf(env, user) {
     JOIN permissions p ON p.id=rp.permission_id
     WHERE rp.role_id=?
   `).bind(user.role_id).all()).results || [];
-  return new Set(rows.map(x => x.code));
+  return comAcoesImplicadas(rows.map(x => x.code));
 }
 
 async function hasPermission(env, user, code) {
   if (!user) return false;
   if (ehMestre(user)) return true;
   const db = getDB(env);
+  // A ação também chega por implicação (ver ACTION_IMPLICATIONS): quem tem a
+  // ação de origem a satisfaz sem ter a linha dela no perfil.
+  const codigos = acoesQueSatisfazem(code);
   const row = await db.prepare(`
     SELECT 1
     FROM role_permissions rp
     JOIN permissions p ON p.id=rp.permission_id
     JOIN roles r ON r.id=rp.role_id
-    WHERE r.id=? AND p.code=?
+    WHERE r.id=? AND p.code IN (${codigos.map(() => "?").join(",")})
     LIMIT 1
-  `).bind(user.role_id, code).first();
+  `).bind(user.role_id, ...codigos).first();
   return !!row;
 }
 
@@ -5648,10 +5680,10 @@ async function handleAccess(env, request) {
   const mestre=ehMestre(user);
   const permissions=mestre
     ? [...ALL_ACTION_CODES].sort()
-    : (await db.prepare(`
+    : [...comAcoesImplicadas((await db.prepare(`
         SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id
         WHERE rp.role_id=? ORDER BY p.code
-      `).bind(user.role_id).all()).results.map(x=>x.code);
+      `).bind(user.role_id).all()).results.map(x=>x.code))].sort();
   const telas=consultaTelasDoAcesso({mestre, roleId:user.role_id});
   const screens=(await db.prepare(telas.sql).bind(...telas.binds).all()).results;
   const sectors=(await db.prepare(`
@@ -6342,7 +6374,12 @@ async function handleTopology(env,request) {
   }
   const diff=topologyDiff(before,after);
 
-  const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length||diff.conexoes.removed
+  /* `topology.delete` continua sendo a chave de qualquer remoção de cadastro:
+     equipamento, POP, fibra, caixa. O enlace saiu dessa lista — desfazê-lo é
+     parte de ajustar a porta, e quem ajusta porta recebe `topology.link.delete`
+     por implicação (ver ACTION_IMPLICATIONS). A remoção do enlace continua
+     exigindo essa ação, cobrada logo abaixo por requiredTopologyActions. */
+  const hasDeletion=diff.equipamentos.removed.length||diff.pops.removed.length
     ||diff.fibras?.removed.length||diff.caixas?.removed.length;
   if(hasDeletion && !permissoes.has("topology.delete")){
     await audit(env,request,user,"TOPOLOGY_UPDATE_DENIED","topology",scope,before,after,{reason:"missing topology.delete",diff});
@@ -8255,9 +8292,9 @@ async function handleGponCollectorStatus(env, request) {
 async function handleTopologyPermissions(env,request){
   const user=await getCurrentUser(env,request);
   if(!user)return json({error:"AUTH_REQUIRED"},401);
-  const permissions=(await getDB(env).prepare(`
+  const permissions=[...comAcoesImplicadas((await getDB(env).prepare(`
     SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=?
-  `).bind(user.role_id).all()).results.map(x=>x.code);
+  `).bind(user.role_id).all()).results.map(x=>x.code))];
   return json({permissions});
 }
 

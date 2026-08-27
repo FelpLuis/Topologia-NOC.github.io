@@ -612,7 +612,7 @@
         const mapeamento = topologiaPronta ? conexaoDoLink(l) : { a: null, b: null, conexao: null };
         const podeMapear = !!mapeamento.a && !!mapeamento.b;
         const acoes = mapeamento.conexao
-          ? "topology.edit topology.link.create topology.delete topology.link.delete"
+          ? "topology.edit topology.link.create topology.link.delete"
           : "topology.edit topology.port.edit topology.link.create";
         const motivo = topologiaPronta
           ? "Use “Usar enlaces na topologia” para mapear as interfaces primeiro"
