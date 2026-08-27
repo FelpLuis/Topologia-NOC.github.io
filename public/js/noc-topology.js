@@ -2277,23 +2277,7 @@
           /* -------- modo de edição -------- */
           const destinoAtual = remoto?.id || "";
 
-          /* Equipamentos de todos os recortes (BACKBONE, ISP…). O recorte ISP
-             já enxerga os equipamentos de backbone vinculados aos POPs dele,
-             então o mesmo id aparece nas duas listas — sem juntar por id o
-             seletor mostrava o equipamento duas vezes. */
-          const porIdTodos = new Map();
-          try {
-            const allScopes = await NOC.loadAllScopesEquipment();
-            for (const scopeEquip of Object.values(allScopes)) {
-              for (const x of scopeEquip) if (!porIdTodos.has(x.id)) porIdTodos.set(x.id, x);
-            }
-          } catch (err) {
-            // Sem os outros recortes, o que vale é o recorte aberto na tela.
-          }
-          for (const x of (NOC.data()?.equipamentos || [])) porIdTodos.set(x.id, x);
-          const outros = [...porIdTodos.values()]
-            .filter((x) => x.id !== e.id)
-            .sort((a, b) => String(a.nome || a.id).localeCompare(String(b.nome || b.id), "pt-BR"));
+          const outros = (await equipamentosDeTodosOsRecortes()).filter((x) => x.id !== e.id);
           body.innerHTML = `
             <form class="stack" id="portForm">
               <div class="row" style="gap:var(--s-3);align-items:flex-start">
@@ -2467,6 +2451,149 @@
         };
 
         paint();
+      },
+    });
+  }
+
+  /* Equipamentos de todos os recortes (BACKBONE, PARTE ISP…), sem repetir id:
+     o recorte ISP já enxerga os equipamentos de backbone vinculados aos POPs
+     dele, então o mesmo aparelho aparece nas duas listas. O recorte aberto na
+     tela tem a última palavra — é dele o objeto que as edições alteram. */
+  async function equipamentosDeTodosOsRecortes() {
+    const porId = new Map();
+    try {
+      const recortes = await NOC.loadAllScopesEquipment();
+      for (const lista of Object.values(recortes)) {
+        for (const x of lista) if (!porId.has(x.id)) porId.set(x.id, x);
+      }
+    } catch (err) {
+      // Sem os outros recortes, o que vale é o recorte aberto na tela.
+    }
+    for (const x of (NOC.data()?.equipamentos || [])) porId.set(x.id, x);
+    return [...porId.values()]
+      .sort((a, b) => String(a.nome || a.id).localeCompare(String(b.nome || b.id), "pt-BR"));
+  }
+
+  /* Inserir um enlace pelos dois lados de uma vez. Documentar pela porta
+     continua existindo e é o caminho de quem está olhando um equipamento; este
+     aqui é o de quem está olhando a rede — a lista de enlaces do "Gerenciar
+     rede" mostrava tudo e era justamente onde não dava para acrescentar. */
+  async function openNovoEnlace(aoGravar) {
+    if (!podeCriarEnlace()) {
+      return toast("Sem permissão para inserir enlace", {
+        text: "São necessárias as ações topology.edit + topology.link.create (esta última acompanha topology.port.edit).",
+        type: "warn",
+      });
+    }
+    const equipamentos = await equipamentosDeTodosOsRecortes();
+    if (equipamentos.length < 2) {
+      return toast("Poucos equipamentos", { text: "É preciso ter dois equipamentos cadastrados para documentar um enlace.", type: "warn" });
+    }
+    const opcoesEquip = (selecionado) => equipamentos.map((x) =>
+      `<option value="${esc(x.id)}" ${selecionado === x.id ? "selected" : ""}>${esc(x.nome)}${x.modelo ? ` — ${esc(x.modelo)}` : ""}</option>`).join("");
+
+    modal({
+      labelledBy: "novoEnlaceTitle",
+      html: `
+        <div class="modal-head">
+          <div><span class="kicker">${icon("link")} Enlace novo</span>
+            <h2 id="novoEnlaceTitle" style="margin-top:6px">Inserir enlace</h2>
+            <p class="muted" style="font-size:var(--fs-13);margin-top:4px">
+              Escolha as duas pontas. Só aparecem as portas que ainda não têm enlace documentado.</p></div>
+          <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
+        </div>
+        <div class="modal-body stack">
+          <form class="stack" id="novoEnlaceForm">
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="neEqA">Equipamento — ponta A</label>
+                <select class="select" id="neEqA"><option value="">— Escolha —</option>${opcoesEquip("")}</select></div>
+              <div class="field" style="width:230px"><label for="nePortaA">Porta da ponta A</label>
+                <select class="select" id="nePortaA" disabled></select></div>
+            </div>
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="neEqB">Equipamento — ponta B</label>
+                <select class="select" id="neEqB"><option value="">— Escolha —</option>${opcoesEquip("")}</select></div>
+              <div class="field" style="width:230px"><label for="nePortaB">Porta da ponta B</label>
+                <select class="select" id="nePortaB" disabled></select></div>
+            </div>
+            <div class="row" style="gap:var(--s-3);align-items:flex-start">
+              <div class="field grow"><label for="neTipo">Tipo do enlace</label>
+                <input class="input" id="neTipo" placeholder="Ex.: Uplink, Transporte, BGP/MPLS"></div>
+              <div class="field grow"><label for="neCap">Capacidade do enlace</label>
+                <input class="input" id="neCap" placeholder="Ex.: 10 Gbps"></div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-foot">
+          <span class="dim" style="font-size:var(--fs-11)">A inserção vai para a auditoria com estado anterior e posterior.</span>
+          <span class="row">
+            <button class="btn" type="button" data-close>Cancelar</button>
+            <button class="btn btn-primary" type="button" data-gravar>${icon("plus")} Inserir enlace</button>
+          </span>
+        </div>`,
+      onMount: (host, close) => {
+        const form = $("#novoEnlaceForm", host);
+        const selEqA = $("#neEqA", form), selPortaA = $("#nePortaA", form);
+        const selEqB = $("#neEqB", form), selPortaB = $("#nePortaB", form);
+
+        const pintarPortas = async (selEq, selPorta) => {
+          const lista = selEq.value ? await portasDisponiveis(selEq.value, null) : [];
+          selPorta.innerHTML = lista.length
+            ? lista.map((x) => `<option value="${x.numero}">${esc(rotuloPortaRemota(x))}</option>`).join("")
+            : `<option value="">${selEq.value ? "Sem porta livre neste equipamento" : "Escolha o equipamento"}</option>`;
+          selPorta.disabled = !lista.length;
+        };
+        selEqA.onchange = () => pintarPortas(selEqA, selPortaA);
+        selEqB.onchange = () => pintarPortas(selEqB, selPortaB);
+
+        $$("[data-close]", host).forEach((b) => (b.onclick = close));
+        $("[data-gravar]", host).onclick = async () => {
+          const idA = selEqA.value, idB = selEqB.value;
+          const portaA = Number(selPortaA.value) || null, portaB = Number(selPortaB.value) || null;
+          if (!idA || !idB) return toast("Escolha as duas pontas", { text: "Um enlace liga dois equipamentos.", type: "warn" });
+          if (idA === idB) return toast("Pontas iguais", { text: "Um equipamento não pode ser ligado a si mesmo.", type: "warn" });
+          if (!portaA || !portaB) return toast("Escolha a porta das duas pontas", { text: "O equipamento selecionado não tem porta sem enlace.", type: "warn" });
+          /* A lista já filtra porta ocupada, mas ela foi montada antes: outra
+             aba (ou outro operador) pode ter documentado o enlace no meio. */
+          if (NOC.portConnection(idA, portaA) || NOC.portConnection(idB, portaB)) {
+            return toast("Porta já ocupada", { text: "Uma das portas recebeu enlace enquanto esta janela estava aberta. Escolha outra.", type: "warn" });
+          }
+
+          const t = NOC.data();
+          const conexao = {
+            origem: idA, portaOrigem: portaA,
+            destino: idB, portaDestino: portaB,
+            capacidade: $("#neCap", form).value.trim() || "A confirmar",
+            tipo: $("#neTipo", form).value.trim() || "Enlace",
+          };
+          /* O status só é escrito na ponta que vive no recorte aberto: a do
+             outro recorte pertence ao cadastro daquela tela, e a gravação
+             daqui não a alcança. Para as duas, o enlace já basta — é ele que
+             marca a porta como em uso no resto do app. */
+          const pontas = [[idA, portaA], [idB, portaB]]
+            .map(([id, numero]) => device(id)?.portas?.find((p) => Number(p.numero) === Number(numero)))
+            .filter(Boolean);
+          const antesPontas = pontas.map((p) => ({ ...p }));
+          t.conexoes = [...(t.conexoes || []), conexao];
+          pontas.forEach((p) => { p.status = "conectada"; });
+
+          const restaurar = () => {
+            t.conexoes = (t.conexoes || []).filter((x) => x !== conexao);
+            pontas.forEach((p, i) => Object.assign(p, antesPontas[i]));
+          };
+          const nome = (id) => equipamentos.find((x) => x.id === id)?.nome || id;
+          const ok = await persist("TOPOLOGY_CREATE_CONEXAO", {
+            titulo: "Enlace inserido",
+            texto: `${nome(idA)} porta ${portaA} ↔ ${nome(idB)} porta ${portaB}.`,
+          }, async () => {
+            restaurar();
+            await persist("TOPOLOGY_DELETE_CONEXAO", { titulo: "Inserção desfeita", tipo: "info" });
+            if (aoGravar) aoGravar();
+          });
+          if (!ok) { restaurar(); layout(); renderAll(); return; }
+          close();
+          if (aoGravar) aoGravar();
+        };
       },
     });
   }
@@ -4097,6 +4224,12 @@
             </div>`;
           },
           enlaces: () => `
+            <div class="row-between wrap" style="gap:var(--s-3);margin-bottom:var(--s-4)">
+              <div><span class="kicker">Enlaces documentados</span>
+                <p class="dim" style="font-size:var(--fs-11);margin-top:4px">${NOC.data().conexoes.length} enlace(s) na topologia.</p></div>
+              <button class="btn btn-sm btn-primary" type="button" data-newconn
+                ${podeCriarEnlace() ? "" : "disabled title='Requer as ações topology.edit + topology.link.create'"}>${icon("plus")} Inserir enlace</button>
+            </div>
             <div class="table-wrap" style="max-height:420px"><table class="table">
               <thead><tr><th>Origem</th><th>Destino</th><th>Tipo</th><th>Capacidade</th><th></th></tr></thead>
               <tbody>${NOC.data().conexoes.map((c, i) => `<tr>
@@ -4106,8 +4239,8 @@
                 <td><button class="btn btn-sm" type="button" data-editconn="${i}" ${podeEditarPorta() && device(c.origem) ? "" : "disabled"}>Editar</button></td></tr>`).join("")}</tbody>
             </table></div>
             <p class="dim" style="font-size:var(--fs-11);margin-top:var(--s-3)">
-              ${icon("info")} Um enlace é editado pela porta de origem: escolha o equipamento e a porta do outro lado.
-              Para criar um enlace novo, abra o equipamento, clique numa porta livre e use “Editar porta”.</p>`,
+              ${icon("info")} “Inserir enlace” documenta as duas pontas de uma vez. “Editar” abre o enlace pela porta de
+              origem — o mesmo caminho de quem chega pelo equipamento, clica numa porta e usa “Editar porta”.</p>`,
         };
 
         let cur = "vinculo";
@@ -4124,6 +4257,8 @@
             paint();
           }));
           $$("[data-editpop]", body).forEach((b) => (b.onclick = () => openPopForm(b.dataset.editpop, paint)));
+          const inserirEnlace = $("[data-newconn]", body);
+          if (inserirEnlace) inserirEnlace.onclick = () => openNovoEnlace(paint);
           $$("[data-editconn]", body).forEach((b) => (b.onclick = () => {
             const c = NOC.data().conexoes[+b.dataset.editconn];
             const origem = c && device(c.origem);

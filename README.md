@@ -624,6 +624,23 @@ e é esse vínculo que organiza o Dashboard. Vincular/desvincular fica em
 **Topologia → Gerenciar rede → Vínculo com POP** e é gravado por `PUT /api/topology`,
 com auditoria. Equipamento sem vínculo aparece em "Sem POP vinculado", nunca some.
 
+#### Documentar um enlace
+
+Dois caminhos, e os dois exigem `topology.edit` + `topology.link.create` (esta
+última acompanha `topology.port.edit`):
+
+- **pela porta** — abra o equipamento, clique na porta e use *Editar porta →
+  O que está conectado nesta porta*. É o caminho de quem está olhando um
+  equipamento e já sabe qual porta usar;
+- **pelas duas pontas** — **Gerenciar rede → Enlaces → Inserir enlace**: escolha
+  equipamento e porta de cada lado, tipo e capacidade. É o caminho de quem está
+  olhando a rede inteira, e o único que não obriga a abrir um dos equipamentos.
+
+Nos dois, só aparecem as portas **sem enlace documentado** — porta reservada ou em
+manutenção continua ofertada, com a marcação na própria opção, porque é estado
+operacional e não ocupação. A ocupação de uma porta se desfaz removendo o enlace,
+nunca trocando o status.
+
 ### Mapa geográfico (OpenStreetMap)
 
 A tela de topologia tem três modos, no seletor da barra superior:
