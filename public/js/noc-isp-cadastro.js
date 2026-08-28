@@ -39,6 +39,10 @@
 
   const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const tipoDe = (p) => p.tipo || "POP";
+  /* POP e Data Center são um cadastro só, mostrado nesta tela e na topologia do
+     NOC (ver LOCAL_TIPOS_COMPARTILHADOS no Worker). O cliente ISP é o único
+     que pertence só à PARTE ISP. */
+  const compartilhado = (p) => ["POP", "Data Center"].includes(tipoDe(p));
 
   function visiveis() {
     const q = semAcento(state.busca);
@@ -496,7 +500,11 @@
     if (!list.length) {
       askConfirm({
         title: `Excluir ${p.nome}?`,
-        text: "O cadastro sai da PARTE ISP para todos os usuários. A ação fica na auditoria e pode ser desfeita pelo aviso.",
+        text: [
+          "O cadastro sai da PARTE ISP para todos os usuários.",
+          compartilhado(p) ? "Sai também da topologia do NOC: é o mesmo POP nos dois mapas." : "",
+          "A ação fica na auditoria e pode ser desfeita pelo aviso.",
+        ].filter(Boolean).join(" "),
         confirmLabel: "Excluir ISP",
         danger: true,
         onConfirm: () => remover(false),
@@ -515,7 +523,9 @@
             <h2 id="delIspTitulo" style="margin-top:6px">Excluir ${esc(p.nome)}?</h2>
             <p class="muted" style="font-size:var(--fs-13);margin-top:6px">
               Este ISP tem <b>${list.length} equipamento(s)</b>${enlaces ? ` e <b>${enlaces} enlace(s)</b> documentado(s)` : ""}.
-              Escolha o que fazer com eles.</p></div>
+              Escolha o que fazer com eles.</p>
+            ${compartilhado(p) ? `<p class="muted" style="font-size:var(--fs-13);margin-top:6px">
+              É o mesmo POP da topologia do NOC: a exclusão vale para os dois mapas.</p>` : ""}</div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack">

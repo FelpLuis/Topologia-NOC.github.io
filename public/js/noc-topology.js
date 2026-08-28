@@ -8,6 +8,11 @@
   const { $, $$, esc, icon, toast, drawer, modal, confirm: askConfirm } = UI;
 
   const SEM_POP = "__sem-pop__";
+  /* POP e Data Center são um cadastro só, mostrado nos dois mapas (ver
+     LOCAL_TIPOS_COMPARTILHADOS no Worker): editar ou excluir aqui vale lá
+     também. Só o cliente ISP pertence a um recorte só. */
+  const popCompartilhado = (p) => ["POP", "Data Center"].includes(p?.tipo || "POP");
+  const outroMapa = () => (NOC.scope() === "isp" ? "a topologia do NOC" : "a PARTE ISP");
   const GRID = 8; // arrasto encaixa nesta malha, para o mapa não ficar torto
   /* Cada tela que usa este runtime (rede NOC, GPON, PARTE ISP) lembra o próprio
      modo de visualização: quem trabalha no mapa de fibra não quer que a
@@ -717,6 +722,7 @@
       title: `Excluir ${pop.nome}?`,
       text: [
         "O POP será removido do cadastro e do anel óptico.",
+        popCompartilhado(pop) ? `Ele sai também de ${outroMapa()}: é o mesmo POP nos dois mapas.` : "",
         vinculados ? `${vinculados} equipamento(s) ficarão sem POP.` : "",
         referencias ? `${referencias} referência(s) de rota serão removidas.` : "",
       ].filter(Boolean).join(" "),
@@ -2478,7 +2484,7 @@
      continua existindo e é o caminho de quem está olhando um equipamento; este
      aqui é o de quem está olhando a rede — a lista de enlaces do "Gerenciar
      rede" mostrava tudo e era justamente onde não dava para acrescentar. */
-  async function openNovoEnlace(aoGravar) {
+  async function openNovoEnlace(aoGravar, fixa) {
     if (!podeCriarEnlace()) {
       return toast("Sem permissão para inserir enlace", {
         text: "São necessárias as ações topology.edit + topology.link.create (esta última acompanha topology.port.edit).",
@@ -2489,6 +2495,13 @@
     if (equipamentos.length < 2) {
       return toast("Poucos equipamentos", { text: "É preciso ter dois equipamentos cadastrados para documentar um enlace.", type: "warn" });
     }
+    /* Chamado de dentro do gerenciador de portas, o lado de cá já está
+       decidido: a linha é aquela porta. Vira um cartão fixo em vez de dois
+       seletores — escolher de novo o que já se escolheu é convite a errar. */
+    const fixaEquip = fixa ? equipamentos.find((x) => x.id === fixa.id) : null;
+    const fixaPorta = fixaEquip
+      ? (fixaEquip.portas || []).find((p) => Number(p.numero) === Number(fixa.porta))
+      : null;
     const opcoesEquip = (selecionado) => equipamentos.map((x) =>
       `<option value="${esc(x.id)}" ${selecionado === x.id ? "selected" : ""}>${esc(x.nome)}${x.modelo ? ` — ${esc(x.modelo)}` : ""}</option>`).join("");
 
@@ -2499,21 +2512,28 @@
           <div><span class="kicker">${icon("link")} Enlace novo</span>
             <h2 id="novoEnlaceTitle" style="margin-top:6px">Inserir enlace</h2>
             <p class="muted" style="font-size:var(--fs-13);margin-top:4px">
-              Escolha as duas pontas. Só aparecem as portas que ainda não têm enlace documentado.</p></div>
+              ${fixaEquip ? "Escolha o outro lado desta porta." : "Escolha as duas pontas."}
+              Só aparecem as portas que ainda não têm enlace documentado.</p></div>
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack">
           <form class="stack" id="novoEnlaceForm">
+            ${fixaEquip ? `
+              <div class="card" style="padding:var(--s-4)">
+                <span class="kicker">Ponta A</span>
+                <div style="margin-top:var(--s-2)"><b>${esc(fixaEquip.nome)}</b>
+                  <br><small class="dim">${esc(rotuloPortaRemota(fixaPorta || { numero: fixa.porta }))}</small></div>
+              </div>` : `
+              <div class="row" style="gap:var(--s-3);align-items:flex-start">
+                <div class="field grow"><label for="neEqA">Equipamento — ponta A</label>
+                  <select class="select" id="neEqA"><option value="">— Escolha —</option>${opcoesEquip("")}</select></div>
+                <div class="field" style="width:230px"><label for="nePortaA">Porta da ponta A</label>
+                  <select class="select" id="nePortaA" disabled></select></div>
+              </div>`}
             <div class="row" style="gap:var(--s-3);align-items:flex-start">
-              <div class="field grow"><label for="neEqA">Equipamento — ponta A</label>
-                <select class="select" id="neEqA"><option value="">— Escolha —</option>${opcoesEquip("")}</select></div>
-              <div class="field" style="width:230px"><label for="nePortaA">Porta da ponta A</label>
-                <select class="select" id="nePortaA" disabled></select></div>
-            </div>
-            <div class="row" style="gap:var(--s-3);align-items:flex-start">
-              <div class="field grow"><label for="neEqB">Equipamento — ponta B</label>
+              <div class="field grow"><label for="neEqB">${fixaEquip ? "Equipamento do outro lado" : "Equipamento — ponta B"}</label>
                 <select class="select" id="neEqB"><option value="">— Escolha —</option>${opcoesEquip("")}</select></div>
-              <div class="field" style="width:230px"><label for="nePortaB">Porta da ponta B</label>
+              <div class="field" style="width:230px"><label for="nePortaB">${fixaEquip ? "Porta do outro lado" : "Porta da ponta B"}</label>
                 <select class="select" id="nePortaB" disabled></select></div>
             </div>
             <div class="row" style="gap:var(--s-3);align-items:flex-start">
@@ -2543,13 +2563,15 @@
             : `<option value="">${selEq.value ? "Sem porta livre neste equipamento" : "Escolha o equipamento"}</option>`;
           selPorta.disabled = !lista.length;
         };
-        selEqA.onchange = () => pintarPortas(selEqA, selPortaA);
+        if (selEqA) selEqA.onchange = () => pintarPortas(selEqA, selPortaA);
         selEqB.onchange = () => pintarPortas(selEqB, selPortaB);
 
         $$("[data-close]", host).forEach((b) => (b.onclick = close));
         $("[data-gravar]", host).onclick = async () => {
-          const idA = selEqA.value, idB = selEqB.value;
-          const portaA = Number(selPortaA.value) || null, portaB = Number(selPortaB.value) || null;
+          const idA = fixaEquip ? fixaEquip.id : selEqA.value;
+          const idB = selEqB.value;
+          const portaA = fixaEquip ? Number(fixa.porta) : (Number(selPortaA.value) || null);
+          const portaB = Number(selPortaB.value) || null;
           if (!idA || !idB) return toast("Escolha as duas pontas", { text: "Um enlace liga dois equipamentos.", type: "warn" });
           if (idA === idB) return toast("Pontas iguais", { text: "Um equipamento não pode ser ligado a si mesmo.", type: "warn" });
           if (!portaA || !portaB) return toast("Escolha a porta das duas pontas", { text: "O equipamento selecionado não tem porta sem enlace.", type: "warn" });
@@ -3730,7 +3752,11 @@
             <td><input class="input" data-c="observacao" value="${esc(p.observacao || "")}" placeholder="Cliente, circuito, OS…" aria-label="Observação da porta"></td>
             <td>${remoto
               ? `<button class="btn btn-ghost btn-sm" type="button" data-link="${p._row}" title="Editar este enlace">${esc(remoto.nome)} • p${remotaPorta}</button>`
-              : '<span class="dim">livre</span>'}</td>
+              : p._orig == null
+                ? '<span class="dim" title="Salve as portas antes de ligar esta: o enlace guarda o número da porta gravada.">porta nova</span>'
+                : `<button class="btn btn-sm" type="button" data-linknovo="${p._row}"
+                    ${podeCriarEnlace() ? "" : "disabled title='Requer as ações topology.edit + topology.link.create'"}
+                    title="Documentar o enlace desta porta">${icon("plus")} Ligar</button>`}</td>
             <td><button class="btn btn-ghost btn-sm btn-icon" type="button" data-del="${p._row}"
                   aria-label="Remover a porta ${esc(String(p.numero ?? ""))}" title="Remover porta">${icon("trash")}</button></td>
           </tr>`;
@@ -3765,6 +3791,17 @@
               danger: true,
               onConfirm: remover,
             });
+          }));
+
+          /* Ligar pela própria linha: o outro lado é escolhido numa janela por
+             cima, e o gerenciador continua aberto com o rascunho intacto. O
+             enlace nasce sobre a porta **gravada** (`_orig`) — se o número dela
+             estiver sendo trocado no rascunho, a renumeração leva o enlace
+             junto quando as portas forem salvas, como já acontece. */
+          $$("[data-linknovo]", rows).forEach((b) => (b.onclick = () => {
+            const p = achar(b.dataset.linknovo);
+            if (!p || p._orig == null) return;
+            openNovoEnlace(pintar, { id: e.id, porta: p._orig });
           }));
 
           $$("[data-link]", rows).forEach((b) => (b.onclick = () => {

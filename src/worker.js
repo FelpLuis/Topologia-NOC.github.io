@@ -2037,6 +2037,27 @@ const scopeTemFibra = (scope) => Boolean(TOPOLOGY_SCOPES[scope]?.seed.fibras);
 
 const LOCAL_TIPOS = new Set(["POP", "Data Center", "ISP"]);
 
+/* Os dois mapas mostram os mesmos POPs. O POP é um cadastro só — o mesmo
+   prédio, o mesmo bastidor — então um local de tipo POP ou Data Center aparece
+   na topologia do NOC e na PARTE ISP, e o que muda entre os recortes é só a
+   posição no anel e as rotas desenhadas (ver topology_local_links). O cliente
+   ISP é o único local exclusivo do recorte em que foi ligado: ele não é um POP
+   da rede, é quem se conecta a ela. */
+const LOCAL_TIPOS_COMPARTILHADOS = new Set(["POP", "Data Center"]);
+const localCompartilhado = (tipo) => LOCAL_TIPOS_COMPARTILHADOS.has(tipo);
+// A mesma regra em SQL. São valores fixos do código, nunca entrada de usuário.
+const TIPOS_COMPARTILHADOS_SQL = [...LOCAL_TIPOS_COMPARTILHADOS].map((t) => `'${t}'`).join(",");
+
+/* E, pela mesma razão, o equipamento instalado num POP é o mesmo nos dois
+   mapas: quem abre a PARTE ISP vê o equipamento do POP SANTOS com as mesmas
+   portas que a topologia do NOC mostra, e vice-versa. `categoria='POP'` entra
+   junto porque é assim que o cadastro antigo marcava o equipamento do POP que
+   ainda não tinha vínculo. Fora isso, equipamento sem POP continua só no
+   recorte dono. Quem usar este trecho precisa ter "produtos p" e o local dele
+   ("locais l") no FROM. */
+const PRODUTO_COMPARTILHADO_SQL = `(p.categoria='POP' OR l.tipo IN (${TIPOS_COMPARTILHADOS_SQL}))`;
+const produtoCompartilhado = (row) => row?.categoria === "POP" || localCompartilhado(row?.local_tipo);
+
 /* Semeadura única de locais/produtos a partir dos JSONs estáticos, na
    primeira vez que o sistema é aberto num banco novo. Depois disso, quem
    manda é o D1: os arquivos de /data continuam servindo só de carga inicial,
@@ -2115,32 +2136,37 @@ function produtoRowParaEquipamento(row, nomeLocalPorId) {
   return eq;
 }
 
-/* Locais são uma tabela só, compartilhada pelos dois recortes: a ordem no
-   anel e as rotas desenhadas é que são específicas de cada mapa. */
-async function montarPops(db, scope) {
+/* Locais são uma tabela só, e o POP é o mesmo nos dois recortes: além dos
+   locais ligados a este mapa, entram os POPs ligados a qualquer outro (ver
+   LOCAL_TIPOS_COMPARTILHADOS). A ordem no anel e as rotas desenhadas é que
+   continuam específicas de cada mapa. */
+export async function montarPops(db, scope) {
   const rows = (await db.prepare(`
-    SELECT l.*, t.ordem, t.rotas_json, t.legado_equipamentos_json
+    SELECT l.*, t.scope AS link_scope, t.ordem, t.rotas_json, t.legado_equipamentos_json
     FROM topology_local_links t JOIN locais l ON l.id = t.local_id
-    WHERE t.scope=? ORDER BY t.ordem
+    WHERE t.scope=? OR l.tipo IN (${TIPOS_COMPARTILHADOS_SQL})
+    ORDER BY t.ordem
   `).bind(scope).all()).results || [];
-  return rows.map(popRowParaLocal);
+  /* Um POP compartilhado volta uma vez por recorte em que está ligado. Vale a
+     linha deste mapa; a do outro serve só enquanto ele ainda não tem a sua —
+     é o que dá posição e rotas iniciais ao POP criado na outra tela. */
+  const porId = new Map();
+  for (const row of rows) if (row.link_scope === scope || !porId.has(row.id)) porId.set(row.id, row);
+  return [...porId.values()]
+    .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+    .map(popRowParaLocal);
 }
 
-/* O recorte ISP mostra, além dos próprios equipamentos, os equipamentos de
-   backbone (dono "noc") vinculados a um POP compartilhado — contexto visual,
-   calculado na hora em vez de duplicado numa segunda linha, já que agora só
-   existe uma linha por id na tabela produtos. */
-async function montarEquipamentos(db, scope) {
-  const proprios = (await db.prepare(`SELECT * FROM produtos WHERE escopo=?`).bind(scope).all()).results || [];
-  let linhas = proprios;
-  if (scope === "isp") {
-    const emprestados = (await db.prepare(`
-      SELECT * FROM produtos WHERE escopo='noc' AND (
-        categoria='POP' OR local_id IN (SELECT local_id FROM topology_local_links WHERE scope='isp')
-      )
-    `).all()).results || [];
-    linhas = [...emprestados, ...proprios];
-  }
+/* Equipamento instalado em POP é o mesmo nos dois mapas (PRODUTO_COMPARTILHADO_SQL);
+   o resto continua só no recorte dono. É calculado na hora em vez de duplicado
+   numa segunda linha, já que só existe uma linha por id na tabela produtos.
+   ORDER BY p.rowid preserva a ordem de cadastro, que é a que o esquema desenha. */
+export async function montarEquipamentos(db, scope) {
+  const linhas = (await db.prepare(`
+    SELECT p.* FROM produtos p LEFT JOIN locais l ON l.id = p.local_id
+    WHERE p.escopo=? OR ${PRODUTO_COMPARTILHADO_SQL}
+    ORDER BY p.rowid
+  `).bind(scope).all()).results || [];
   const locaisRows = (await db.prepare(`SELECT id,nome FROM locais`).all()).results || [];
   const nomePorId = new Map(locaisRows.map(l => [l.id, l.nome]));
   return linhas.map(row => produtoRowParaEquipamento(row, nomePorId));
@@ -2171,9 +2197,8 @@ async function loadInitialTopologyBlob(env, request, scope = DEFAULT_SCOPE) {
   if (scope === "isp") {
     const db = getDB(env);
     const nocPopEquipIds = new Set(((await db.prepare(`
-      SELECT id FROM produtos WHERE escopo='noc' AND (
-        categoria='POP' OR local_id IN (SELECT local_id FROM topology_local_links WHERE scope='isp')
-      )
+      SELECT p.id FROM produtos p LEFT JOIN locais l ON l.id = p.local_id
+      WHERE p.escopo='noc' AND ${PRODUTO_COMPARTILHADO_SQL}
     `).all()).results || []).map(r => r.id));
     const nocConexoes = await read("conexoes.json");
     const nocPopConexoes = nocConexoes.filter(c => nocPopEquipIds.has(c.origem) || nocPopEquipIds.has(c.destino));
@@ -6237,7 +6262,7 @@ function requiredTopologyActions(before, after) {
    O local só some da tabela quando nenhum recorte mais o referencia no anel
    e nenhum produto está instalado nele — remover de um mapa não pode apagar
    o cadastro que o outro mapa ainda usa. */
-async function persistPops(db, scope, before, after, userId) {
+export async function persistPops(db, scope, before, after, userId) {
   const antesPorId = new Map((before.pops || []).map(p => [String(p.id), p]));
   const depoisPorId = new Map((after.pops || []).map(p => [String(p.id), p]));
   const statements = [];
@@ -6261,9 +6286,30 @@ async function persistPops(db, scope, before, after, userId) {
       ON CONFLICT(scope,local_id) DO UPDATE SET
         ordem=excluded.ordem, rotas_json=excluded.rotas_json, legado_equipamentos_json=excluded.legado_equipamentos_json
     `).bind(scope, id, indice, JSON.stringify(pop.rotas || []), JSON.stringify(pop.equipamentos || [])));
+    /* O POP criado aqui já nasce nos outros mapas — é o mesmo POP. INSERT OR
+       IGNORE porque a posição e as rotas de lá são de lá: o que este mapa
+       manda só vale como ponto de partida de quem ainda não tem vínculo.
+       Virar cliente ISP faz o caminho contrário e devolve o local a este
+       recorte só. */
+    for (const outro of Object.keys(TOPOLOGY_SCOPES)) {
+      if (outro === scope) continue;
+      statements.push(localCompartilhado(tipo)
+        ? db.prepare(`
+            INSERT OR IGNORE INTO topology_local_links(scope,local_id,ordem,rotas_json,legado_equipamentos_json)
+            VALUES (?,?,?,?,?)
+          `).bind(outro, id, indice, JSON.stringify(pop.rotas || []), JSON.stringify(pop.equipamentos || []))
+        : db.prepare(`DELETE FROM topology_local_links WHERE scope=? AND local_id=?`).bind(outro, id));
+    }
   });
   const removidos = [...antesPorId.keys()].filter(id => !depoisPorId.has(id));
-  for (const id of removidos) statements.push(db.prepare(`DELETE FROM topology_local_links WHERE scope=? AND local_id=?`).bind(scope, id));
+  /* Excluir um POP compartilhado o tira dos dois mapas: deixá-lo em um deles
+     seria vê-lo voltar na próxima leitura, já que o POP não é do recorte. */
+  for (const id of removidos) {
+    const tipoAntes = antesPorId.get(id)?.tipo;
+    statements.push(localCompartilhado(LOCAL_TIPOS.has(tipoAntes) ? tipoAntes : "POP")
+      ? db.prepare(`DELETE FROM topology_local_links WHERE local_id=?`).bind(id)
+      : db.prepare(`DELETE FROM topology_local_links WHERE scope=? AND local_id=?`).bind(scope, id));
+  }
   if (statements.length) await db.batch(statements);
   for (const id of removidos) {
     const aindaLigado = await db.prepare(`SELECT 1 FROM topology_local_links WHERE local_id=? LIMIT 1`).bind(id).first();
@@ -6272,25 +6318,32 @@ async function persistPops(db, scope, before, after, userId) {
   }
 }
 
-/* Grava em produtos a diferença de equipamentos entre before/after. Um
-   equipamento cujo dono (escopo) é o outro recorte é "emprestado" — mostrado
-   como contexto (ver montarEquipamentos) mas só a tela dona pode alterá-lo
-   ou apagá-lo; uma gravação vinda do outro recorte ignora essas linhas em
-   silêncio, para uma tela não corromper o cadastro real da outra. */
-async function persistEquipamentos(db, scope, before, after, userId) {
+/* Grava em produtos a diferença de equipamentos entre before/after. Vale o
+   mesmo recorte da leitura (ver montarEquipamentos): a tela grava o que ela
+   mostra — o que é dela e o que está num POP, que é dos dois mapas. O que ela
+   não enxerga, ela não altera: uma gravação que traga equipamento de fora do
+   seu recorte ignora essas linhas em silêncio, para uma tela não corromper o
+   cadastro que só a outra conhece. O dono (escopo) não muda com a edição: ele
+   diz onde o equipamento foi cadastrado, e o ON CONFLICT abaixo não o toca. */
+export async function persistEquipamentos(db, scope, before, after, userId) {
   const antesPorId = new Map((before.equipamentos || []).map(e => [String(e.id), e]));
   const depoisPorId = new Map((after.equipamentos || []).map(e => [String(e.id), e]));
   const idsExistentes = [...new Set([...antesPorId.keys(), ...depoisPorId.keys()])];
-  const donoPorId = new Map();
+  const gravavelPorId = new Map();
   if (idsExistentes.length) {
     const placeholders = idsExistentes.map(() => "?").join(",");
-    const rows = (await db.prepare(`SELECT id,escopo FROM produtos WHERE id IN (${placeholders})`).bind(...idsExistentes).all()).results || [];
-    for (const r of rows) donoPorId.set(r.id, r.escopo);
+    const rows = (await db.prepare(`
+      SELECT p.id, p.escopo, p.categoria, l.tipo AS local_tipo
+      FROM produtos p LEFT JOIN locais l ON l.id = p.local_id
+      WHERE p.id IN (${placeholders})
+    `).bind(...idsExistentes).all()).results || [];
+    for (const r of rows) gravavelPorId.set(r.id, r.escopo === scope || produtoCompartilhado(r));
   }
+  // Id que ainda não existe é cadastro novo desta tela, e nasce dela.
+  const podeGravar = (id) => gravavelPorId.get(id) !== false;
   const statements = [];
   for (const [id, eq] of depoisPorId) {
-    const dono = donoPorId.get(id);
-    if (dono && dono !== scope) continue;
+    if (!podeGravar(id)) continue;
     const antes = antesPorId.get(id);
     if (antes && JSON.stringify(antes) === JSON.stringify(eq)) continue;
     statements.push(db.prepare(`
@@ -6311,8 +6364,7 @@ async function persistEquipamentos(db, scope, before, after, userId) {
   const removidos = [];
   for (const id of antesPorId.keys()) {
     if (depoisPorId.has(id)) continue;
-    const dono = donoPorId.get(id);
-    if (dono && dono !== scope) continue;
+    if (!podeGravar(id)) continue;
     removidos.push(id);
   }
   for (const id of removidos) {

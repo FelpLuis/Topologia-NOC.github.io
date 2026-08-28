@@ -57,7 +57,7 @@ test("o enlace cujo outro lado está em outro recorte continua aparecendo na por
    equipamento. Agora as duas pontas são escolhidas ali mesmo. */
 
 test("a lista de enlaces tem por onde inserir", () => {
-  assert.match(topology, /async function openNovoEnlace\(aoGravar\)/);
+  assert.match(topology, /async function openNovoEnlace\(/);
   assert.match(topology, /data-newconn/);
   assert.match(topology, /inserirEnlace\.onclick = \(\) => openNovoEnlace\(paint\);/);
   // O botão respeita a mesma ação da criação pela porta.
@@ -70,4 +70,29 @@ test("o inseridor oferece só porta sem enlace e recusa ponta contra si mesma", 
   assert.match(topology, /if \(idA === idB\) return toast\("Pontas iguais"/);
   // A lista é montada antes do clique: a ocupação é reconferida na gravação.
   assert.match(topology, /if \(NOC\.portConnection\(idA, portaA\) \|\| NOC\.portConnection\(idB, portaB\)\)/);
+});
+
+/* No "Gerenciar portas" a coluna Enlace só sabia mostrar o que já existia:
+   porta sem enlace dizia "livre" e pronto. Documentar exigia fechar a tela,
+   perder o rascunho e ir procurar a porta de novo — sendo que é ali, linha por
+   linha, que o operador está justamente descrevendo cada porta. */
+
+test("o gerenciador de portas liga a porta na própria linha", () => {
+  assert.match(topology, /data-linknovo="\$\{p\._row\}"/);
+  assert.match(topology, /openNovoEnlace\(pintar, \{ id: e\.id, porta: p\._orig \}\);/);
+  // A janela do enlace abre por cima: o rascunho de portas continua de pé.
+  assert.doesNotMatch(topology, /data-linknovo[\s\S]{0,400}?close\(\);\n\s+openNovoEnlace/);
+});
+
+test("porta ainda não gravada não recebe enlace", () => {
+  // O enlace guarda o número da porta; numa linha nova esse número ainda não
+  // existe na topologia, e o vínculo nasceria apontando para o nada.
+  assert.match(topology, /: p\._orig == null\n\s+\? '<span class="dim" title="Salve as portas antes de ligar esta/);
+  assert.match(topology, /if \(!p \|\| p\._orig == null\) return;\n\s+openNovoEnlace\(pintar/);
+});
+
+test("a ponta já conhecida entra fixa, sem ser escolhida de novo", () => {
+  assert.match(topology, /async function openNovoEnlace\(aoGravar, fixa\)/);
+  assert.match(topology, /const idA = fixaEquip \? fixaEquip\.id : selEqA\.value;/);
+  assert.match(topology, /const portaA = fixaEquip \? Number\(fixa\.porta\) : \(Number\(selPortaA\.value\) \|\| null\);/);
 });

@@ -632,6 +632,10 @@ Dois caminhos, e os dois exigem `topology.edit` + `topology.link.create` (esta
 - **pela porta** — abra o equipamento, clique na porta e use *Editar porta →
   O que está conectado nesta porta*. É o caminho de quem está olhando um
   equipamento e já sabe qual porta usar;
+- **pela linha da porta** — em *Gerenciar portas*, a coluna Enlace traz **Ligar**
+  em toda porta livre: escolhe-se só o outro lado, numa janela por cima, e o
+  rascunho de portas continua aberto. Porta ainda não gravada não recebe enlace,
+  porque o vínculo guarda o número da porta;
 - **pelas duas pontas** — **Gerenciar rede → Enlaces → Inserir enlace**: escolha
   equipamento e porta de cada lado, tipo e capacidade. É o caminho de quem está
   olhando a rede inteira, e o único que não obriga a abrir um dos equipamentos.
@@ -682,9 +686,10 @@ Há dois caminhos para cadastrar a localização:
 ## PARTE ISP — topologia e mapa de fibra
 
 A PARTE ISP é um **segundo recorte da topologia**, com o mesmo formato de documento e as
-mesmas regras de edição e auditoria da rede NOC, mas com dados próprios: os clientes ISP
-entram como POPs e o caminho físico da fibra vira um cadastro à parte. No menu ela
-tem um grupo só dela, com duas telas:
+mesmas regras de edição e auditoria da rede NOC: os clientes ISP entram como POPs e o
+caminho físico da fibra vira um cadastro à parte. O que é próprio dela é o desenho —
+clientes, fibras, caixas, anel e rotas; **o POP é o mesmo cadastro nos dois mapas**. No
+menu ela tem um grupo só dela, com duas telas:
 
 | Tela | Rota | O que faz |
 | --- | --- | --- |
@@ -709,6 +714,32 @@ duas listas:
 
 O Worker só aceita essas listas no recorte que as declara, e **omiti-las preserva o que já
 estava gravado** — assim uma tela que não conhece o campo nunca apaga o cadastro da outra.
+
+### O que os dois mapas têm em comum
+
+POP não tem dono: é o mesmo prédio e o mesmo bastidor visto de dois lugares. Por isso o
+cadastro é único (tabela `locais`) e vale nos dois recortes:
+
+| O quê | Onde aparece |
+| --- | --- |
+| Local de tipo **POP** ou **Data Center** | nos dois mapas, criado em qualquer uma das telas |
+| Local de tipo **ISP** (o cliente) | só no recorte em que foi ligado — ele não é um POP da rede |
+| Equipamento **instalado num POP** (e o de `categoria = POP`, do cadastro antigo) | nos dois mapas, com as mesmas portas |
+| Equipamento **sem POP** | só no recorte onde foi cadastrado |
+
+O que continua sendo de cada mapa é o desenho: a posição no anel e as rotas do POP moram
+em `topology_local_links (scope, local_id)`, e as conexões, o layout e as fibras seguem no
+documento do recorte. Um POP criado numa tela nasce ligado na outra com a posição e as
+rotas iniciais dali, e a partir daí cada mapa ajusta as suas sem mexer nas do outro.
+
+Duas consequências que valem lembrar:
+
+- **excluir um POP o exclui dos dois mapas** — deixá-lo em um só seria vê-lo voltar na
+  leitura seguinte, já que o POP não pertence ao recorte. As duas telas avisam disso no
+  diálogo de exclusão; o cliente ISP, esse sim, sai só da PARTE ISP;
+- **editar um equipamento de POP vale nos dois** — a tela grava o que ela mostra. O campo
+  `produtos.escopo` continua dizendo onde o equipamento foi cadastrado e **não muda** com
+  a edição; o que o recorte não enxerga, ele não altera nem apaga.
 
 ### Ações
 
