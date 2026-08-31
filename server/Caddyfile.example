@@ -1,0 +1,6 @@
+# Porta de entrada do NOC. O Caddy emite e renova o certificado sozinho,
+# desde que a 80 e a 443 cheguem neste servidor.
+noc.seudominio.com.br {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8787
+}

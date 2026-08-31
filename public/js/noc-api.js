@@ -41,6 +41,19 @@ window.NOC = (() => {
       INTERACAO_INVALIDA: "Escolha o tipo e descreva a interação.",
     };
     if (crmErrors[data?.error]) return crmErrors[data.error];
+    /* Painel de tickets. As duas primeiras são a regra que separa as duas
+       naturezas de atendimento — externo exige cliente, interno exige
+       estrutura — e é por elas que o operador descobre o que faltou. */
+    const ticketErrors = {
+      CLIENTE_OBRIGATORIO: "Atendimento externo precisa de um cliente. Escolha o cliente do chamado.",
+      ESTRUTURA_OBRIGATORIA: "Atendimento interno precisa de uma estrutura. Escolha o POP, Data Center ou local ISP.",
+      CLIENTE_NAO_ENCONTRADO: "Este cliente não está mais no cadastro. Escolha outro.",
+      ESTRUTURA_NAO_ENCONTRADA: "Esta estrutura não está mais no cadastro de locais. Escolha outra.",
+      TICKET_INVALIDO: "Revise os campos obrigatórios do chamado.",
+      TICKET_NAO_ENCONTRADO: "Este chamado não existe ou pertence a outro setor.",
+      ANDAMENTO_INVALIDO: "Escolha o tipo e descreva o andamento.",
+    };
+    if (ticketErrors[data?.error]) return ticketErrors[data.error];
     const connectionErrors = {
       IP_DE_GERENCIA_INVALIDO: "Informe um endereço IPv4 ou IPv6 válido.",
       PROTOCOLO_INVALIDO: "Escolha SSH ou TELNET.",

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UPDOWN • Painel de Tickets</title>
+<meta name="description" content="Registro de chamados de atendimento externo (no cliente) e interno (na estrutura).">
+<link rel="icon" href="/assets/brand/updown-symbol.png">
+<meta name="theme-color" content="#050d17">
+<meta name="color-scheme" content="dark light">
+<link rel="stylesheet" href="/css/noc/tokens.css?v=20260818-2">
+<link rel="stylesheet" href="/css/noc/base.css">
+<link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
+<link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
+<link rel="stylesheet" href="/css/noc/tickets.css?v=20260831-1">
+<script src="/js/auth-guard.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+<header data-appbar></header>
+<div class="shell">
+  <main class="content" id="main">
+    <div class="page-head tk-head">
+      <div>
+        <span class="kicker">Atendimento externo e interno</span>
+        <h1 class="page-title">Painel de Tickets</h1>
+        <p class="page-sub">Chamado externo é atendimento no cliente e exige o cadastro do cliente; chamado interno é atendimento na estrutura e exige um POP, Data Center ou local ISP.</p>
+      </div>
+      <button class="btn btn-primary" id="novoTicketBtn" type="button" data-action="tickets.create"></button>
+    </div>
+
+    <section class="tk-kpis" id="tkKpis" aria-label="Resumo dos chamados"></section>
+
+    <section class="card tk-controls" aria-label="Filtros dos chamados">
+      <div class="tk-tipo-tabs" id="tkTipoTabs" role="group" aria-label="Natureza do atendimento"></div>
+      <div class="tk-filtros">
+        <div class="input-affix tk-busca">
+          <span class="affix-icon" id="tkBuscaIcon"></span>
+          <input class="input" id="tkBusca" type="search" placeholder="Buscar número, assunto, cliente ou estrutura">
+        </div>
+        <select class="select" id="tkSituacao" aria-label="Situação">
+          <option value="abertos">Em aberto</option>
+          <option value="todos">Todas as situações</option>
+          <option value="fechados">Encerrados</option>
+        </select>
+        <select class="select" id="tkSetor" aria-label="Setor"><option value="">Todos os setores</option></select>
+        <select class="select" id="tkResponsavel" aria-label="Responsável"><option value="">Todos os responsáveis</option></select>
+        <button class="btn btn-icon" id="tkAtualizar" type="button" aria-label="Atualizar chamados"></button>
+      </div>
+    </section>
+
+    <section id="tkConteudo" aria-live="polite"></section>
+  </main>
+</div>
+<nav data-mobile-nav aria-label="Navegação"></nav>
+<script src="/js/noc-tempo.js?v=20260825"></script>
+<script src="/js/noc-ui.js?v=20260825-1"></script>
+<script src="/js/noc-api.js?v=20260831-1"></script>
+<script src="/js/noc-tickets.js?v=20260831-1"></script>
+</body>
+</html>

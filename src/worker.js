@@ -549,6 +549,52 @@ CREATE TABLE IF NOT EXISTS crm_activities (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+/* Painel de tickets de atendimento. Um chamado é EXTERNO — o atendimento
+   acontece no cliente, e aí o cadastro do cliente é obrigatório — ou INTERNO,
+   dentro da própria estrutura (POP, Data Center ou local ISP do cadastro de
+   locais), e aí a estrutura é obrigatória. A obrigatoriedade é verificada em
+   handleTicketCreate/Update, e não por um CHECK cruzado: um CHECK aqui também
+   dispararia no ON DELETE SET NULL abaixo e faria a exclusão de um cliente ou
+   de um local falhar com um erro que ninguém liga ao ticket.
+
+   Excluir o cliente ou a estrutura não apaga o histórico do chamado: o
+   vínculo some, 'alvo_nome' guarda para quem/onde foi o atendimento.
+
+   Não há coluna de código: o número que o operador lê é derivado do id na
+   própria consulta ('TK-000123'), então nunca há dois tickets disputando o
+   mesmo código nem uma segunda escrita só para carimbá-lo. */
+CREATE TABLE IF NOT EXISTS tickets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL DEFAULT 'externo' CHECK(tipo IN ('externo','interno')),
+  client_id TEXT REFERENCES cliente_cadastro(client_id) ON DELETE SET NULL,
+  local_id TEXT REFERENCES locais(id) ON DELETE SET NULL,
+  alvo_nome TEXT NOT NULL DEFAULT '',
+  sector_id INTEGER NOT NULL REFERENCES sectors(id),
+  assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  creator_user_id INTEGER NOT NULL REFERENCES users(id),
+  titulo TEXT NOT NULL,
+  descricao TEXT NOT NULL DEFAULT '',
+  categoria TEXT NOT NULL DEFAULT '',
+  prioridade TEXT NOT NULL DEFAULT 'normal' CHECK(prioridade IN ('baixa','normal','alta','critica')),
+  status TEXT NOT NULL DEFAULT 'aberto' CHECK(status IN ('aberto','andamento','pausado','resolvido','cancelado')),
+  contato_nome TEXT NOT NULL DEFAULT '',
+  contato_telefone TEXT NOT NULL DEFAULT '',
+  endereco TEXT NOT NULL DEFAULT '',
+  agendado_para TEXT,
+  fechado_em TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ticket_eventos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  tipo TEXT NOT NULL DEFAULT 'nota' CHECK(tipo IN ('nota','ligacao','visita','status','sistema')),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
@@ -581,6 +627,11 @@ CREATE INDEX IF NOT EXISTS idx_crm_cases_sector_stage ON crm_cases(sector_id,sta
 CREATE INDEX IF NOT EXISTS idx_crm_cases_assignee ON crm_cases(assigned_user_id,updated_at);
 CREATE INDEX IF NOT EXISTS idx_crm_cases_next_contact ON crm_cases(next_contact_at);
 CREATE INDEX IF NOT EXISTS idx_crm_activities_case ON crm_activities(case_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_setor ON tickets(sector_id,status,updated_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_responsavel ON tickets(assigned_user_id,status);
+CREATE INDEX IF NOT EXISTS idx_tickets_cliente ON tickets(client_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_estrutura ON tickets(local_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_eventos_ticket ON ticket_eventos(ticket_id,created_at);
 
 /* Atendimento WhatsApp (WhatsApp Cloud API da Meta) e, além do número nativo,
    canais externos que também caem na mesma fila (Opa!Suite/Meta e o Webchat
@@ -871,6 +922,7 @@ const SCREENS = [
   ["trafego", "Tráfego", "Monitoramento de tráfego, utilização e erros por interface", "/trafego.html", 1, "trafego", 35, 1],
   ["agenda", "Agenda", "Compromissos pessoais e dos setores do usuário", "/agenda.html", 1, "calendar", 38, 1],
   ["crm", "Central CRM", "Leads, clientes, solicitações e histórico separados por setor", "/crm.html", 1, "users", 25, 1],
+  ["tickets", "Painel de Tickets", "Chamados de atendimento externo (no cliente) e interno (na estrutura)", "/tickets.html", 1, "guide", 26, 1],
   ["whatsapp", "Chat WhatsApp", "Atendimento por WhatsApp com roteamento por setor", "/whatsapp.html", 1, "users", 27, 1],
   ["platform", "Gerenciar plataforma", "Perfis, ações, telas, usuários e auditoria", "/platform.html", 1, "platform", 40, 1],
   //["legado", "Editor clássico", "Editor legado da topologia em tela única", "/legado.html", 1, "edit", 50, 0]
@@ -913,6 +965,12 @@ const ACTIONS = [
   ["crm.edit", "Editar CRM", "Alterar dados, responsáveis, etapas e próximos contatos", "crm", "CRM", 30],
   ["crm.interact", "Registrar interações", "Adicionar ligações, mensagens, reuniões, e-mails e notas ao histórico", "crm", "CRM", 40],
   ["crm.delete", "Excluir do CRM", "Excluir registros e todo o histórico relacionado", "crm", "CRM", 50],
+
+  ["tickets.view", "Consultar tickets", "Ver os chamados dos setores aos quais o usuário pertence", "tickets", "Tickets", 10],
+  ["tickets.create", "Abrir ticket", "Registrar um atendimento externo (para um cliente) ou interno (em uma estrutura)", "tickets", "Tickets", 20],
+  ["tickets.edit", "Editar ticket", "Alterar dados, responsável, prioridade e situação do chamado", "tickets", "Tickets", 30],
+  ["tickets.interact", "Registrar andamento", "Adicionar notas, ligações e visitas ao histórico do chamado", "tickets", "Tickets", 40],
+  ["tickets.delete", "Excluir ticket", "Excluir chamados e todo o histórico relacionado", "tickets", "Tickets", 50],
 
   ["whatsapp.view", "Consultar o chat", "Ver conversas, fila de roteamento e status dos colegas do setor", "whatsapp", "WhatsApp", 10],
   ["whatsapp.chat", "Atender conversas", "Pegar conversas da fila, responder e encerrar atendimentos", "whatsapp", "WhatsApp", 20],
@@ -999,7 +1057,8 @@ const ROLE_PERMISSIONS = {
     "clientes.view","clientes.create","clientes.edit","clientes.delete",
     "locais.view","locais.create","locais.edit","locais.delete",
     "produtos.view","produtos.create","produtos.edit","produtos.delete",
-    "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage"
+    "roles.view","users.view","users.manage","users.password","sectors.manage","audit.view","audit.export","settings.manage",
+    "tickets.view","tickets.create","tickets.edit","tickets.interact","tickets.delete"
   ],
   analista: [
     "topology.view","topology.edit","topology.delete","topology.equipment.create","topology.equipment.edit",
@@ -1010,9 +1069,8 @@ const ROLE_PERMISSIONS = {
     "crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
     "clientes.view","clientes.create","clientes.edit","radius.view",
     "locais.view","locais.create","locais.edit","locais.delete",
-    "produtos.view","produtos.create","produtos.edit","produtos.delete"
-  ],
-  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit","radius.view","locais.view","produtos.view"],
+    "produtos.view","produtos.create","produtos.edit","produtos.delete","tickets.view","tickets.create","tickets.edit","tickets.interact"],
+  atendimento: ["topology.view","zabbix.view","agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat","clientes.view","clientes.edit","radius.view","locais.view","produtos.view","tickets.view","tickets.create","tickets.edit","tickets.interact"],
   tecnico: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.link.create","topology.pop.link","topology.layout",
@@ -1021,25 +1079,27 @@ const ROLE_PERMISSIONS = {
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view","whatsapp.chat",
     "clientes.view","clientes.create","clientes.edit","radius.view",
     "locais.view","locais.create","locais.edit",
-    "produtos.view","produtos.create","produtos.edit"
-  ],
+    "produtos.view","produtos.create","produtos.edit","tickets.view","tickets.create","tickets.edit","tickets.interact"],
   logistica: [
     "topology.view","topology.edit","topology.equipment.create","topology.equipment.edit","topology.port.edit",
     "topology.pop.link","zabbix.view","pops.create","pops.edit","pops.order",
     "agenda.view","agenda.create","agenda.edit","agenda.delete","crm.view","crm.create","crm.edit","crm.interact","whatsapp.view",
     "clientes.view","clientes.edit","radius.view",
     "locais.view","locais.create","locais.edit",
-    "produtos.view","produtos.create","produtos.edit"
+    "produtos.view","produtos.create","produtos.edit",
+    "tickets.view","tickets.create","tickets.edit","tickets.interact"
   ]
 };
 
 const ROLE_SCREENS = {
   administrador: ALL_SCREEN_CODES,
-  gerente: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes","locais","produtos"],
-  analista: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos"],
-  atendimento: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes","locais","produtos"],
-  tecnico: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos"],
-  logistica: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes","locais","produtos"]
+  gerente: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","platform","legado","clientes","locais","produtos","tickets"],
+  analista: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos","tickets"],
+  atendimento: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","clientes","locais","produtos","tickets"],
+  tecnico: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","trafego","agenda","crm","whatsapp","legado","clientes","locais","produtos","tickets"],
+  logistica: ["home","network","gpon","isp","isp-mapa","isp-cadastro","pops","dashboard","agenda","crm","whatsapp","clientes","locais","produtos",
+    "tickets"
+  ]
 };
 
 /* Telas que aparecem no menu de todos os setores, e não só no setor ao qual
@@ -1690,10 +1750,11 @@ async function ensureDatabaseImpl(env) {
     WHERE code='crm'
   `).run();
 
-  // O Chat WhatsApp é o atendimento ao cliente: fica no bloco HELPDESK.
+  // O Chat WhatsApp e o Painel de Tickets são o atendimento ao cliente:
+  // ficam no bloco HELPDESK.
   await db.prepare(`
     UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='atendimento')
-    WHERE code='whatsapp'
+    WHERE code IN ('whatsapp','tickets')
   `).run();
 
   // As concessões são montadas como statements e enviadas em batch: sozinhas,
@@ -1828,6 +1889,23 @@ async function ensureDatabaseImpl(env) {
         grantPermission(roleMap[role], "whatsapp.manage")
       ]);
     }
+  });
+
+  // O painel de tickets acompanha os perfis operacionais existentes, como o
+  // CRM: quem já tinha tela ganha o painel e o direito de abrir, editar e dar
+  // andamento nos chamados. A exclusão fica com o administrador. Depois desta
+  // primeira concessão, vale o que estiver marcado na Plataforma.
+  await seedOnce(db, "seed.tickets.v1", async () => {
+    const perfis = ((await db.prepare(`SELECT DISTINCT role_id FROM role_screens`).all()).results || [])
+      .map(x => x.role_id);
+    await runGrants(perfis.flatMap(roleId => [
+      grantScreen(roleId, "tickets"),
+      grantPermission(roleId, "tickets.view"),
+      grantPermission(roleId, "tickets.create"),
+      grantPermission(roleId, "tickets.edit"),
+      grantPermission(roleId, "tickets.interact")
+    ]));
+    if (roleMap.administrador) await runGrants([grantPermission(roleMap.administrador, "tickets.delete")]);
   });
 
   // O cadastro de cliente é para todo setor que já atende alguém. Na primeira
@@ -3001,7 +3079,10 @@ const CRM_STAGE_TEMPLATES = {
   default: [["novo","Novo","#06b6d4",10,0,0],["andamento","Em andamento","#2563eb",20,0,0],["aguardando","Aguardando","#f59e0b",30,0,0],["concluido","Concluído","#22c55e",40,1,1]]
 };
 
-async function crmAccessibleSectors(db, user) {
+/* Setores que o usuário enxerga: os dele, ou todos quando é administrador.
+   É a primeira camada de autorização do CRM e do painel de tickets — a ação do
+   perfil diz o que ele pode fazer; o setor diz em quais registros. */
+async function accessibleSectors(db, user) {
   if (user.role === "administrador") return (await db.prepare(`
     SELECT id,code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
   `).all()).results || [];
@@ -3088,7 +3169,7 @@ async function crmCaseForUser(db, user, id) {
 async function handleCrm(env, request) {
   const gate = await requirePermission(env,request,"crm.view");
   if (gate.response) return gate.response;
-  const db = getDB(env), sectors = await crmAccessibleSectors(db,gate.user);
+  const db = getDB(env), sectors = await accessibleSectors(db,gate.user);
   await ensureCrmStages(db,sectors);
   const ids = crmSectorIds(sectors);
   if (!ids.length) return json({ sectors:[],stages:[],users:[],cases:[],can:{
@@ -3129,7 +3210,7 @@ async function handleCrmCaseCreate(env, request) {
   if(gate.response)return gate.response;
   let body;try{body=await readJson(request,65536)}catch{return json({error:"INVALID_JSON"},400)}
   const input=normalizedCrmInput(body); if(!input)return json({error:"REGISTRO_CRM_INVALIDO"},400);
-  const db=getDB(env),sectors=await crmAccessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
+  const db=getDB(env),sectors=await accessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
   const relation=await validateCrmRelations(db,input,crmSectorIds(sectors));
   if(typeof relation==="string")return json({error:relation},relation==="SETOR_NAO_PERMITIDO"?403:400);
   const result=await db.prepare(`
@@ -3153,7 +3234,7 @@ async function handleCrmCaseUpdate(env, request, id) {
   if(!before)return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
   let body;try{body=await readJson(request,65536)}catch{return json({error:"INVALID_JSON"},400)}
   const input=normalizedCrmInput(body,before); if(!input)return json({error:"REGISTRO_CRM_INVALIDO"},400);
-  const sectors=await crmAccessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
+  const sectors=await accessibleSectors(db,gate.user); await ensureCrmStages(db,sectors);
   const relation=await validateCrmRelations(db,input,crmSectorIds(sectors));
   if(typeof relation==="string")return json({error:relation},relation==="SETOR_NAO_PERMITIDO"?403:400);
   await db.prepare(`
@@ -3191,6 +3272,269 @@ async function handleCrmCaseDelete(env, request, id) {
   if(!before)return json({error:"REGISTRO_CRM_NAO_ENCONTRADO"},404);
   await db.prepare(`DELETE FROM crm_cases WHERE id=?`).bind(id).run();
   await audit(env,request,gate.user,"CRM_CASE_DELETE","crm_case",id,before,null);
+  return json({ok:true});
+}
+
+/* ============ Painel de Tickets ============
+   Chamado de atendimento em duas naturezas, e o que separa uma da outra é
+   justamente aquilo que o chamado é obrigado a apontar:
+
+     · EXTERNO — o atendimento acontece no cliente, então exige um cadastro de
+       cliente (cliente_cadastro);
+     · INTERNO — o atendimento acontece na estrutura da operadora, então exige
+       um local do cadastro único (POP, Data Center ou local ISP).
+
+   Essa obrigatoriedade vive em validarTicketRelacoes e vale igual na abertura
+   e na edição: mudar a natureza de um chamado exige informar o vínculo da
+   natureza nova. O formulário esconde o campo que não é da natureza escolhida,
+   mas quem decide é aqui — a tela é conveniência, não a regra.
+
+   A visibilidade é a mesma do CRM: o setor do chamado precisa ser um dos
+   setores do usuário (administrador enxerga todos). */
+
+const TICKET_STATUS = ["aberto","andamento","pausado","resolvido","cancelado"];
+const TICKET_STATUS_FECHADOS = new Set(["resolvido","cancelado"]);
+const TICKET_PRIORIDADES = ["baixa","normal","alta","critica"];
+const TICKET_EVENTO_TIPOS = ["nota","ligacao","visita"];
+
+/* 'TK-000123' é o número que o operador lê, dita no telefone e procura. Ele é
+   derivado do id na própria consulta: sem coluna para manter única e sem uma
+   segunda escrita depois do INSERT só para carimbá-lo. */
+const TICKET_SELECT = `
+  SELECT t.*, 'TK-'||printf('%06d',t.id) codigo,
+    s.name sector_name, s.color sector_color,
+    responsavel.display_name assigned_name, autor.display_name creator_name,
+    c.nome cliente_nome, c.telefone cliente_telefone, c.cidade cliente_cidade,
+    l.nome estrutura_nome, l.tipo estrutura_tipo, l.endereco estrutura_endereco
+  FROM tickets t
+  JOIN sectors s ON s.id=t.sector_id
+  JOIN users autor ON autor.id=t.creator_user_id
+  LEFT JOIN users responsavel ON responsavel.id=t.assigned_user_id
+  LEFT JOIN cliente_cadastro c ON c.client_id=t.client_id
+  LEFT JOIN locais l ON l.id=t.local_id
+`;
+
+function normalizarTicketBody(body, anterior = null) {
+  const texto = (campo, max) => String(body[campo] ?? anterior?.[campo] ?? "").trim().slice(0,max);
+  const tipo = String(body.tipo ?? anterior?.tipo ?? "externo");
+  const sectorId = Number(body.sector_id ?? anterior?.sector_id);
+  const brutoResponsavel = body.assigned_user_id === undefined ? anterior?.assigned_user_id : body.assigned_user_id;
+  const assignedUserId = brutoResponsavel == null || brutoResponsavel === "" ? null : Number(brutoResponsavel);
+  const titulo = texto("titulo",300);
+  const prioridade = String(body.prioridade ?? anterior?.prioridade ?? "normal");
+  const status = String(body.status ?? anterior?.status ?? "aberto");
+  const brutoAgenda = body.agendado_para === undefined ? anterior?.agendado_para : body.agendado_para;
+  let agendadoPara = null;
+  if (brutoAgenda) {
+    const data = new Date(brutoAgenda);
+    if (!Number.isFinite(data.getTime())) return null;
+    agendadoPara = data.toISOString();
+  }
+  if (!titulo || !Number.isInteger(sectorId) || (assignedUserId != null && !Number.isInteger(assignedUserId)) ||
+      !["externo","interno"].includes(tipo) || !TICKET_PRIORIDADES.includes(prioridade) ||
+      !TICKET_STATUS.includes(status)) return null;
+  /* Cada natureza carrega só o vínculo que é dela: um chamado que passa de
+     externo para interno não fica com o cliente antigo pendurado, e vice-versa. */
+  const clientId = tipo === "externo" ? String(body.client_id ?? anterior?.client_id ?? "").trim().slice(0,120) : "";
+  const localId = tipo === "interno" ? String(body.local_id ?? anterior?.local_id ?? "").trim().slice(0,120) : "";
+  return {
+    tipo, client_id:clientId || null, local_id:localId || null,
+    sector_id:sectorId, assigned_user_id:assignedUserId, titulo,
+    descricao:texto("descricao",12000), categoria:texto("categoria",120),
+    prioridade, status, contato_nome:texto("contato_nome",200),
+    contato_telefone:texto("contato_telefone",60), endereco:texto("endereco",500),
+    agendado_para:agendadoPara
+  };
+}
+
+const enderecoDoCliente = (cliente) => [
+  [cliente.endereco, cliente.bairro].filter(Boolean).join(", "),
+  [cliente.cidade, cliente.uf].filter(Boolean).join("/")
+].filter(Boolean).join(" — ").slice(0,500);
+
+/* Devolve o texto do erro quando alguma relação não fecha, ou o "alvo" do
+   chamado (nome e endereço de quem, ou de onde, será atendido) quando confere. */
+async function validarTicketRelacoes(db, entrada, idsPermitidos) {
+  if (!idsPermitidos.includes(entrada.sector_id)) return "SETOR_NAO_PERMITIDO";
+  if (entrada.assigned_user_id != null && !(await db.prepare(`
+    SELECT 1 FROM users u JOIN user_sectors us ON us.user_id=u.id
+    WHERE u.id=? AND us.sector_id=? AND u.active=1
+  `).bind(entrada.assigned_user_id,entrada.sector_id).first())) return "RESPONSAVEL_INVALIDO";
+  if (entrada.tipo === "externo") {
+    if (!entrada.client_id) return "CLIENTE_OBRIGATORIO";
+    const cliente = await db.prepare(`
+      SELECT client_id,nome,telefone,endereco,bairro,cidade,uf FROM cliente_cadastro WHERE client_id=?
+    `).bind(entrada.client_id).first();
+    if (!cliente) return "CLIENTE_NAO_ENCONTRADO";
+    return { alvo_nome:String(cliente.nome || cliente.client_id).slice(0,300),
+      endereco:enderecoDoCliente(cliente), telefone:String(cliente.telefone || "").slice(0,60) };
+  }
+  if (!entrada.local_id) return "ESTRUTURA_OBRIGATORIA";
+  const estrutura = await db.prepare(`SELECT id,nome,tipo,endereco FROM locais WHERE id=?`)
+    .bind(entrada.local_id).first();
+  if (!estrutura) return "ESTRUTURA_NAO_ENCONTRADA";
+  return { alvo_nome:String(estrutura.nome || estrutura.id).slice(0,300),
+    endereco:String(estrutura.endereco || "").slice(0,500), telefone:"" };
+}
+
+const respostaTicketErro = (erro) => json({error:erro}, erro === "SETOR_NAO_PERMITIDO" ? 403 : 400);
+
+async function ticketDoUsuario(db, user, id) {
+  const visibilidade = user.role === "administrador" ? "1=1" : `EXISTS(
+    SELECT 1 FROM user_sectors visivel WHERE visivel.user_id=? AND visivel.sector_id=t.sector_id
+  )`;
+  const consulta = db.prepare(`${TICKET_SELECT} WHERE t.id=? AND ${visibilidade}`);
+  return user.role === "administrador" ? consulta.bind(id).first() : consulta.bind(id,user.id).first();
+}
+
+async function handleTickets(env, request) {
+  const gate = await requirePermission(env,request,"tickets.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const [setores,permissoes] = await Promise.all([accessibleSectors(db,gate.user),permissionsOf(env,gate.user)]);
+  const can = { create:permissoes.has("tickets.create"), edit:permissoes.has("tickets.edit"),
+    interact:permissoes.has("tickets.interact"), delete:permissoes.has("tickets.delete") };
+  const ids = setores.map(s => Number(s.id)).filter(Number.isInteger);
+  if (!ids.length) return json({ sectors:[],users:[],estruturas:[],tickets:[],can });
+  const marcadores = ids.map(() => "?").join(",");
+  const [usuarios,chamados,estruturas] = await Promise.all([
+    db.prepare(`
+      SELECT DISTINCT u.id,u.display_name,us.sector_id FROM users u JOIN user_sectors us ON us.user_id=u.id
+      WHERE u.active=1 AND us.sector_id IN (${marcadores}) ORDER BY u.display_name
+    `).bind(...ids).all(),
+    db.prepare(`
+      ${TICKET_SELECT} WHERE t.sector_id IN (${marcadores})
+      ORDER BY (t.status IN ('resolvido','cancelado')),t.updated_at DESC LIMIT 500
+    `).bind(...ids).all(),
+    db.prepare(`SELECT id,nome,tipo,endereco FROM locais ORDER BY nome LIMIT 500`).all()
+  ]);
+  return json({ sectors:setores, users:usuarios.results||[], estruturas:estruturas.results||[],
+    tickets:chamados.results||[], can });
+}
+
+/* Seletor de cliente do formulário. O cadastro completo é grande demais para
+   viajar inteiro só para preencher um campo: aqui vai o mínimo para escolher,
+   limitado à busca e a um teto pequeno. */
+async function handleTicketClientes(env, request, url) {
+  const gate = await requirePermission(env,request,"tickets.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env);
+  const q = String(url.searchParams.get("q") || "").trim().slice(0,80).toLowerCase();
+  const limite = Math.min(Math.max(Number(url.searchParams.get("limit")) || 30,1),100);
+  const colunas = "client_id,ixc_id,nome,cpf_cnpj,telefone,endereco,bairro,cidade,uf";
+  const linhas = q
+    ? (await db.prepare(`
+        SELECT ${colunas} FROM cliente_cadastro
+        WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(ixc_id) LIKE ?
+          OR lower(telefone) LIKE ?
+          OR replace(replace(replace(cpf_cnpj,'.',''),'-',''),'/','') LIKE ?
+        ORDER BY nome,client_id LIMIT ?
+      `).bind(...Array(5).fill(`%${q}%`),limite).all()).results || []
+    : (await db.prepare(`SELECT ${colunas} FROM cliente_cadastro ORDER BY nome,client_id LIMIT ?`)
+        .bind(limite).all()).results || [];
+  return json({ clientes:linhas.map((c) => ({
+    client_id:c.client_id, ixc_id:c.ixc_id, nome:c.nome, cpf_cnpj:c.cpf_cnpj,
+    telefone:c.telefone, endereco:enderecoDoCliente(c), cidade:c.cidade
+  })) });
+}
+
+async function handleTicketGet(env, request, id) {
+  const gate = await requirePermission(env,request,"tickets.view");
+  if (gate.response) return gate.response;
+  const db = getDB(env), ticket = await ticketDoUsuario(db,gate.user,id);
+  if (!ticket) return json({error:"TICKET_NAO_ENCONTRADO"},404);
+  const eventos = (await db.prepare(`
+    SELECT e.id,e.tipo,e.body,e.created_at,u.display_name user_name FROM ticket_eventos e
+    JOIN users u ON u.id=e.user_id WHERE e.ticket_id=? ORDER BY e.created_at DESC,e.id DESC LIMIT 300
+  `).bind(id).all()).results || [];
+  return json({ ticket,eventos });
+}
+
+async function handleTicketCreate(env, request) {
+  const gate = await requirePermission(env,request,"tickets.create");
+  if (gate.response) return gate.response;
+  let body; try { body = await readJson(request,65536); } catch { return json({error:"INVALID_JSON"},400); }
+  const entrada = normalizarTicketBody(body);
+  if (!entrada) return json({error:"TICKET_INVALIDO"},400);
+  const db = getDB(env), setores = await accessibleSectors(db,gate.user);
+  const alvo = await validarTicketRelacoes(db,entrada,setores.map(s => Number(s.id)));
+  if (typeof alvo === "string") return respostaTicketErro(alvo);
+  const fechado = TICKET_STATUS_FECHADOS.has(entrada.status) ? new Date().toISOString() : null;
+  const resultado = await db.prepare(`
+    INSERT INTO tickets(tipo,client_id,local_id,alvo_nome,sector_id,assigned_user_id,creator_user_id,titulo,
+      descricao,categoria,prioridade,status,contato_nome,contato_telefone,endereco,agendado_para,fechado_em)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(entrada.tipo,entrada.client_id,entrada.local_id,alvo.alvo_nome,entrada.sector_id,
+    entrada.assigned_user_id,gate.user.id,entrada.titulo,entrada.descricao,entrada.categoria,entrada.prioridade,
+    entrada.status,entrada.contato_nome || "",entrada.contato_telefone || alvo.telefone,
+    entrada.endereco || alvo.endereco,entrada.agendado_para,fechado).run();
+  const id = Number(resultado.meta.last_row_id);
+  await db.prepare(`INSERT INTO ticket_eventos(ticket_id,user_id,tipo,body) VALUES(?,?,'sistema',?)`)
+    .bind(id,gate.user.id,`Ticket aberto como atendimento ${entrada.tipo} para ${alvo.alvo_nome}.`).run();
+  const depois = await ticketDoUsuario(db,gate.user,id);
+  await audit(env,request,gate.user,"TICKET_CREATE","ticket",id,null,depois);
+  return json(depois,201);
+}
+
+async function handleTicketUpdate(env, request, id) {
+  const gate = await requirePermission(env,request,"tickets.edit");
+  if (gate.response) return gate.response;
+  const db = getDB(env), antes = await ticketDoUsuario(db,gate.user,id);
+  if (!antes) return json({error:"TICKET_NAO_ENCONTRADO"},404);
+  let body; try { body = await readJson(request,65536); } catch { return json({error:"INVALID_JSON"},400); }
+  const entrada = normalizarTicketBody(body,antes);
+  if (!entrada) return json({error:"TICKET_INVALIDO"},400);
+  const setores = await accessibleSectors(db,gate.user);
+  const alvo = await validarTicketRelacoes(db,entrada,setores.map(s => Number(s.id)));
+  if (typeof alvo === "string") return respostaTicketErro(alvo);
+  /* O carimbo de fechamento é o do primeiro fechamento: reabrir e fechar de
+     novo não reescreve a data original, e reabrir apaga o carimbo. */
+  const fechado = TICKET_STATUS_FECHADOS.has(entrada.status)
+    ? (antes.fechado_em || new Date().toISOString()) : null;
+  await db.prepare(`
+    UPDATE tickets SET tipo=?,client_id=?,local_id=?,alvo_nome=?,sector_id=?,assigned_user_id=?,titulo=?,
+      descricao=?,categoria=?,prioridade=?,status=?,contato_nome=?,contato_telefone=?,endereco=?,
+      agendado_para=?,fechado_em=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
+  `).bind(entrada.tipo,entrada.client_id,entrada.local_id,alvo.alvo_nome,entrada.sector_id,
+    entrada.assigned_user_id,entrada.titulo,entrada.descricao,entrada.categoria,entrada.prioridade,entrada.status,
+    entrada.contato_nome,entrada.contato_telefone,entrada.endereco,entrada.agendado_para,fechado,id).run();
+  if (String(antes.status) !== entrada.status)
+    await db.prepare(`INSERT INTO ticket_eventos(ticket_id,user_id,tipo,body) VALUES(?,?,'status',?)`)
+      .bind(id,gate.user.id,`Situação alterada de ${antes.status} para ${entrada.status}.`).run();
+  const depois = await ticketDoUsuario(db,gate.user,id);
+  await audit(env,request,gate.user,"TICKET_UPDATE","ticket",id,antes,depois);
+  return json(depois);
+}
+
+async function handleTicketEventoCreate(env, request, id) {
+  const gate = await requirePermission(env,request,"tickets.interact");
+  if (gate.response) return gate.response;
+  const db = getDB(env), ticket = await ticketDoUsuario(db,gate.user,id);
+  if (!ticket) return json({error:"TICKET_NAO_ENCONTRADO"},404);
+  let body; try { body = await readJson(request,32768); } catch { return json({error:"INVALID_JSON"},400); }
+  const tipo = String(body.tipo || "nota"), conteudo = String(body.body || "").trim().slice(0,8000);
+  if (!TICKET_EVENTO_TIPOS.includes(tipo) || !conteudo) return json({error:"ANDAMENTO_INVALIDO"},400);
+  const resultado = await db.prepare(`INSERT INTO ticket_eventos(ticket_id,user_id,tipo,body) VALUES(?,?,?,?)`)
+    .bind(id,gate.user.id,tipo,conteudo).run();
+  await db.prepare(`UPDATE tickets SET updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  const evento = await db.prepare(`
+    SELECT e.id,e.tipo,e.body,e.created_at,u.display_name user_name FROM ticket_eventos e
+    JOIN users u ON u.id=e.user_id WHERE e.id=?
+  `).bind(resultado.meta.last_row_id).first();
+  await audit(env,request,gate.user,"TICKET_EVENTO_CREATE","ticket_evento",resultado.meta.last_row_id,null,evento,{ticket_id:id});
+  return json(evento,201);
+}
+
+async function handleTicketDelete(env, request, id) {
+  const gate = await requirePermission(env,request,"tickets.delete");
+  if (gate.response) return gate.response;
+  const db = getDB(env), antes = await ticketDoUsuario(db,gate.user,id);
+  if (!antes) return json({error:"TICKET_NAO_ENCONTRADO"},404);
+  /* ON DELETE CASCADE só age com as chaves estrangeiras ligadas, e isso não é
+     garantido aqui: o histórico sai explicitamente antes do chamado. */
+  await db.prepare(`DELETE FROM ticket_eventos WHERE ticket_id=?`).bind(id).run();
+  await db.prepare(`DELETE FROM tickets WHERE id=?`).bind(id).run();
+  await audit(env,request,gate.user,"TICKET_DELETE","ticket",id,antes,null);
   return json({ok:true});
 }
 
@@ -8537,6 +8881,29 @@ export default {
           if(request.method==="GET")return await handleCrmCaseGet(env,request,id);
           if(request.method==="PATCH")return await handleCrmCaseUpdate(env,request,id);
           if(request.method==="DELETE")return await handleCrmCaseDelete(env,request,id);
+        }
+
+        if (url.pathname === "/api/tickets" && request.method === "GET")
+          return await handleTickets(env,request);
+
+        if (url.pathname === "/api/tickets" && request.method === "POST")
+          return await handleTicketCreate(env,request);
+
+        // Antes de /api/tickets/:id — "clientes" nunca casaria com o \d+
+        // abaixo, mas manter a rota fixa na frente evita depender disso.
+        if (url.pathname === "/api/tickets/clientes" && request.method === "GET")
+          return await handleTicketClientes(env,request,url);
+
+        const ticketEventoMatch=url.pathname.match(/^\/api\/tickets\/(\d+)\/eventos$/);
+        if(ticketEventoMatch && request.method==="POST")
+          return await handleTicketEventoCreate(env,request,Number(ticketEventoMatch[1]));
+
+        const ticketMatch=url.pathname.match(/^\/api\/tickets\/(\d+)$/);
+        if(ticketMatch){
+          const id=Number(ticketMatch[1]);
+          if(request.method==="GET")return await handleTicketGet(env,request,id);
+          if(request.method==="PATCH")return await handleTicketUpdate(env,request,id);
+          if(request.method==="DELETE")return await handleTicketDelete(env,request,id);
         }
 
         if (url.pathname === "/api/whatsapp" && request.method === "GET")
