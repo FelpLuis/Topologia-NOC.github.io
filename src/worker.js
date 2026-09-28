@@ -8705,7 +8705,9 @@ const PUBLIC_ASSET_PATHS = new Set([
   "/assets/brand/updown-logo.png",
   "/assets/brand/updown-symbol.png",
   "/assets/brand/updown-logo-dark.png",
-  "/assets/brand/updown-symbol-dark.png"
+  "/assets/brand/updown-symbol-dark.png",
+  "/assets/brand/favicon.ico",
+  "/assets/brand/favicon.svg"
 ]);
 
 function isPublicAsset(pathname) {
