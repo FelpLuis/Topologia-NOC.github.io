@@ -1,0 +1,8 @@
+[Unit]
+Description=Backup diario do banco do NOC
+After=sqld.service
+Requires=sqld.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/noc/server/backup.sh

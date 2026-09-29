@@ -2,6 +2,12 @@
 
 A aplicação agora usa **Cloudflare Worker + Static Assets**. Isso permite manter o site estático e, ao mesmo tempo, criar uma API segura para consultar o Zabbix sem expor o token no navegador.
 
+> **Produção não roda mais na Cloudflare.** O mesmo `src/worker.js` é servido por
+> Node no servidor 190.111.110.14 (onde está o banco), atrás do Caddy, em
+> `https://sistema.updown.com.br`. Passo a passo de hospedagem e troca de domínio
+> em [`server/README.md`](server/README.md). As seções abaixo que falam em
+> `wrangler deploy` e `*.workers.dev` descrevem o deploy antigo.
+
 ## Estrutura
 
 ```text

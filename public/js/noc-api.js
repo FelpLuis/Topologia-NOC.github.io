@@ -72,6 +72,14 @@ window.NOC = (() => {
       EQUIPAMENTO_NAO_ENCONTRADO: "O equipamento não existe mais na topologia.",
     };
     if (connectionErrors[data?.error]) return connectionErrors[data.error];
+    /* Chat: conversas do App do Assinante UpDown (canal updown_app). */
+    const appErrors = {
+      IMAGEM_NAO_CHEGA_AO_APP: "Imagem ainda não chega ao App UpDown. Descreva por texto ou peça para o cliente abrir pelo console do app.",
+      UPDOWN_APP_ENVIO_FALHOU: "O App UpDown não respondeu. A mensagem ficou marcada como falha; tente de novo em instantes.",
+      UPDOWN_APP_NAO_CONFIGURADO: "A ligação com o App UpDown não está configurada no servidor.",
+      CHAMADO_ENCERRADO_NO_APP: "O cliente já encerrou este chamado pelo app. Encerre a conversa aqui também.",
+    };
+    if (appErrors[data?.error]) return appErrors[data.error];
     if (data?.error) return String(data.error);
     return `Falha na requisição (HTTP ${status}).`;
   }

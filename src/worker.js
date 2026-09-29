@@ -3694,8 +3694,10 @@ async function oaSendText(env, externalId, body) {
 }
 
 // Ponto único de envio: despacha para a Graph API da Meta (canal nativo) ou
-// para o Opa!Suite (Meta via Opa!Suite / Webchat), conforme a conversa.
-async function omniSendText(env, target, body) {
+// para o Opa!Suite (Meta via Opa!Suite / Webchat) ou para o App do Assinante
+// UpDown (updown_app), conforme a conversa.
+async function omniSendText(env, target, body, meta = {}) {
+  if (target?.channel === UPDOWN_APP_CHANNEL) return await uaSendText(env, target, body, meta);
   if (!target || target.channel === "whatsapp" || !target.channel) return await waSendText(env, target?.phone, body);
   return await oaSendText(env, target.external_id || target.phone, body);
 }
@@ -3880,6 +3882,183 @@ async function handleOpasuiteWebhook(env, request) {
   const settings = await loadWhatsappSettings(db);
   await waHandleInboundGeneric(env, db, settings, parsed);
   return json({ ok: true });
+}
+
+/* ============ App do Assinante UpDown (canal updown_app) ============
+   Os chamados do app novo (AppClientes, NestJS) entram nesta mesma caixa como
+   o canal "updown_app": cada chamado vira uma conversa, com external_id = id
+   do chamado lá. O setor vem do app (suporte → atendimento, financeiro →
+   financeiro...), então não passa pelo menu do bot; setor desconhecido cai na
+   fila de roteamento, e quem pegar escolhe o setor.
+
+   Os dois lados assinam o corpo cru com o segredo compartilhado
+   UPDOWN_APP_SEGREDO (o mesmo NOC_SEGREDO do app):
+     X-UpDown-Timestamp: <segundos>
+     X-UpDown-Assinatura: sha256=<hex de HMAC(segredo, "<timestamp>.<corpo>")>
+   Vetor de conferência (igual ao de apps/api/src/noc/assinatura.test.ts):
+     segredo "segredo-de-teste-com-mais-de-32-caracteres", timestamp 1790000000,
+     corpo {"evento":"teste"} → sha256=5f2e7b8f82c0400e33387644c56761ce147435741e9dced7d46ef4ca121b9d09
+
+   Formato dos eventos: packages/contracts/src/noc.ts do AppClientes. */
+
+const UPDOWN_APP_CHANNEL = "updown_app";
+const UPDOWN_APP_JANELA_S = 300;
+const UPDOWN_APP_TIMEOUT_MS = 8000;
+
+async function uaAssinatura(secret, timestamp, raw) {
+  return "sha256=" + (await hmacSha256Hex(secret, `${timestamp}.${raw}`));
+}
+
+async function uaConferir(secret, request, raw) {
+  const ts = Number(request.headers.get("X-UpDown-Timestamp") || "");
+  const recebida = String(request.headers.get("X-UpDown-Assinatura") || "").trim().toLowerCase();
+  if (!Number.isInteger(ts) || !recebida) return false;
+  if (Math.abs(Math.floor(Date.now() / 1000) - ts) > UPDOWN_APP_JANELA_S) return false;
+  return timingSafeEqual(recebida, await uaAssinatura(secret, ts, raw));
+}
+
+// ISO do app ("2026-09-29T12:10:02.123Z") → carimbo do banco ("2026-09-29 12:10:02", UTC).
+function uaCarimbo(iso) {
+  const d = new Date(String(iso || ""));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().replace("T", " ").slice(0, 19);
+}
+
+// Chamada ao app. Devolve { ok, resultado } ou { ok:false, error, status, detail }.
+async function uaEnviarAoApp(env, payload) {
+  const base = String(env.UPDOWN_APP_URL || "").replace(/\/+$/, "");
+  const secret = env.UPDOWN_APP_SEGREDO;
+  if (!base || !secret) return { ok: false, error: "UPDOWN_APP_NAO_CONFIGURADO" };
+  const raw = JSON.stringify(payload);
+  const ts = Math.floor(Date.now() / 1000);
+  try {
+    const res = await fetch(`${base}/integracoes/noc/eventos`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-UpDown-Timestamp": String(ts),
+        "X-UpDown-Assinatura": await uaAssinatura(secret, ts, raw)
+      },
+      body: raw,
+      signal: AbortSignal.timeout(UPDOWN_APP_TIMEOUT_MS)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: "UPDOWN_APP_ENVIO_FALHOU", status: res.status, detail: JSON.stringify(data).slice(0, 400) };
+    return { ok: true, resultado: data?.resultado || null };
+  } catch (e) {
+    return { ok: false, error: "UPDOWN_APP_ENVIO_FALHOU", detail: String(e?.message || e).slice(0, 400) };
+  }
+}
+
+// Resposta do atendente → mensagem no chamado do app. O id gerado aqui é o
+// que o app usa para não duplicar quando a mesma chamada chega duas vezes.
+async function uaSendText(env, target, body, meta = {}) {
+  const mensagemId = crypto.randomUUID();
+  const r = await uaEnviarAoApp(env, {
+    evento: "mensagem.nova",
+    chamadoId: target.external_id,
+    mensagemId,
+    texto: body,
+    atendente: String(meta.atendente || "").slice(0, 200)
+  });
+  if (r.ok && r.resultado === "chamado_fechado") return { ok: false, error: "CHAMADO_ENCERRADO_NO_APP" };
+  return r.ok ? { ok: true, wa_message_id: `noc:${mensagemId}` } : r;
+}
+
+// Assumir e encerrar avisam o app sem travar a tela do NOC: se o app estiver
+// fora, a conversa segue aqui e a falha fica no log do serviço.
+async function uaAvisar(env, conv, evento, atendente) {
+  if (!conv || conv.channel !== UPDOWN_APP_CHANNEL) return;
+  const r = await uaEnviarAoApp(env, { evento, chamadoId: conv.external_id, atendente: String(atendente || "").slice(0, 200) });
+  if (!r.ok) console.error(`[updown_app] ${evento} do chamado ${conv.external_id} não chegou ao app:`, r.error, r.status || "", r.detail || "");
+}
+
+const UA_REMETENTE = {
+  customer: { direction: "in", nome: null },
+  staff: { direction: "out", nome: "Console do app" },
+  ai: { direction: "bot", nome: "Assistente do app" },
+  system: { direction: "bot", nome: "App" }
+};
+
+const UA_CANAL_ROTULO = {
+  vendas: "Vendas", indicacoes: "Indique e ganhe", suporte: "Suporte técnico",
+  financeiro: "Financeiro", sac: "Fale com a diretoria", cancelamento: "Cancelamento"
+};
+
+async function uaSincronizar(db, p) {
+  const c = p.chamado || {}, cli = p.cliente || {};
+  const externalId = String(c.id || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(externalId)) return { error: "CHAMADO_INVALIDO" };
+
+  let conv = await db.prepare(`SELECT * FROM wa_conversations WHERE channel=? AND external_id=? ORDER BY id DESC LIMIT 1`)
+    .bind(UPDOWN_APP_CHANNEL, externalId).first();
+
+  if (!conv) {
+    const sector = c.setor ? await db.prepare(`SELECT id FROM sectors WHERE code=? AND active=1`).bind(String(c.setor)).first() : null;
+    const cadastro = cli.ixcId ? await db.prepare(`SELECT client_id FROM cliente_cadastro WHERE ixc_id=? LIMIT 1`).bind(String(cli.ixcId)).first() : null;
+    const protocolo = String(c.protocolo || "").slice(0, 40);
+    const phone = String(cli.telefone || "").replace(/\D/g, "").slice(0, 15) || `app-${protocolo}`;
+    const nome = String(cli.nome || "").trim().slice(0, 200) || `Protocolo ${protocolo}`;
+    const aberto = uaCarimbo(c.abertoEm) || uaCarimbo(new Date().toISOString());
+    // INSERT OR IGNORE + releitura: dois envios do mesmo chamado chegando juntos
+    // não podem abrir duas conversas.
+    await db.prepare(`
+      INSERT INTO wa_conversations(phone,customer_name,channel,external_id,client_id,sector_id,status,last_message,last_message_at,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP
+      WHERE NOT EXISTS (SELECT 1 FROM wa_conversations WHERE channel=? AND external_id=?)
+    `).bind(phone, nome, UPDOWN_APP_CHANNEL, externalId, cadastro?.client_id || null, sector?.id || null,
+      sector ? "open" : "routing", "", aberto, aberto, UPDOWN_APP_CHANNEL, externalId).run();
+    conv = await db.prepare(`SELECT * FROM wa_conversations WHERE channel=? AND external_id=? ORDER BY id DESC LIMIT 1`)
+      .bind(UPDOWN_APP_CHANNEL, externalId).first();
+    const assunto = String(c.assunto || "").trim();
+    const abertura = `Chamado ${protocolo} aberto pelo app — ${UA_CANAL_ROTULO[c.canal] || c.canal || "atendimento"}${assunto ? `: ${assunto}` : ""}`;
+    await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,?)`)
+      .bind(conv.id, "bot", "text", abertura.slice(0, 600), `app:chamado:${externalId}`, "App", aberto).run();
+  }
+
+  let novasDoCliente = 0, ultima = null;
+  for (const m of Array.isArray(p.mensagens) ? p.mensagens.slice(0, 200) : []) {
+    const waId = `app:${String(m.id || "").slice(0, 60)}`;
+    if (waId === "app:") continue;
+    const quem = UA_REMETENTE[m.remetente] || UA_REMETENTE.system;
+    const anexos = Number(m.anexos) || 0;
+    const texto = String(m.texto || "").trim().slice(0, 4096);
+    const aviso = anexos ? `📎 ${anexos === 1 ? "1 anexo" : `${anexos} anexos`} — veja no console do app` : "";
+    const body = [texto, aviso].filter(Boolean).join("\n") || "(mensagem vazia)";
+    const r = await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,COALESCE(?,CURRENT_TIMESTAMP))`)
+      .bind(conv.id, quem.direction, "text", body, waId, quem.nome || conv.customer_name, uaCarimbo(m.criadaEm)).run();
+    if (!r.meta?.changes) continue;
+    ultima = body;
+    if (quem.direction === "in") novasDoCliente++;
+  }
+  if (ultima !== null) {
+    await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(ultima.slice(0, 500), novasDoCliente, conv.id).run();
+  }
+
+  if (c.status === "fechado" && conv.status !== "closed") {
+    await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name) VALUES(?,?,?,?,?,?)`)
+      .bind(conv.id, "bot", "text", "Chamado encerrado pelo app.", `app:fechado:${externalId}`, "App").run();
+    await db.prepare(`UPDATE wa_conversations SET status='closed',closed_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(new Date().toISOString(), conv.id).run();
+  }
+  return { conversation_id: conv.id };
+}
+
+// POST /api/updown-app/eventos — servidor a servidor, sem sessão: a
+// autorização é a assinatura. Sem segredo configurado, recusa tudo (ao
+// contrário do Opa!Suite, aqui não há "primeiro teste" sem segredo).
+async function handleUpdownAppEventos(env, request) {
+  const secret = env.UPDOWN_APP_SEGREDO;
+  if (!secret) return json({ error: "UPDOWN_APP_NAO_CONFIGURADO" }, 503);
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > 1024 * 1024) return json({ error: "BODY_TOO_LARGE" }, 413);
+  if (!(await uaConferir(secret, request, raw))) return json({ error: "ASSINATURA_INVALIDA" }, 403);
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return json({ error: "INVALID_JSON" }, 400); }
+  if (payload?.evento !== "chamado.sincronizar") return json({ error: "EVENTO_DESCONHECIDO" }, 400);
+  const r = await uaSincronizar(getDB(env), payload);
+  if (r.error) return json({ error: r.error }, 400);
+  return json({ ok: true, conversation_id: r.conversation_id });
 }
 
 async function waHandleStatus(db, st) {
@@ -4157,8 +4336,11 @@ async function handleWhatsappSend(env, request, id) {
   // Conversa nascida no app não tem canal externo pra espelhar (ver
   // handleClientMessageSend). Imagem nunca é retransmitida pro canal externo
   // (path só funciona autenticado neste backend — ver handleClientMessageSend).
+  // No updown_app a imagem não chegaria ao cliente (mesmo motivo acima): recusa
+  // em vez de mostrar como enviada algo que ele nunca vai ver.
+  if (isImage && conv.channel === UPDOWN_APP_CHANNEL) return json({ error: "IMAGEM_NAO_CHEGA_AO_APP" }, 400);
   const isAppOnly = !conv.channel || conv.channel === "app";
-  const send = isAppOnly || isImage ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text);
+  const send = isAppOnly || isImage ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text, { atendente: gate.user.display_name });
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
     .bind(id, "out", isImage ? "image" : "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
   await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(isImage ? "📷 Imagem" : text, id).run();
@@ -4196,6 +4378,7 @@ async function handleWhatsappTake(env, request, id) {
     UPDATE wa_conversations SET sector_id=?,assigned_user_id=?,status='open',unread=0,updated_at=CURRENT_TIMESTAMP WHERE id=?
   `).bind(sectorId, gate.user.id, id).run();
   await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_TAKE", "wa_conversation", id, null, { sector_id: sectorId });
+  if (Number(conv.assigned_user_id) !== Number(gate.user.id)) await uaAvisar(env, conv, "conversa.assumida", gate.user.display_name);
   return json({ ok: true, assigned_user_id: gate.user.id, sector_id: sectorId });
 }
 
@@ -4221,6 +4404,11 @@ async function handleWhatsappAssign(env, request, id) {
     UPDATE wa_conversations SET sector_id=?,assigned_user_id=?,status=?,closed_at=?,closed_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
   `).bind(sectorId, userId, status, status === "closed" ? new Date().toISOString() : null, status === "closed" ? gate.user.id : null, id).run();
   await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_ASSIGN", "wa_conversation", id, null, { sector_id: sectorId, user_id: userId, status });
+  if (status === "closed" && conv.status !== "closed") await uaAvisar(env, conv, "conversa.encerrada", gate.user.display_name);
+  else if (status === "open" && userId && Number(conv.assigned_user_id) !== userId) {
+    const responsavel = await db.prepare(`SELECT display_name FROM users WHERE id=?`).bind(userId).first();
+    await uaAvisar(env, conv, "conversa.assumida", responsavel?.display_name);
+  }
   return json({ ok: true, sector_id: sectorId, assigned_user_id: userId, status });
 }
 
@@ -4237,6 +4425,7 @@ async function handleWhatsappClose(env, request, id) {
   await db.prepare(`UPDATE wa_conversations SET status='closed',closed_at=?,closed_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(new Date().toISOString(), gate.user.id, id).run();
   await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_CLOSE", "wa_conversation", id, null, null);
+  await uaAvisar(env, conv, "conversa.encerrada", gate.user.display_name);
   return json({ ok: true });
 }
 
@@ -4589,7 +4778,7 @@ async function handleClientConversations(env, request) {
     if (!phone) return json({ conversations: [] });
     rows = (await db.prepare(`
       SELECT id, phone, customer_name, channel, status, last_message, last_message_at, unread, created_at, updated_at
-      FROM wa_conversations WHERE phone=? ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
+      FROM wa_conversations WHERE phone=? AND channel<>'updown_app' ORDER BY COALESCE(last_message_at,created_at) DESC LIMIT 100
     `).bind(phone).all()).results || [];
   }
   return json({ conversations: rows.map(conversationToCamel) });
@@ -4605,7 +4794,7 @@ async function handleClientConversationDetail(env, request, id) {
     FROM wa_conversations WHERE id=?
   `).bind(id).first();
   // 404 (não 403) em vez de confirmar que o id pertence a outro cliente.
-  const owns = conv && (gate.user.is_guest
+  const owns = conv && conv.channel !== UPDOWN_APP_CHANNEL && (gate.user.is_guest
     ? conv.guest_id === gate.user.id
     : conv.phone === await clientePhoneOf(db, gate.user));
   if (!owns) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
@@ -4685,7 +4874,7 @@ async function handleClientMessageSend(env, request, id) {
   if (gate.response) return gate.response;
   const db = getDB(env);
   const conv = await db.prepare(`SELECT id,status,phone,customer_name,channel,guest_id FROM wa_conversations WHERE id=?`).bind(id).first();
-  const owns = conv && (gate.user.is_guest
+  const owns = conv && conv.channel !== UPDOWN_APP_CHANNEL && (gate.user.is_guest
     ? conv.guest_id === gate.user.id
     : conv.phone === await clientePhoneOf(db, gate.user));
   if (!owns) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
@@ -8813,6 +9002,9 @@ export default {
 
         // Mesmo motivo acima: o webhook do Opa!Suite (canais Meta e Webchat)
         // também chega cross-site, sem cookie de sessão.
+        // App do Assinante UpDown: servidor a servidor, autenticado pela assinatura.
+        if (url.pathname === "/api/updown-app/eventos" && request.method === "POST")
+          return await handleUpdownAppEventos(env, request);
         if (url.pathname === "/api/opasuite/webhook" && request.method === "POST")
           return await handleOpasuiteWebhook(env, request);
         // Painéis de webhook costumam testar a URL com GET/HEAD antes de

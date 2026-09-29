@@ -1,6 +1,43 @@
 # Porta de entrada do NOC. O Caddy emite e renova o certificado sozinho,
-# desde que a 80 e a 443 cheguem neste servidor.
-noc.seudominio.com.br {
+# desde que a 80 e a 443 cheguem neste servidor vindas da internet — ou seja,
+# o A de sistema.updown.com.br aponta direto para 190.111.110.14 e nenhum
+# proxy intercepta o desafio ACME.
+www.sistema.updown.com.br {
+  redir https://sistema.updown.com.br{uri} permanent
+}
+
+sistema.updown.com.br {
   encode zstd gzip
-  reverse_proxy 127.0.0.1:8787
+
+  redir /chat /chat/
+  redir /chatbot /chatbot/
+
+  # O login de convidado do app do cliente devolve o token no corpo (o app usa
+  # Authorization: Bearer, ver chat/lib/services/api_service.dart) e AINDA manda
+  # um Set-Cookie. Como o cookie e __Host- (Path=/ obrigatorio), na mesma origem
+  # ele sobrescreve a sessao do NOC: o usuario interno vira "convidado", fica sem
+  # role_id, e toda tela responde "Acesso negado". O app nao perde nada sem ele.
+  handle /api/auth/client-login {
+    reverse_proxy 127.0.0.1:8787 {
+      header_down -Set-Cookie
+    }
+  }
+
+  # Apps Flutter na MESMA origem da API: e o que dispensa CORS, ausente nas
+  # respostas do chat em worker.js.
+  handle_path /chat/* {
+    root * /var/www/chat
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle_path /chatbot/* {
+    root * /var/www/chatbot
+    try_files {path} /index.html
+    file_server
+  }
+
+  handle {
+    reverse_proxy 127.0.0.1:8787
+  }
 }

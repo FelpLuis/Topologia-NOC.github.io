@@ -38,7 +38,8 @@
   const CHANNEL_LABELS = {
     opasuite_meta: { label: "Opa!Suite", color: "#7c5cff" },
     opasuite_webchat: { label: "Webchat", color: "#22c55e" },
-    app: { label: "App", color: "#2563eb" }
+    app: { label: "App", color: "#2563eb" },
+    updown_app: { label: "App UpDown", color: "#0dbbef" }
   };
   const channelBadge = c => {
     const info = c.channel && CHANNEL_LABELS[c.channel];
