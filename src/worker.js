@@ -682,6 +682,8 @@ CREATE TABLE IF NOT EXISTS wa_messages (
   status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','delivered','read','failed')),
   sender_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   sender_name TEXT NOT NULL DEFAULT '',
+  media_name TEXT NOT NULL DEFAULT '',
+  caption TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1665,7 +1667,10 @@ async function ensureDatabaseImpl(env) {
   ]);
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
   /* Anexos: body guarda o path /api/media/...; o nome original do arquivo
-     (documentos) e a legenda que o cliente escreveu na mídia ficam à parte. */
+     (documentos) e a legenda que o cliente escreveu na mídia ficam à parte.
+     As colunas também estão no CREATE TABLE do SCHEMA de propósito: é o
+     SCHEMA que muda a impressão digital (SCHEMA_FINGERPRINT). Só com o
+     ensureColumns aqui, a migração era pulada e /conversations/:id dava 500. */
   await ensureColumns(db, "wa_messages", [
     ["media_name", "TEXT NOT NULL DEFAULT ''"],
     ["caption", "TEXT NOT NULL DEFAULT ''"]

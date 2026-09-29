@@ -107,6 +107,9 @@ test("atendente envia anexo e áudio pelo chat web", () => {
   assert.match(worker, /async function waSendMedia/);
   assert.match(worker, /\/\$\{phoneId\}\/media`/);
   assert.match(worker, /async function waFetchInboundMedia/);
+  // a coluna precisa estar no SCHEMA: é ele que muda SCHEMA_FINGERPRINT e faz a
+  // migração rodar; só com ensureColumns o banco de produção não a ganhava (500)
+  assert.match(worker, /CREATE TABLE IF NOT EXISTS wa_messages \([^;]*media_name TEXT[^;]*caption TEXT/);
   assert.match(worker, /\["media_name", "TEXT NOT NULL DEFAULT ''"\]/);
   // player de áudio precisa de Range para mostrar a duração
   assert.match(worker, /status: 206/);
