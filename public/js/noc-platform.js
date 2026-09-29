@@ -38,7 +38,11 @@
 
   /* ---------------- carregamento ---------------- */
   async function loadModel() {
+    // Recarga depois de salvar algo: setor, perfil ou tela podem ter mudado o
+    // menu de quem está nesta página, então ele é remontado junto.
+    const recarga = state.model.roles.length > 0;
     state.model = await NOC.api("/api/platform/roles");
+    if (recarga) UI.refreshNav?.();
     state.dirty = false;
     if (!state.role) state.role = state.model.roles[0] || null;
     else state.role = state.model.roles.find((r) => r.id === state.role.id) || state.model.roles[0] || null;

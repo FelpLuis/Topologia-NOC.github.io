@@ -585,6 +585,21 @@ window.UI = (() => {
     initCalendarAlerts();
   });
 
+  /* O menu é montado com o acesso lido na abertura da página. Quem muda setor,
+     perfil ou tela na plataforma chama isto para ver o resultado sem F5 —
+     antes, o menu seguia mostrando o acesso antigo e parecia que o ajuste não
+     tinha sido gravado. */
+  async function refreshNav() {
+    try {
+      const resposta = await fetch("/api/access", { cache: "no-store", credentials: "same-origin" });
+      if (!resposta.ok) return;
+      const access = await resposta.json();
+      window.UPDOWN_ACCESS = access;
+      renderNav();
+      applyAccess(access);
+    } catch { /* o menu antigo continua valendo até a próxima abertura */ }
+  }
+
   /* ---------------- agenda pessoal importada por arquivo .ics ---------------- */
   async function calendarApi(url, options = {}) {
     const response = await fetch(url, {
@@ -1029,7 +1044,7 @@ window.UI = (() => {
 
   return {
     $, $$, esc, num, pct, icon, toast, modal, drawer, confirm, layer,
-    mountShell, openPalette, openShortcuts, toggleTheme, applyTheme,
+    mountShell, refreshNav, openPalette, openShortcuts, toggleTheme, applyTheme,
     session, initials, clock, openAgendaImport, NAV, trapFocus,
   };
 })();
