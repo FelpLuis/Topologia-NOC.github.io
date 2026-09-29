@@ -44,6 +44,9 @@
     const d = String(p || "").replace(/\D/g, "");
     const m = d.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);
     if (m) return `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`;
+    // cadastro do IXC costuma vir sem o DDI
+    const local = d.match(/^(\d{2})(\d{4,5})(\d{4})$/);
+    if (local) return `(${local[1]}) ${local[2]}-${local[3]}`;
     return d || "—";
   };
   /* Hora da mensagem no fuso de São Paulo: o carimbo chega em UTC (ISO do
@@ -97,7 +100,9 @@
   const nameOf = c => c?.customer_name && c.customer_name !== c.phone ? c.customer_name : formatPhone(c?.phone);
   const avatar = (c, size = "") => {
     const ch = channelOf(c);
-    return `<span class="wa-avatar ${size}" style="--av:${colorFor(c.phone || c.id)}">${esc(initials(nameOf(c)))}<span class="wa-channel" style="--ch:${ch.color}" title="${esc(ch.label)}">${SVG[ch.svg]}</span></span>`;
+    // sem nome, as "iniciais" do telefone viravam "+(": mostra a silhueta
+    const known = c.customer_name && c.customer_name !== c.phone;
+    return `<span class="wa-avatar ${size}" style="--av:${colorFor(c.phone || c.id)}">${known ? esc(initials(c.customer_name)) : icon("user")}<span class="wa-channel" style="--ch:${ch.color}" title="${esc(ch.label)}">${SVG[ch.svg]}</span></span>`;
   };
 
   const sectorOf = id => (state.data?.sectors || []).find(s => String(s.id) === String(id));

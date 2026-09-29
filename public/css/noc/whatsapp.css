@@ -407,3 +407,4 @@
   .wa-qr-row { grid-template-columns: 1fr 32px; }
   .wa-qr-row .textarea { grid-column: 1 / -1; grid-row: 2; }
 }
+.wa-avatar > .icon { width: 46%; height: 46%; }

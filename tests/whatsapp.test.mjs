@@ -77,3 +77,16 @@ test("badge de canal aparece na lista e no cabeçalho do chat", () => {
   assert.match(client, /opasuite_meta/);
   assert.match(client, /opasuite_webchat/);
 });
+test("lista traz os encerrados da última semana em consulta própria", () => {
+  assert.match(worker, /WHERE c\.status='closed'\$\{scope\}/);
+  assert.match(worker, /c\.updated_at>=datetime\('now','-7 days'\)/);
+  assert.match(client, /bucketOf/);
+  assert.match(page, /data-status="closed"/);
+});
+
+test("mensagens rápidas são normalizadas nas configurações e usadas no composer", () => {
+  assert.match(worker, /quickReplies/);
+  assert.match(worker, /shortcut: String\(q\?\.shortcut/);
+  assert.match(client, /applyQuick/);
+  assert.match(client, /\{atendente\}/);
+});
