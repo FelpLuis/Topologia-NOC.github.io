@@ -1664,6 +1664,12 @@ async function ensureDatabaseImpl(env) {
     ["client_id", "TEXT"]
   ]);
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
+  /* Anexos: body guarda o path /api/media/...; o nome original do arquivo
+     (documentos) e a legenda que o cliente escreveu na mídia ficam à parte. */
+  await ensureColumns(db, "wa_messages", [
+    ["media_name", "TEXT NOT NULL DEFAULT ''"],
+    ["caption", "TEXT NOT NULL DEFAULT ''"]
+  ]);
   /* method/headers: adicionados depois pra diagnosticar o handshake do
      webhook do Opa!Suite (formato de autenticação ainda não confirmado). */
   await ensureColumns(db, "wa_webhook_log", [
@@ -3690,12 +3696,16 @@ async function hmacSha256Hex(secret, data) {
 // Envio pela Graph API da Meta. Sem WHATSAPP_ACCESS_TOKEN / PHONE_NUMBER_ID
 // configurados o envio falha de forma explícita, sem derrubar o webhook.
 async function waSendText(env, to, body) {
+  return await waPostMessage(env, { to, type: "text", text: { body } });
+}
+
+async function waPostMessage(env, message) {
   const token = env.WHATSAPP_ACCESS_TOKEN, phoneId = env.WHATSAPP_PHONE_NUMBER_ID;
   if (!token || !phoneId) return { ok: false, error: "WHATSAPP_NAO_CONFIGURADO" };
   const res = await fetch(`https://graph.facebook.com/${WHATSAPP_GRAPH_VERSION}/${phoneId}/messages`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body } })
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...message })
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -3703,6 +3713,79 @@ async function waSendText(env, to, body) {
   }
   const data = await res.json().catch(() => ({}));
   return { ok: true, wa_message_id: data?.messages?.[0]?.id || null };
+}
+
+// Formatos que a Meta entrega como imagem/áudio/vídeo "de verdade". Qualquer
+// outro (webp, gif, áudio webm...) segue como documento, que ela aceita sem
+// olhar o conteúdo — o cliente ainda recebe o arquivo, só que para baixar.
+const WA_NATIVE_MEDIA = {
+  image: ["image/jpeg", "image/png"],
+  audio: ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"],
+  video: ["video/mp4", "video/3gpp"]
+};
+
+// Mídia do atendente → cliente: sobe os bytes para a Meta (o path local só
+// abre com sessão deste painel, então não dá para mandar como link) e envia
+// a mensagem referenciando o id devolvido.
+async function waSendMedia(env, to, media) {
+  const token = env.WHATSAPP_ACCESS_TOKEN, phoneId = env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) return { ok: false, error: "WHATSAPP_NAO_CONFIGURADO" };
+  const object = env.MEDIA ? await env.MEDIA.get(media.key) : null;
+  if (!object) return { ok: false, error: "MIDIA_NAO_ENCONTRADA" };
+  const mime = mediaMimeOfKey(media.key);
+  const name = media.name || `arquivo.${media.key.split(".").pop()}`;
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", mime);
+  form.append("file", new Blob([await object.arrayBuffer()], { type: mime }), name);
+  let mediaId;
+  try {
+    const up = await fetch(`https://graph.facebook.com/${WHATSAPP_GRAPH_VERSION}/${phoneId}/media`, {
+      method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: form
+    });
+    const data = await up.json().catch(() => ({}));
+    if (!up.ok || !data.id) return { ok: false, error: "WHATSAPP_MIDIA_FALHOU", status: up.status, detail: JSON.stringify(data).slice(0, 400) };
+    mediaId = data.id;
+  } catch (e) {
+    return { ok: false, error: "WHATSAPP_MIDIA_FALHOU", detail: String(e?.message || e).slice(0, 400) };
+  }
+  const kind = (WA_NATIVE_MEDIA[media.kind] || []).includes(mime) ? media.kind : "document";
+  const content = { id: mediaId };
+  if (kind === "document") content.filename = name;
+  if (media.caption && kind !== "audio") content.caption = media.caption;
+  return await waPostMessage(env, { to, type: kind, [kind]: content });
+}
+
+// Mídia do cliente → painel: a Meta só entrega um id; a URL de download que
+// ele resolve expira em minutos e exige o token, então os bytes vêm para o
+// MEDIA na hora. Falhou (sem token, arquivo grande, tipo estranho)? A
+// mensagem entra como o rótulo de sempre ("[áudio]"), sem travar o webhook.
+async function waFetchInboundMedia(env, msg) {
+  const kind = msg.type === "sticker" ? "image" : msg.type;
+  if (!MEDIA_KINDS.includes(kind)) return null;
+  const info = msg[msg.type] || {};
+  const token = env.WHATSAPP_ACCESS_TOKEN;
+  if (!token || !info.id || !env.MEDIA) return null;
+  try {
+    const meta = await fetch(`https://graph.facebook.com/${WHATSAPP_GRAPH_VERSION}/${info.id}`, { headers: { "Authorization": `Bearer ${token}` } });
+    const data = await meta.json().catch(() => ({}));
+    if (!meta.ok || !data.url || Number(data.file_size) > MEDIA_MAX_BYTES) return null;
+    const mime = String(data.mime_type || info.mime_type || "").split(";")[0].trim().toLowerCase();
+    const file = await fetch(data.url, { headers: { "Authorization": `Bearer ${token}` } });
+    if (!file.ok) return null;
+    const stored = await storeMediaBytes(env, `wa/${String(msg.from || "0").replace(/\D/g, "")}`, mime, await file.arrayBuffer());
+    if (!stored.ok) return null;
+    const name = String(info.filename || "").trim().slice(0, 200);
+    return {
+      type: kind,
+      body: `/api/media/${stored.key}`,
+      mediaName: name,
+      caption: String(info.caption || "").trim().slice(0, 1024),
+      preview: mediaPreview(kind, name)
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function waStoreBotMessage(db, conversationId, body, waMessageId, ok) {
@@ -3781,6 +3864,10 @@ async function waHandleInboundGeneric(env, db, settings, params) {
   if (waId && await db.prepare(`SELECT 1 FROM wa_messages WHERE wa_message_id=?`).bind(waId).first()) return;
   const type = String(params.type || "text");
   const body = String(params.body || "");
+  // Mídia: body é o path do arquivo; lista de conversas e bot enxergam o rótulo.
+  const text = String(params.preview || body);
+  const mediaName = String(params.mediaName || "");
+  const caption = String(params.caption || "");
   const contactName = String(params.contactName || "").trim().slice(0, 200);
   if (contactName) await db.prepare(`INSERT OR IGNORE INTO wa_contacts(phone,name) VALUES(?,?)`).bind(phone, contactName).run();
 
@@ -3789,34 +3876,34 @@ async function waHandleInboundGeneric(env, db, settings, params) {
     const res = await db.prepare(`
       INSERT INTO wa_conversations(phone,customer_name,channel,external_id,status,last_message,last_message_at,updated_at)
       VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    `).bind(phone, contactName || phone, channel, externalId, "routing", body).run();
+    `).bind(phone, contactName || phone, channel, externalId, "routing", text).run();
     const conversationId = Number(res.meta.last_row_id);
-    await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id) VALUES(?,?,?,?,?)`)
-      .bind(conversationId, "in", type, body, waId || null).run();
+    await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,media_name,caption) VALUES(?,?,?,?,?,?,?)`)
+      .bind(conversationId, "in", type, body, waId || null, mediaName, caption).run();
     await waSendRoutingMenu(env, db, settings, conversationId, { channel, phone, external_id: externalId }, 1);
     return;
   }
 
-  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id) VALUES(?,?,?,?,?)`)
-    .bind(conv.id, "in", type, body, waId || null).run();
+  await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,media_name,caption) VALUES(?,?,?,?,?,?,?)`)
+    .bind(conv.id, "in", type, body, waId || null, mediaName, caption).run();
 
   if (conv.status === "closed") {
     await db.prepare(`
       UPDATE wa_conversations SET status='routing',routing_attempts=0,closed_at=NULL,closed_by=NULL,
         last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
-    `).bind(body, conv.id).run();
+    `).bind(text, conv.id).run();
     await waSendRoutingMenu(env, db, settings, conv.id, conv, 1);
     return;
   }
 
   if (conv.status === "routing") {
     const options = await waRoutedSectorOptions(db, settings);
-    const target = waMatchSector(settings, options, body);
+    const target = waMatchSector(settings, options, params.preview ? caption : text);
     if (target) {
       await db.prepare(`
         UPDATE wa_conversations SET sector_id=?,status='open',routing_attempts=0,unread=0,
           last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
-      `).bind(target.id, body, conv.id).run();
+      `).bind(target.id, text, conv.id).run();
       const confirm = (settings.routingDone || "").replace("{setor}", target.name);
       const send = await omniSendText(env, conv, confirm);
       await waStoreBotMessage(db, conv.id, confirm, send.wa_message_id, send.ok);
@@ -3824,16 +3911,16 @@ async function waHandleInboundGeneric(env, db, settings, params) {
       const send = await omniSendText(env, conv, settings.routingError);
       await waStoreBotMessage(db, conv.id, settings.routingError, send.wa_message_id, send.ok);
       await waSendRoutingMenu(env, db, settings, conv.id, conv, Number(conv.routing_attempts) + 1);
-      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
+      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, conv.id).run();
     } else {
-      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(body, conv.id).run();
+      await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(text, conv.id).run();
     }
     return;
   }
 
   await db.prepare(`
     UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+1,updated_at=CURRENT_TIMESTAMP WHERE id=?
-  `).bind(body, conv.id).run();
+  `).bind(text, conv.id).run();
 }
 
 function waMetaToGeneric(msg, value) {
@@ -4139,7 +4226,12 @@ async function handleWhatsappWebhook(env, request) {
       const value = change.value || {};
       const phoneNumberId = value.metadata?.phone_number_id;
       if (phoneNumberId && env.WHATSAPP_PHONE_NUMBER_ID && phoneNumberId !== env.WHATSAPP_PHONE_NUMBER_ID) continue;
-      for (const msg of value.messages || []) await waHandleInboundGeneric(env, db, settings, waMetaToGeneric(msg, value));
+      for (const msg of value.messages || []) {
+        const generic = waMetaToGeneric(msg, value);
+        if (generic.externalMessageId && await db.prepare(`SELECT 1 FROM wa_messages WHERE wa_message_id=?`).bind(generic.externalMessageId).first()) continue;
+        const media = await waFetchInboundMedia(env, msg);
+        await waHandleInboundGeneric(env, db, settings, media ? { ...generic, ...media } : generic);
+      }
       for (const st of value.statuses || []) await waHandleStatus(db, st);
     }
   }
@@ -4270,7 +4362,7 @@ async function handleWhatsappConversation(env, request, id) {
   const conv = await waConversationFor(db, gate.user, id);
   if (!conv) return json({ error: "CONVERSA_NAO_ENCONTRADA" }, 404);
   const messages = (await db.prepare(`
-    SELECT id,direction,type,body,status,sender_user_id,sender_name,created_at
+    SELECT id,direction,type,body,status,sender_user_id,sender_name,media_name,caption,created_at
     FROM wa_messages WHERE conversation_id=? ORDER BY created_at ASC,id ASC LIMIT 500
   `).bind(id).all()).results || [];
   const permissions = await permissionsOf(env, gate.user);
@@ -4372,24 +4464,34 @@ async function handleWhatsappSend(env, request, id) {
   if (Number(conv.assigned_user_id) !== Number(gate.user.id) && !permissions.has("whatsapp.supervise"))
     return json({ error: "CONVERSA_NAO_E_SUA" }, 403);
   let body; try { body = await readJson(request, 16384); } catch { return json({ error: "INVALID_JSON" }, 400); }
-  const isImage = body.type === "image";
-  const text = String(body.body || "").trim().slice(0, isImage ? 300 : 4096);
+  const isMedia = MEDIA_KINDS.includes(body.type);
+  const text = String(body.body || "").trim().slice(0, isMedia ? 300 : 4096);
   if (!text) return json({ error: "MENSAGEM_VAZIA" }, 400);
-  if (isImage && !text.startsWith(`/api/media/staff/${gate.user.id}/`)) {
-    return json({ error: "IMAGEM_INVALIDA" }, 400);
+  // Anexo só pode apontar para um arquivo que o próprio atendente subiu em
+  // POST /api/whatsapp/uploads; o tipo vem da extensão gravada, não do pedido.
+  const staffPrefix = `/api/media/staff/${gate.user.id}/`;
+  if (isMedia && !(text.startsWith(staffPrefix) && /^[0-9a-f-]{36}\.[a-z0-9]+$/.test(text.slice(staffPrefix.length)))) {
+    return json({ error: "ANEXO_INVALIDO" }, 400);
   }
+  const key = isMedia ? text.slice("/api/media/".length) : "";
+  const kind = isMedia ? mediaKindOfMime(mediaMimeOfKey(key)) : "text";
+  const mediaName = isMedia ? String(body.name || "").replace(/[\\/\r\n]/g, " ").trim().slice(0, 200) : "";
+  const preview = isMedia ? mediaPreview(kind, mediaName) : text;
   // Conversa nascida no app não tem canal externo pra espelhar (ver
-  // handleClientMessageSend). Imagem nunca é retransmitida pro canal externo
-  // (path só funciona autenticado neste backend — ver handleClientMessageSend).
-  // No updown_app a imagem não chegaria ao cliente (mesmo motivo acima): recusa
-  // em vez de mostrar como enviada algo que ele nunca vai ver.
-  if (isImage && conv.channel === UPDOWN_APP_CHANNEL) return json({ error: "IMAGEM_NAO_CHEGA_AO_APP" }, 400);
+  // handleClientMessageSend). Pelo número da Meta o arquivo sobe para lá e
+  // chega como no WhatsApp; Opa!Suite e App UpDown ainda não têm envio de
+  // mídia implementado — recusa em vez de mostrar como enviado algo que o
+  // cliente nunca vai ver.
   const isAppOnly = !conv.channel || conv.channel === "app";
-  const send = isAppOnly || isImage ? { ok: true, wa_message_id: null } : await omniSendText(env, conv, text, { atendente: gate.user.display_name });
-  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name) VALUES(?,?,?,?,?,?,?,?)`)
-    .bind(id, "out", isImage ? "image" : "text", text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name).run();
-  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(isImage ? "📷 Imagem" : text, id).run();
-  await audit(env, request, gate.user, "WHATSAPP_MESSAGE_SEND", "wa_conversation", id, null, { body: isImage ? "[imagem]" : text, ok: send.ok, error: send.error || null });
+  if (isMedia && conv.channel === UPDOWN_APP_CHANNEL) return json({ error: "ANEXO_NAO_CHEGA_AO_APP" }, 400);
+  if (isMedia && !isAppOnly && conv.channel !== "whatsapp") return json({ error: "ANEXO_NAO_CHEGA_AO_CANAL" }, 400);
+  const send = isAppOnly ? { ok: true, wa_message_id: null }
+    : isMedia ? await waSendMedia(env, conv.phone, { key, kind, name: mediaName })
+    : await omniSendText(env, conv, text, { atendente: gate.user.display_name });
+  const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name,media_name) VALUES(?,?,?,?,?,?,?,?,?)`)
+    .bind(id, "out", kind, text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name, mediaName).run();
+  await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(preview, id).run();
+  await audit(env, request, gate.user, "WHATSAPP_MESSAGE_SEND", "wa_conversation", id, null, { body: isMedia ? `[${kind}] ${mediaName}`.trim() : text, ok: send.ok, error: send.error || null });
   if (!send.ok) {
     return json({ error: send.error || "WHATSAPP_ENVIO_FALHOU", status: send.status || null, detail: send.detail || null, message_id: result.meta.last_row_id }, 502);
   }
@@ -4705,22 +4807,60 @@ function telefoneNormalizado(valor) {
 // pra não expor foto de documento/roteador de cliente por URL adivinhável.
 // ---------------------------------------------------------------------------
 
-const MEDIA_MAX_BYTES = 8 * 1024 * 1024;
-const MEDIA_ALLOWED_TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+// 16 MB é o teto da Meta para áudio e vídeo; documento lá vai até 100 MB,
+// mas aqui tudo passa pela memória do processo, então fica o mesmo limite.
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024;
+const MEDIA_IMAGE_TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+// Tudo o que o atendente pode anexar. A lista de documentos é a que a Cloud
+// API da Meta aceita; áudio webm só existe como último recurso do gravador
+// do navegador (o front converte para ogg/opus sempre que consegue).
+const MEDIA_ALLOWED_TYPES = {
+  ...MEDIA_IMAGE_TYPES,
+  "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/amr": "amr", "audio/webm": "weba",
+  "video/mp4": "mp4", "video/3gpp": "3gp",
+  "application/pdf": "pdf", "text/plain": "txt",
+  "application/msword": "doc", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-excel": "xls", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.ms-powerpoint": "ppt", "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx"
+};
+const MEDIA_MIME_BY_EXT = Object.fromEntries(Object.entries(MEDIA_ALLOWED_TYPES).map(([mime, ext]) => [ext, mime]));
+const MEDIA_KINDS = ["image", "audio", "video", "document"];
 
-async function storeMediaUpload(env, request, keyPrefix) {
+function mediaMimeOfKey(key) {
+  return MEDIA_MIME_BY_EXT[String(key).split(".").pop()] || "application/octet-stream";
+}
+
+function mediaKindOfMime(mime) {
+  const family = String(mime).split("/")[0];
+  return family === "image" || family === "audio" || family === "video" ? family : "document";
+}
+
+// Texto que representa a mídia na lista de conversas e no roteamento do bot.
+function mediaPreview(kind, name) {
+  if (kind === "image") return "📷 Imagem";
+  if (kind === "audio") return "🎤 Áudio";
+  if (kind === "video") return "🎥 Vídeo";
+  return `📄 ${name || "Documento"}`;
+}
+
+async function storeMediaBytes(env, keyPrefix, contentType, bytes, allowed = MEDIA_ALLOWED_TYPES) {
   if (!env.MEDIA) return { ok: false, error: "MEDIA_NAO_CONFIGURADO" };
-  const contentType = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
-  const ext = MEDIA_ALLOWED_TYPES[contentType];
+  const ext = allowed[contentType];
   if (!ext) return { ok: false, error: "TIPO_INVALIDO" };
-  const declared = Number(request.headers.get("Content-Length") || 0);
-  if (declared > MEDIA_MAX_BYTES) return { ok: false, error: "ARQUIVO_MUITO_GRANDE" };
-  const bytes = await request.arrayBuffer();
   if (bytes.byteLength === 0) return { ok: false, error: "ARQUIVO_VAZIO" };
   if (bytes.byteLength > MEDIA_MAX_BYTES) return { ok: false, error: "ARQUIVO_MUITO_GRANDE" };
   const key = `${keyPrefix}/${crypto.randomUUID()}.${ext}`;
   await env.MEDIA.put(key, bytes, { httpMetadata: { contentType } });
   return { ok: true, key };
+}
+
+async function storeMediaUpload(env, request, keyPrefix, allowed = MEDIA_ALLOWED_TYPES) {
+  if (!env.MEDIA) return { ok: false, error: "MEDIA_NAO_CONFIGURADO" };
+  const contentType = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+  if (!allowed[contentType]) return { ok: false, error: "TIPO_INVALIDO" };
+  const declared = Number(request.headers.get("Content-Length") || 0);
+  if (declared > MEDIA_MAX_BYTES) return { ok: false, error: "ARQUIVO_MUITO_GRANDE" };
+  return await storeMediaBytes(env, keyPrefix, contentType, await request.arrayBuffer(), allowed);
 }
 
 // POST /api/client/uploads — corpo bruto (bytes da imagem), Content-Type
@@ -4729,19 +4869,19 @@ async function storeMediaUpload(env, request, keyPrefix) {
 async function handleClientUpload(env, request) {
   const gate = await requireClient(env, request);
   if (gate.response) return gate.response;
-  const result = await storeMediaUpload(env, request, `client/${gate.user.id}`);
+  const result = await storeMediaUpload(env, request, `client/${gate.user.id}`, MEDIA_IMAGE_TYPES);
   if (!result.ok) return json({ error: result.error }, result.error === "ARQUIVO_MUITO_GRANDE" ? 413 : 400);
   return json({ path: `/api/media/${result.key}` }, 201);
 }
 
-// POST /api/whatsapp/uploads — mesma coisa, pro lado do atendente (staff
-// também precisa mandar imagem de volta, ex.: print de configuração).
+// POST /api/whatsapp/uploads — mesma coisa, pro lado do atendente: imagem,
+// áudio gravado no navegador, vídeo ou documento (MEDIA_ALLOWED_TYPES).
 async function handleStaffUpload(env, request) {
   const gate = await requirePermission(env, request, "whatsapp.chat");
   if (gate.response) return gate.response;
   const result = await storeMediaUpload(env, request, `staff/${gate.user.id}`);
   if (!result.ok) return json({ error: result.error }, result.error === "ARQUIVO_MUITO_GRANDE" ? 413 : 400);
-  return json({ path: `/api/media/${result.key}` }, 201);
+  return json({ path: `/api/media/${result.key}`, kind: mediaKindOfMime(mediaMimeOfKey(result.key)) }, 201);
 }
 
 // GET /api/media/:key — cliente só lê o próprio prefixo (client/<id>/...);
@@ -4759,6 +4899,22 @@ async function handleMediaGet(env, request, key) {
   object.writeHttpMetadata(headers);
   headers.set("cache-control", "private, max-age=86400");
   headers.set("access-control-allow-origin", "*");
+  headers.set("accept-ranges", "bytes");
+  // <audio>/<video> pedem por faixa para descobrir a duração e permitir
+  // avançar; sem 206 o player do Chrome não mostra o tempo total do ogg.
+  const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get("Range") || "");
+  if (range && (range[1] || range[2])) {
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    const size = bytes.byteLength;
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start >= size || start > end) {
+      headers.set("content-range", `bytes */${size}`);
+      return new Response(null, { status: 416, headers });
+    }
+    headers.set("content-range", `bytes ${start}-${end}/${size}`);
+    return new Response(bytes.slice(start, end + 1), { status: 206, headers });
+  }
   return new Response(object.body, { headers });
 }
 

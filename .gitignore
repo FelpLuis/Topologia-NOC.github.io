@@ -21,3 +21,6 @@ backend/data/zabbix-*.json
 
 # Log do coletor GPON rodando como Tarefa Agendada.
 logs/
+
+# Anexos e áudios do chat quando o servidor Node guarda em disco (MEDIA_DIR).
+data/

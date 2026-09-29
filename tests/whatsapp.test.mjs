@@ -90,3 +90,75 @@ test("mensagens rápidas são normalizadas nas configurações e usadas no compo
   assert.match(client, /applyQuick/);
   assert.match(client, /\{atendente\}/);
 });
+
+test("atendente envia anexo e áudio pelo chat web", () => {
+  assert.match(page, /id="attachBtn"/);
+  assert.match(page, /id="fileInput" type="file" multiple/);
+  assert.match(page, /id="recorder"/);
+  assert.match(page, /\/js\/noc-gravador\.js/);
+  assert.match(client, /\/api\/whatsapp\/uploads/);
+  assert.match(client, /NOCGravador\.iniciar/);
+  assert.match(client, /class="wa-audio"/);
+  assert.match(client, /class="wa-doc"/);
+  // o upload aceita áudio e documentos, não só imagem
+  assert.match(worker, /"audio\/ogg": "ogg"/);
+  assert.match(worker, /"application\/pdf": "pdf"/);
+  // pelo número da Meta o arquivo sobe para a Graph API antes de ir na mensagem
+  assert.match(worker, /async function waSendMedia/);
+  assert.match(worker, /\/\$\{phoneId\}\/media`/);
+  assert.match(worker, /async function waFetchInboundMedia/);
+  assert.match(worker, /\["media_name", "TEXT NOT NULL DEFAULT ''"\]/);
+  // player de áudio precisa de Range para mostrar a duração
+  assert.match(worker, /status: 206/);
+});
+
+test("gravador converte WebM/Opus do Chrome em Ogg/Opus válido", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const code = await readFile(new URL("../public/js/noc-gravador.js", import.meta.url), "utf8");
+  const ctx = { window: {}, navigator: {} };
+  runInNewContext(code, ctx);
+  const { webmParaOgg } = ctx.window.NOCGravador;
+
+  // WebM mínimo do jeito que o MediaRecorder grava: Segment e Cluster com
+  // tamanho desconhecido, CodecPrivate com OpusHead e SimpleBlocks sem lacing.
+  const el = (id, body) => {
+    const idBytes = []; for (let v = id; v > 0; v = Math.floor(v / 256)) idBytes.unshift(v & 0xFF);
+    return [...idBytes, 0x01, 0, 0, 0, ...[3, 2, 1, 0].map(i => (body.length >>> (i * 8)) & 0xFF), ...body];
+  };
+  const unknown = id => { const b = []; for (let v = id; v > 0; v = Math.floor(v / 256)) b.unshift(v & 0xFF); return [...b, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]; };
+  const head = [..."OpusHead"].map(c => c.charCodeAt(0)).concat([1, 1, 0x38, 0x01, 0x80, 0xBB, 0, 0, 0, 0, 0]);
+  const pacote = n => [0xF8 | 0, ...Array.from({ length: n }, (_, i) => (i * 7) & 0xFF)]; // config 31: CELT 20 ms, 1 quadro
+  const bloco = (t, n) => el(0xA3, [0x81, 0, t, 0x80, ...pacote(n)]);
+  const webm = Uint8Array.from([
+    ...el(0x1A45DFA3, el(0x4282, [..."webm"].map(c => c.charCodeAt(0)))),
+    ...unknown(0x18538067),
+    ...el(0x1654AE6B, el(0xAE, [...el(0x86, [..."A_OPUS"].map(c => c.charCodeAt(0))), ...el(0x63A2, head)])),
+    ...unknown(0x1F43B675), ...el(0xE7, [0]),
+    ...bloco(0, 40), ...bloco(20, 300), ...bloco(40, 10)
+  ]);
+
+  const ogg = webmParaOgg(webm);
+  const crcTab = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) { let r = i << 24; for (let k = 0; k < 8; k++) r = r & 0x80000000 ? (r << 1) ^ 0x04C11DB7 : r << 1; crcTab[i] = r >>> 0; }
+  const paginas = [];
+  for (let p = 0; p < ogg.length;) {
+    assert.equal(String.fromCharCode(...ogg.subarray(p, p + 4)), "OggS");
+    const nseg = ogg[p + 26];
+    const len = 27 + nseg + ogg.subarray(p + 27, p + 27 + nseg).reduce((s, v) => s + v, 0);
+    const pg = ogg.slice(p, p + len);
+    const v = new DataView(pg.buffer);
+    const crc = v.getUint32(22, true);
+    pg.fill(0, 22, 26);
+    let c = 0; for (const b of pg) c = ((c << 8) ^ crcTab[((c >>> 24) ^ b) & 0xFF]) >>> 0;
+    assert.equal(c, crc, "CRC da página Ogg");
+    paginas.push({ tipo: pg[5], granulo: v.getUint32(6, true), dados: pg.subarray(27 + nseg) });
+    p += len;
+  }
+  assert.equal(paginas.length, 3);
+  assert.equal(paginas[0].tipo, 2, "primeira página marca início do fluxo");
+  assert.deepEqual([...paginas[0].dados], head, "OpusHead do WebM é reaproveitado");
+  assert.equal(String.fromCharCode(...paginas[1].dados.subarray(0, 8)), "OpusTags");
+  assert.equal(paginas[2].tipo, 4, "última página marca fim do fluxo");
+  assert.equal(paginas[2].granulo, 3 * 960, "3 pacotes de 20 ms a 48 kHz");
+  assert.equal(paginas[2].dados.length, 41 + 301 + 11);
+});

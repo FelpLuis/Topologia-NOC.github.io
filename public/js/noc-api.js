@@ -74,7 +74,15 @@ window.NOC = (() => {
     if (connectionErrors[data?.error]) return connectionErrors[data.error];
     /* Chat: conversas do App do Assinante UpDown (canal updown_app). */
     const appErrors = {
-      IMAGEM_NAO_CHEGA_AO_APP: "Imagem ainda não chega ao App UpDown. Descreva por texto ou peça para o cliente abrir pelo console do app.",
+      ANEXO_NAO_CHEGA_AO_APP: "Anexo e áudio ainda não chegam ao App UpDown. Descreva por texto ou peça para o cliente abrir pelo console do app.",
+      ANEXO_NAO_CHEGA_AO_CANAL: "Anexo e áudio ainda não chegam por este canal (Opa!Suite). Descreva por texto.",
+      ANEXO_INVALIDO: "O anexo não foi reconhecido. Envie o arquivo de novo.",
+      TIPO_INVALIDO: "Tipo de arquivo não aceito. Envie imagem, áudio, vídeo MP4, PDF, Word, Excel, PowerPoint ou TXT.",
+      ARQUIVO_MUITO_GRANDE: "Arquivo acima de 16 MB, o limite do WhatsApp.",
+      ARQUIVO_VAZIO: "O arquivo está vazio.",
+      MEDIA_NAO_CONFIGURADO: "O armazenamento de anexos não está configurado no servidor.",
+      MIDIA_NAO_ENCONTRADA: "O arquivo enviado não foi encontrado no servidor. Anexe de novo.",
+      WHATSAPP_MIDIA_FALHOU: "A Meta recusou o arquivo. A mensagem ficou marcada como falha.",
       UPDOWN_APP_ENVIO_FALHOU: "O App UpDown não respondeu. A mensagem ficou marcada como falha; tente de novo em instantes.",
       UPDOWN_APP_NAO_CONFIGURADO: "A ligação com o App UpDown não está configurada no servidor.",
       CHAMADO_ENCERRADO_NO_APP: "O cliente já encerrou este chamado pelo app. Encerre a conversa aqui também.",

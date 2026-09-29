@@ -17,6 +17,7 @@
     sideTab: "client",
     quickIndex: 0,
     sending: false,
+    recording: null,       // gravação de áudio em andamento (NOCGravador)
     timer: null
   };
 
@@ -35,6 +36,11 @@
     panel: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/></svg>',
     tick: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 6l3 3 6.5-7.5"/></svg>',
     ticks: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6l3 3 6.5-7.5"/><path d="M7.6 8.4l.6.6 6.5-7.5"/></svg>',
+    clip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 11.5 12 20a5.3 5.3 0 0 1-7.5-7.5l8.8-8.8a3.5 3.5 0 0 1 5 5l-8.8 8.8a1.8 1.8 0 0 1-2.5-2.5l8.1-8.1"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5"/></svg>',
+    doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.8h8.2L19 7.6v13.6H6z"/><path d="M14 2.8v5h5"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg>',
     clockSm: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="4.2"/><path d="M8 3.3v2.4l1.5 1"/></svg>'
   };
 
@@ -346,7 +352,8 @@
       sent: ["", SVG.tick, "Enviada"],
       delivered: ["", SVG.ticks, "Entregue"],
       read: ["is-read", SVG.ticks, "Lida"],
-      failed: ["is-failed", SVG.clockSm, "Falhou o envio"]
+      failed: ["is-failed", SVG.clockSm, "Falhou o envio"],
+      sending: ["", SVG.clockSm, "Enviando"]
     };
     const [cls, svg, label] = map[m.status] || map.sent;
     return `<span class="wa-ticks ${cls}" title="${label}" aria-label="${label}">${svg}</span>`;
@@ -372,17 +379,39 @@
       prevKey = key;
       const sender = m.direction === "bot" ? (m.sender_name || "Agente virtual")
         : m.direction === "out" && first ? (Number(m.sender_user_id) === myId() ? "Você" : (m.sender_name || "Atendente")) : "";
-      const body = m.type === "image" && String(m.body).startsWith("/api/media/")
-        ? `<img class="wa-img" src="${esc(m.body)}" alt="Imagem enviada na conversa" loading="lazy">`
-        : linkify(m.body);
-      out.push(`<div class="wa-msg ${kind} ${first ? "is-first" : ""}"><div class="wa-bubble">${sender ? `<span class="wa-sender">${esc(sender)}</span>` : ""}${body}<span class="wa-meta">${esc(formatTime(m.created_at))}${ticks(m)}</span></div></div>`);
+      const media = mediaHtml(m);
+      const body = media || linkify(m.body);
+      out.push(`<div class="wa-msg ${kind} ${first ? "is-first" : ""}${media ? " has-media" : ""}"><div class="wa-bubble">${sender ? `<span class="wa-sender">${esc(sender)}</span>` : ""}${body}<span class="wa-meta">${esc(formatTime(m.created_at))}${ticks(m)}</span></div></div>`);
     }
+    // Áudio e vídeo sobrevivem ao redesenho do polling: sem isso, uma
+    // mensagem nova chegando cortava no meio o áudio que o atendente ouvia.
+    const players = new Map($$("audio[data-mid], video[data-mid]", host).map(el => [el.dataset.mid, el]));
     host.innerHTML = out.join("");
+    $$("audio[data-mid], video[data-mid]", host).forEach(el => {
+      const old = players.get(el.dataset.mid);
+      if (old && old.getAttribute("src") === el.getAttribute("src")) el.replaceWith(old);
+    });
     if (forceBottom || nearBottom) host.scrollTop = host.scrollHeight;
     $$(".wa-img", host).forEach(img => {
       img.onclick = () => openLightbox(img.src);
       img.onload = () => { if (forceBottom || nearBottom) host.scrollTop = host.scrollHeight; };
     });
+  }
+
+  function mediaHtml(m) {
+    const src = String(m.body || "");
+    if (!src.startsWith("/api/media/") && !src.startsWith("blob:")) return "";
+    const caption = m.caption ? `<span class="wa-caption">${linkify(m.caption)}</span>` : "";
+    const mid = esc(String(m.id));
+    if (m.type === "image") return `<img class="wa-img" src="${esc(src)}" alt="Imagem enviada na conversa" loading="lazy">${caption}`;
+    if (m.type === "audio") return `<audio class="wa-audio" data-mid="${mid}" controls preload="metadata" src="${esc(src)}"></audio>`;
+    if (m.type === "video") return `<video class="wa-video" data-mid="${mid}" controls preload="metadata" src="${esc(src)}"></video>${caption}`;
+    if (m.type === "document") {
+      const name = m.media_name || "Documento";
+      const ext = (name.includes(".") ? name.split(".").pop() : src.split(".").pop()).slice(0, 5).toUpperCase();
+      return `<a class="wa-doc" href="${esc(src)}" download="${esc(name)}" target="_blank" rel="noopener" title="Baixar ${esc(name)}"><span class="wa-doc-icon">${SVG.doc}<b>${esc(ext)}</b></span><span class="wa-doc-name">${esc(name)}</span><span class="wa-doc-dl">${SVG.download}</span></a>${caption}`;
+    }
+    return "";
   }
 
   function openLightbox(src) {
@@ -409,6 +438,7 @@
   }
 
   function closePane(silent = false) {
+    cancelRecording();
     state.activeId = null;
     state.conversation = null;
     state.messages = [];
@@ -666,6 +696,7 @@
       await NOC.api(`/api/whatsapp/conversations/${state.activeId}/messages`, { method: "POST", body: JSON.stringify({ body: text }) });
       input.value = "";
       autoGrow();
+      syncSendMode();
       state.messages.push({ id: `tmp-${Date.now()}`, direction: "out", body: text, status: "sent", created_at: new Date().toISOString(), sender_user_id: myId(), sender_name: session().name });
       renderMessages(true);
       load(true);
@@ -676,6 +707,156 @@
       sendBtn.disabled = false;
       input.focus();
     }
+  }
+
+  /* ---------- anexos e áudio ---------- */
+
+  const MAX_BYTES = 16 * 1024 * 1024;
+  // Mesma lista de MEDIA_ALLOWED_TYPES no worker. Navegador às vezes manda
+  // o tipo vazio (docx no Windows sem Office) ou um apelido (audio/x-m4a):
+  // a extensão desempata.
+  const FILE_TYPES = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
+    ogg: "audio/ogg", opus: "audio/ogg", mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", amr: "audio/amr",
+    mp4: "video/mp4", "3gp": "video/3gpp",
+    pdf: "application/pdf", txt: "text/plain",
+    doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  };
+  const TYPE_ALIASES = { "audio/x-m4a": "audio/mp4", "audio/m4a": "audio/mp4", "audio/mp3": "audio/mpeg", "audio/opus": "audio/ogg", "image/jpg": "image/jpeg" };
+  const ACCEPTED = new Set(Object.values(FILE_TYPES));
+
+  function fileTypeOf(file) {
+    const raw = String(file.type || "").split(";")[0].toLowerCase();
+    const type = TYPE_ALIASES[raw] || raw;
+    if (ACCEPTED.has(type)) return type;
+    return FILE_TYPES[String(file.name || "").split(".").pop().toLowerCase()] || "";
+  }
+
+  const kindOfType = type => ["image", "audio", "video"].includes(type.split("/")[0]) ? type.split("/")[0] : "document";
+  const stamp = () => new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+
+  // Sobe o arquivo e manda a mensagem que aponta para ele. Enquanto isso, uma
+  // bolha provisória com o próprio arquivo local mostra que está indo.
+  async function sendMedia(blob, type, name) {
+    const convId = state.activeId;
+    const tmp = {
+      id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`, direction: "out", type: kindOfType(type), body: URL.createObjectURL(blob),
+      media_name: name, status: "sending", created_at: new Date().toISOString(), sender_user_id: myId(), sender_name: session().name
+    };
+    state.messages.push(tmp);
+    renderMessages(true);
+    try {
+      const up = await NOC.api("/api/whatsapp/uploads", { method: "POST", headers: { "Content-Type": type }, body: blob });
+      await NOC.api(`/api/whatsapp/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ type: up.kind || tmp.type, body: up.path, name }) });
+      tmp.status = "sent";
+      return true;
+    } catch (err) {
+      tmp.status = "failed";
+      toast(`Não foi possível enviar ${name || "o arquivo"}`, { text: err.message, type: "danger" });
+      return false;
+    } finally {
+      if (state.activeId === convId) { renderMessages(true); refreshConversation(); }
+      load(true);
+    }
+  }
+
+  async function sendFiles(files) {
+    if (!state.activeId || $("#composer").dataset.ready !== "1") return;
+    for (const file of files) {
+      const type = fileTypeOf(file);
+      if (!type) { toast(`${file.name}: tipo de arquivo não aceito`, { text: "Envie imagem, áudio, vídeo MP4, PDF, Word, Excel, PowerPoint ou TXT.", type: "danger" }); continue; }
+      if (file.size > MAX_BYTES) { toast(`${file.name}: acima de 16 MB`, { text: "O WhatsApp não entrega arquivos maiores que isso.", type: "danger" }); continue; }
+      if (!file.size) continue;
+      // print colado chega sempre como "image.png": dá um nome que diga quando foi
+      const name = file.name && file.name !== "image.png" ? file.name : `imagem-${stamp()}.${type.split("/")[1]}`;
+      await sendMedia(file, type, name);
+    }
+  }
+
+  async function refreshConversation() {
+    const id = state.activeId;
+    if (!id) return;
+    try {
+      const detail = await NOC.api(`/api/whatsapp/conversations/${id}`);
+      if (state.activeId !== id) return;
+      // bolhas provisórias ainda subindo (ou que falharam) continuam na tela
+      const local = state.messages.filter(m => String(m.id).startsWith("tmp-") && m.status !== "sent");
+      state.messages = [...(detail.messages || []), ...local];
+      renderMessages();
+    } catch { /* o polling tenta de novo */ }
+  }
+
+  /* O botão redondo segue o WhatsApp: sem texto ele grava áudio; com texto
+     ou com uma gravação em andamento, ele envia. */
+  function syncSendMode() {
+    const btn = $("#sendBtn");
+    const mic = !state.recording && !$("#msgInput").value.trim() && !!window.NOCGravador?.suportado();
+    btn.dataset.mode = mic ? "mic" : "send";
+    btn.innerHTML = mic ? SVG.mic : SVG.send;
+    const label = mic ? "Gravar áudio" : state.recording ? "Enviar áudio" : "Enviar mensagem";
+    btn.setAttribute("aria-label", label);
+    btn.title = mic || state.recording ? label : "Enviar (Enter)";
+  }
+
+  const fmtRec = ms => { const sec = Math.floor(ms / 1000); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`; };
+
+  async function startRecording() {
+    if (state.recording || state.startingRec || !state.activeId) return;
+    closePopovers();
+    state.startingRec = true;
+    let rec;
+    try {
+      rec = await NOCGravador.iniciar();
+    } catch (err) {
+      const denied = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+      toast("Não foi possível gravar", { text: denied ? "Libere o microfone para este site no navegador." : err?.name === "NotFoundError" ? "Nenhum microfone encontrado." : String(err?.message || err), type: "danger" });
+      return;
+    } finally {
+      state.startingRec = false;
+    }
+    state.recording = { rec, convId: state.activeId, tick: setInterval(() => { $("#recTime").textContent = fmtRec(Date.now() - rec.inicio); }, 250) };
+    $("#recTime").textContent = "0:00";
+    $(".wa-composer-box").hidden = true;
+    $("#recorder").hidden = false;
+    $("#composer").classList.add("is-recording");
+    syncSendMode();
+  }
+
+  function endRecordingUi() {
+    const r = state.recording;
+    if (r) clearInterval(r.tick);
+    state.recording = null;
+    $(".wa-composer-box").hidden = false;
+    $("#recorder").hidden = true;
+    $("#composer").classList.remove("is-recording");
+    syncSendMode();
+  }
+
+  function cancelRecording() {
+    const r = state.recording;
+    if (!r) return;
+    r.rec.cancelar();
+    endRecordingUi();
+  }
+
+  async function finishRecording() {
+    const r = state.recording;
+    if (!r) return;
+    const elapsed = Date.now() - r.rec.inicio;
+    endRecordingUi();
+    if (elapsed < 800) { r.rec.cancelar(); toast("Áudio muito curto", { text: "Grave por pelo menos um segundo." }); return; }
+    const { blob, tipo } = await r.rec.parar();
+    if (r.convId !== state.activeId) return;
+    const ext = { "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/webm": "weba" }[tipo] || "ogg";
+    await sendMedia(blob, tipo, `audio-${stamp()}.${ext}`);
+  }
+
+  function primaryAction() {
+    if (state.recording) return finishRecording();
+    if ($("#sendBtn").dataset.mode === "mic") return startRecording();
+    return sendMessage();
   }
 
   async function afterTake(id) {
@@ -903,7 +1084,8 @@
           const detail = await NOC.api(`/api/whatsapp/conversations/${state.activeId}`);
           if (String(detail.conversation?.id) !== state.activeId) return;
           const clienteChanged = (detail.cliente?.client_id || null) !== (state.cliente?.client_id || null);
-          state.messages = detail.messages || [];
+          const local = state.messages.filter(m => String(m.id).startsWith("tmp-") && m.status !== "sent");
+          state.messages = [...(detail.messages || []), ...local];
           state.cliente = detail.cliente || null;
           updateHead(detail.conversation);
           if (clienteChanged) renderSide();
@@ -923,8 +1105,10 @@
     $("#refreshBtn").innerHTML = icon("refresh");
     $("#searchIcon").innerHTML = icon("search");
     $("#chatEmptyIcon").innerHTML = SVG.whatsapp;
-    $("#sendBtn").innerHTML = SVG.send;
     $("#emojiBtn").innerHTML = SVG.smile;
+    $("#attachBtn").innerHTML = SVG.clip;
+    $("#recCancel").innerHTML = SVG.trash;
+    syncSendMode();
     $("#quickBtn").innerHTML = '<span class="wa-slash">/</span>';
     $("#backBtn").innerHTML = icon("chevronLeft");
     $("#infoBtn").innerHTML = SVG.panel;
@@ -966,7 +1150,34 @@
     $("#sideCloseBtn").onclick = () => toggleSide(false);
     $("#sideScrim").onclick = () => toggleSide(false);
 
-    $("#composer").onsubmit = e => { e.preventDefault(); sendMessage(); };
+    $("#composer").onsubmit = e => { e.preventDefault(); primaryAction(); };
+    $("#attachBtn").onclick = () => { closePopovers(); $("#fileInput").click(); };
+    $("#fileInput").onchange = e => {
+      const files = [...e.target.files];
+      e.target.value = "";
+      sendFiles(files);
+    };
+    $("#recCancel").onclick = () => cancelRecording();
+    // Arrastar arquivo para a conversa ou colar um print no campo também anexa.
+    const thread = $("#chatThread");
+    thread.addEventListener("dragover", e => {
+      if (![...(e.dataTransfer?.types || [])].includes("Files") || $("#composer").dataset.ready !== "1") return;
+      e.preventDefault();
+      thread.classList.add("is-dropping");
+    });
+    thread.addEventListener("dragleave", e => { if (!thread.contains(e.relatedTarget)) thread.classList.remove("is-dropping"); });
+    thread.addEventListener("drop", e => {
+      thread.classList.remove("is-dropping");
+      if (!e.dataTransfer?.files?.length || $("#composer").dataset.ready !== "1") return;
+      e.preventDefault();
+      sendFiles([...e.dataTransfer.files]);
+    });
+    $("#msgInput").addEventListener("paste", e => {
+      const files = [...(e.clipboardData?.files || [])];
+      if (!files.length) return;
+      e.preventDefault();
+      sendFiles(files);
+    });
     $("#emojiBtn").onclick = () => {
       const menu = $("#emojiMenu");
       const open = menu.hidden;
@@ -1004,6 +1215,7 @@
     });
     input.addEventListener("input", () => {
       autoGrow();
+      syncSendMode();
       if (/^\/[^\s]*$/.test(input.value)) { state.quickIndex = 0; openQuick(); }
       else if (!$("#quickMenu").hidden && input.value && !input.value.startsWith("/")) closePopovers();
     });

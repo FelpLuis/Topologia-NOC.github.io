@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260819-9">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
-<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260929-1">
+<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260929-2">
 <script src="/js/auth-guard.js"></script>
 </head>
 <body>
@@ -85,7 +85,15 @@
             <div class="wa-composer-box">
               <button class="wa-tool" id="emojiBtn" type="button" title="Emojis" aria-label="Inserir emoji" aria-controls="emojiMenu"></button>
               <button class="wa-tool" id="quickBtn" type="button" title="Mensagens rápidas (digite /)" aria-label="Mensagens rápidas" aria-controls="quickMenu"></button>
+              <button class="wa-tool" id="attachBtn" type="button" title="Anexar arquivo" aria-label="Anexar arquivo"></button>
+              <input id="fileInput" type="file" multiple hidden accept="image/jpeg,image/png,image/webp,image/gif,audio/*,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt">
               <textarea class="wa-input" id="msgInput" rows="1" maxlength="4096" placeholder="Digite uma mensagem"></textarea>
+            </div>
+            <div class="wa-recorder" id="recorder" hidden>
+              <button class="wa-tool" id="recCancel" type="button" title="Descartar áudio" aria-label="Descartar áudio"></button>
+              <span class="wa-rec-dot" aria-hidden="true"></span>
+              <span class="wa-rec-time" id="recTime" role="timer" aria-live="off">0:00</span>
+              <span class="wa-rec-label">Gravando áudio…</span>
             </div>
             <button class="wa-send" id="sendBtn" type="submit" aria-label="Enviar mensagem" title="Enviar (Enter)"></button>
           </form>
@@ -114,6 +122,7 @@
 <script src="/js/noc-tempo.js?v=20260825"></script>
 <script src="/js/noc-ui.js?v=20260929-1"></script>
 <script src="/js/noc-api.js"></script>
-<script src="/js/noc-whatsapp.js?v=20260929-1"></script>
+<script src="/js/noc-gravador.js?v=20260929-1"></script>
+<script src="/js/noc-whatsapp.js?v=20260929-2"></script>
 </body>
 </html>

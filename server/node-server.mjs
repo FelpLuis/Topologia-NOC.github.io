@@ -4,8 +4,8 @@
    o binding ASSETS, a Cache API, o ctx.waitUntil e o gatilho do cron. */
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
-import { readFile, stat } from "node:fs/promises";
-import { join, normalize, extname, sep } from "node:path";
+import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
+import { join, normalize, extname, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import worker from "../src/worker.js";
 
@@ -134,7 +134,49 @@ if (typeof globalThis.caches === "undefined") {
   };
 }
 
-const env = { ...process.env, ASSETS };
+/* Substitui o bucket R2 "MEDIA" (anexos e áudios do chat): cada objeto vira um
+   arquivo em MEDIA_DIR e o Content-Type vai num .meta.json ao lado. Só
+   implementa o pedaço da API do R2 que o worker usa — put, get, arrayBuffer e
+   writeHttpMetadata. A chave nunca pode escapar da pasta, mesmo vinda de URL. */
+class DiskBucket {
+  constructor(dir) {
+    this.dir = normalize(dir);
+  }
+
+  #arquivo(key) {
+    const alvo = normalize(join(this.dir, String(key)));
+    if (!alvo.startsWith(this.dir + sep)) return null;
+    return alvo;
+  }
+
+  async put(key, bytes, options = {}) {
+    const arquivo = this.#arquivo(key);
+    if (!arquivo) throw new Error("Chave de mídia inválida.");
+    await mkdir(dirname(arquivo), { recursive: true });
+    await writeFile(arquivo, Buffer.from(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes));
+    const contentType = options.httpMetadata?.contentType || "application/octet-stream";
+    await writeFile(`${arquivo}.meta.json`, JSON.stringify({ contentType }));
+  }
+
+  async get(key) {
+    const arquivo = this.#arquivo(key);
+    if (!arquivo || arquivo.endsWith(".meta.json")) return null;
+    let corpo;
+    try { corpo = await readFile(arquivo); } catch { return null; }
+    let contentType = "application/octet-stream";
+    try { contentType = JSON.parse(await readFile(`${arquivo}.meta.json`, "utf8")).contentType || contentType; } catch { /* sem metadado: binário genérico */ }
+    const bytes = new Uint8Array(corpo.buffer, corpo.byteOffset, corpo.byteLength);
+    return {
+      size: bytes.byteLength,
+      body: bytes,
+      async arrayBuffer() { return bytes.slice().buffer; },
+      writeHttpMetadata(headers) { headers.set("content-type", contentType); }
+    };
+  }
+}
+
+const MEDIA_DIR = process.env.MEDIA_DIR || join(ROOT, "data", "media");
+const env = { ...process.env, ASSETS, MEDIA: new DiskBucket(MEDIA_DIR) };
 
 /* waitUntil no Node é só não perder a promessa de vista: o processo é longo,
    ninguém vai congelar o isolate embaixo dela. O catch existe para uma falha
