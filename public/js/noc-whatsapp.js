@@ -4,54 +4,122 @@
 
   const state = {
     data: null,            // resposta do /api/whatsapp
-    sector: "",            // filtro de setor
-    status: "open",        // filtro: open | routing | closed
+    sector: "",            // filtro de setor ("" = todos)
+    status: "open",        // aba: open | queue | routing | closed
+    search: "",
+    mineOnly: false,
     activeId: null,        // conversa aberta no painel
     conversation: null,    // detalhe da conversa aberta
     messages: [],
-    cliente: null,          // cadastro vinculado à conversa aberta (cliente_cadastro)
+    cliente: null,         // cadastro vinculado à conversa aberta (cliente_cadastro)
     can: { chat: false, supervise: false, manage: false, clientes: false },
-    lastMessageCount: 0,
+    messagesSig: "",
+    sideTab: "client",
+    quickIndex: 0,
     sending: false,
     timer: null
   };
 
-  const PHONE_RE = /^(\d{2})(\d{2})?(\d{5})?(\d{4})?$/;
+  const SIDE_KEY = "updown.wa.side";
+  const narrow = window.matchMedia("(max-width: 1279px)");
+  const coarse = window.matchMedia("(pointer: coarse)");
+
+  /* ---------- ícones próprios do chat ---------- */
+  const SVG = {
+    whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.2a9.8 9.8 0 0 0-8.4 14.8L2.3 21.7l4.8-1.3A9.8 9.8 0 1 0 12 2.2zm5.3 13.6c-.2.6-1.3 1.2-1.8 1.3-.5 0-1 .2-3.2-.7-2.7-1.1-4.4-3.8-4.5-4-.1-.2-1.1-1.4-1.1-2.7 0-1.3.7-1.9.9-2.2.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.3 2.4 1.5.3.1.5.1.6-.1l.9-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.1.1.7-.1 1.3z"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18h2"/></svg>',
+    send: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6l-.1 6.5L15 12 3.3 13.9z"/></svg>',
+    smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg>',
+    transfer: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h13M13.5 4.5 17 8l-3.5 3.5M20 16H7M10.5 12.5 7 16l3.5 3.5"/></svg>',
+    panel: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/></svg>',
+    tick: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 6l3 3 6.5-7.5"/></svg>',
+    ticks: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6l3 3 6.5-7.5"/><path d="M7.6 8.4l.6.6 6.5-7.5"/></svg>',
+    clockSm: '<svg viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="4.2"/><path d="M8 3.3v2.4l1.5 1"/></svg>'
+  };
+
+  const EMOJIS = ["😀", "😁", "😂", "😊", "😉", "😍", "🤔", "😅", "😢", "😮", "🙏", "👍", "👎", "👏", "🙌", "💪", "👋", "🤝", "✅", "❌", "⚠️", "📌", "📞", "📶", "📡", "🔧", "🛠️", "💻", "🏠", "⏳", "🚀", "❤️"];
+
   const formatPhone = p => {
     const d = String(p || "").replace(/\D/g, "");
-    const m = d.match(/^(\d{2})(\d{2})(\d{5})(\d{4})$/);
+    const m = d.match(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/);
     if (m) return `+${m[1]} (${m[2]}) ${m[3]}-${m[4]}`;
     return d || "—";
   };
   /* Hora da mensagem no fuso de São Paulo: o carimbo chega em UTC (ISO do
      webhook ou "YYYY-MM-DD HH:MM:SS" do banco) e quem converte é TEMPO. */
   const formatTime = t => TEMPO.hora(t, "");
+  const isYesterday = t => TEMPO.mesmoDia(t, new Date(Date.now() - 86400000));
   const timeLabel = t => {
     if (!t) return "";
     // "Hoje" é o dia de Brasília — senão, perto da meia-noite, a conversa de
     // ontem aparece com hora seca e a de hoje com data.
     if (TEMPO.hoje(t)) return formatTime(t);
-    return TEMPO.fmt(t, { day: "2-digit", month: "2-digit" }, "") + " " + formatTime(t);
+    if (isYesterday(t)) return "Ontem";
+    return TEMPO.fmt(t, { day: "2-digit", month: "2-digit" }, "");
   };
-  // Canal nativo (Meta direto) não ganha selo — é o padrão. Os externos, que
-  // chegam via webhook do Opa!Suite, ganham um selo pra distinguir na lista.
+  const dayLabel = t => TEMPO.hoje(t) ? "Hoje" : isYesterday(t) ? "Ontem" : TEMPO.fmt(t, { day: "2-digit", month: "long", year: "numeric" }, "");
+  const since = t => {
+    const d = TEMPO.instante(t);
+    return d ? Math.max(0, Date.now() - d.getTime()) : 0;
+  };
+  const duration = ms => {
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return "agora";
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `${h} h ${String(min % 60).padStart(2, "0")}`;
+    return `${Math.floor(h / 24)} d`;
+  };
+
+  // Canal nativo (Meta direto) não ganha selo na lista — é o padrão. Os
+  // externos, que chegam via webhook do Opa!Suite ou pelo app, ganham um selo
+  // pra distinguir; todos ganham o ícone no canto do avatar.
   const CHANNEL_LABELS = {
-    opasuite_meta: { label: "Opa!Suite", color: "#7c5cff" },
-    opasuite_webchat: { label: "Webchat", color: "#22c55e" },
-    app: { label: "App", color: "#2563eb" },
-    updown_app: { label: "App UpDown", color: "#0dbbef" }
+    whatsapp: { label: "WhatsApp", color: "#25d366", svg: "whatsapp", native: true },
+    opasuite_meta: { label: "Opa!Suite", color: "#7c5cff", svg: "whatsapp" },
+    opasuite_webchat: { label: "Webchat", color: "#f59e0b", svg: "globe" },
+    app: { label: "App", color: "#2563eb", svg: "phone" },
+    updown_app: { label: "App UpDown", color: "#0dbbef", svg: "phone" }
   };
+  const channelOf = c => CHANNEL_LABELS[c?.channel] || CHANNEL_LABELS.whatsapp;
   const channelBadge = c => {
-    const info = c.channel && CHANNEL_LABELS[c.channel];
-    return info ? `<span class="wa-list-badge" style="--wa-badge:${info.color}">${esc(info.label)}</span>` : "";
+    const info = CHANNEL_LABELS[c.channel];
+    return info && !info.native ? `<span class="wa-tag" style="--tag:${info.color}">${esc(info.label)}</span>` : "";
   };
+
+  const AVATAR_COLORS = ["#2563eb", "#7c3aed", "#db2777", "#ea580c", "#0891b2", "#059669", "#4f46e5", "#b45309", "#0d9488", "#9333ea"];
+  const colorFor = key => {
+    let h = 0;
+    for (const ch of String(key || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return AVATAR_COLORS[h % AVATAR_COLORS.length];
+  };
+  const nameOf = c => c?.customer_name && c.customer_name !== c.phone ? c.customer_name : formatPhone(c?.phone);
+  const avatar = (c, size = "") => {
+    const ch = channelOf(c);
+    return `<span class="wa-avatar ${size}" style="--av:${colorFor(c.phone || c.id)}">${esc(initials(nameOf(c)))}<span class="wa-channel" style="--ch:${ch.color}" title="${esc(ch.label)}">${SVG[ch.svg]}</span></span>`;
+  };
+
   const sectorOf = id => (state.data?.sectors || []).find(s => String(s.id) === String(id));
   const convOf = id => (state.data?.conversations || []).find(c => String(c.id) === String(id));
-  const mine = c => c && Number(c.assigned_user_id) === Number(window.UPDOWN_AUTH?.id);
-  const visibleConv = c => {
-    if (state.status === "routing") return c.status === "routing";
-    if (state.status === "closed") return c.status === "closed";
-    return c.status === "open";
+  const myId = () => Number(window.UPDOWN_AUTH?.id);
+  const mine = c => c && Number(c.assigned_user_id) === myId();
+  /* As abas seguem o Opa!Suite: "Fila" é conversa com setor e sem atendente,
+     "Triagem" é o agente virtual (bot) ainda perguntando o setor. */
+  const bucketOf = c => c.status === "closed" ? "closed" : c.status === "routing" ? "routing" : c.assigned_user_id ? "open" : "queue";
+  const inScope = c =>
+    // Conversa na triagem ainda não tem setor (sector_id null) — o filtro de
+    // setor não se aplica a ela, senão some da tela.
+    (c.status === "routing" || !state.sector || String(c.sector_id) === state.sector) &&
+    (!state.mineOnly || mine(c));
+  const matchesSearch = c => {
+    const q = state.search.trim().toLowerCase();
+    if (!q) return true;
+    const digits = q.replace(/\D/g, "");
+    const hay = [c.customer_name, c.client_nome, c.assigned_name, c.sector_name].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q) ||
+      (digits && (String(c.phone || "").includes(digits) || String(c.id) === digits.replace(/^0+/, ""))) ||
+      q.replace(/^#/, "") === String(c.id);
   };
 
   /* ---------- carregamento ---------- */
@@ -61,17 +129,16 @@
       const data = await NOC.api("/api/whatsapp");
       state.data = data;
       state.can = data.can || state.can;
-      if (!state.sector && data.sectors?.length) state.sector = String(data.sectors[0].id);
       if (state.sector && !data.sectors.some(s => String(s.id) === state.sector)) state.sector = "";
       renderFilters();
       renderConvList();
       renderPresence();
-      // se a conversa aberta sumiu do filtro atual, fecha o painel
-      if (state.activeId && !(data.conversations || []).some(c => String(c.id) === String(state.activeId) && visibleConv(c))) {
-        closePane(true);
-      } else if (state.activeId && state.conversation) {
-        const fresh = (data.conversations || []).find(c => String(c.id) === String(state.activeId));
-        if (fresh) updateHead(fresh);
+      renderTitle();
+      if (state.activeId) {
+        const fresh = convOf(state.activeId);
+        // saiu do alcance (transferida para outro setor, encerrada há mais de 7 dias)
+        if (!fresh) closePane(true);
+        else if (state.conversation) { updateHead(fresh); renderSide(); }
       }
       if (!silent) $("#newChatBtn").disabled = !state.can.chat;
     } catch (err) {
@@ -82,11 +149,10 @@
   async function loadConversation(id) {
     try {
       const detail = await NOC.api(`/api/whatsapp/conversations/${id}`);
-      state.activeId = id;
-      state.conversation = detail.conversation;
+      state.activeId = String(id);
+      state.conversation = { ...(convOf(id) || {}), ...detail.conversation };
       state.messages = detail.messages || [];
       state.cliente = detail.cliente || null;
-      state.lastMessageCount = state.messages.length;
       renderChat();
       renderConvList();
       renderPresence();
@@ -96,7 +162,13 @@
     }
   }
 
-  /* ---------- renderização ---------- */
+  const openConversation = id => {
+    state.activeId = String(id);
+    $("#waDesk").classList.add("chat-open");
+    loadConversation(Number(id));
+  };
+
+  /* ---------- lista ---------- */
 
   function renderFilters() {
     const sectors = state.data?.sectors || [];
@@ -104,83 +176,113 @@
       sectors.map(s => `<option value="${s.id}" ${state.sector === String(s.id) ? "selected" : ""}>${esc(s.name)}</option>`).join("");
   }
 
+  function renderTitle() {
+    const pending = (state.data?.conversations || []).filter(c => c.status !== "closed" && mine(c)).reduce((n, c) => n + Number(c.unread || 0), 0);
+    document.title = `${pending ? `(${pending}) ` : ""}UPDOWN • Chat WhatsApp`;
+  }
+
+  function waitTag(c) {
+    const bucket = bucketOf(c);
+    const waiting = bucket === "queue" || bucket === "routing" || (bucket === "open" && Number(c.unread) > 0);
+    if (!waiting) return "";
+    const ms = since(c.last_message_at || c.created_at);
+    const cls = ms > 15 * 60000 ? "is-late" : ms > 5 * 60000 ? "is-wait" : "is-plain";
+    return `<span class="wa-tag ${cls}" title="Cliente aguardando há ${duration(ms)}">${icon("clock")} ${duration(ms)}</span>`;
+  }
+
   function renderConvList() {
     const host = $("#convList");
-    const conversations = (state.data?.conversations || []).filter(visibleConv);
-    const filtered = conversations.filter(c =>
-      // Conversa na fila de roteamento ainda não tem setor (sector_id null)
-      // — o filtro de setor não se aplica a ela, senão fica invisível assim
-      // que a tela abre com um setor pré-selecionado (ver load()).
-      (c.status === "routing" || !state.sector || String(c.sector_id) === state.sector) &&
-      (state.status !== "open" || c.status === "open") &&
-      (state.status !== "routing" || c.status === "routing") &&
-      (state.status !== "closed" || c.status === "closed")
-    );
-    if (!filtered.length) {
-      host.innerHTML = `<div class="wa-list-empty"><span class="empty-icon">${icon("users")}</span><b>Nenhuma conversa aqui</b><p>${state.status === "routing" ? "Novos contatos aguardando a escolha de setor aparecem nesta fila." : state.status === "closed" ? "As conversas encerradas aparecem aqui." : "As conversas em atendimento aparecem aqui."}</p></div>`;
+    const all = (state.data?.conversations || []).filter(inScope);
+    const counts = { open: 0, queue: 0, routing: 0, closed: 0 };
+    for (const c of all) counts[bucketOf(c)]++;
+    for (const [k, n] of Object.entries(counts)) {
+      const el = $(`[data-count="${k}"]`);
+      if (el) el.textContent = n;
+    }
+    $('.wa-tab[data-status="queue"]').classList.toggle("has-alert", counts.queue > 0 && state.status !== "queue");
+
+    const at = c => since(c.last_message_at || c.created_at);
+    const list = all.filter(c => bucketOf(c) === state.status && matchesSearch(c));
+    // fila e triagem: quem espera há mais tempo primeiro, como a roleta do Opa!Suite
+    if (state.status === "queue" || state.status === "routing") list.sort((a, b) => at(b) - at(a));
+    if (!list.length) {
+      const msg = state.search ? ["Nada encontrado", "Nenhum atendimento corresponde à busca nesta aba."] :
+        {
+          open: ["Nenhum atendimento em andamento", "Os atendimentos assumidos aparecem aqui."],
+          queue: ["Fila vazia", "Conversas com setor definido e sem atendente aparecem aqui."],
+          routing: ["Ninguém na triagem", "Novos contatos escolhendo o setor com o agente virtual aparecem aqui."],
+          closed: ["Nenhum encerrado", "Os atendimentos encerrados nos últimos 7 dias aparecem aqui."]
+        }[state.status];
+      host.innerHTML = `<div class="wa-list-empty">${icon(state.search ? "search" : "users")}<b>${msg[0]}</b><p>${msg[1]}</p></div>`;
       return;
     }
-    host.innerHTML = filtered.map(c => {
-      const unread = Number(c.unread || 0);
-      const name = c.customer_name && c.customer_name !== c.phone ? c.customer_name : c.phone;
-      const badge = c.status === "routing" ? `<span class="wa-list-badge routing">Setor</span>` :
-        (c.assigned_name ? `<span class="wa-list-badge" style="--wa-badge:${esc(c.sector_color || "var(--cyan-400)")}">${esc(c.assigned_name)}</span>` : "");
-      const clientBadge = c.client_id ? `<span class="wa-list-badge" style="--wa-badge:var(--ok-500,#22c55e)" title="Cliente vinculado: ${esc(c.client_nome || c.client_id)}">${icon("link")}</span>` : "";
+    host.innerHTML = list.map(c => {
+      const unread = c.status !== "closed" ? Number(c.unread || 0) : 0;
+      const sector = c.sector_name ? `<span class="wa-tag" style="--tag:${esc(c.sector_color || "var(--cyan-400)")}">${esc(c.sector_name)}</span>` : "";
+      const agent = c.assigned_name && c.status !== "routing" ? `<span class="wa-tag is-plain" title="Atendente">${icon("user")} ${esc(mine(c) ? "Você" : c.assigned_name)}</span>` : "";
+      const client = c.client_id ? `<span class="wa-tag" style="--tag:var(--ok-500)" title="Cliente vinculado: ${esc(c.client_nome || c.client_id)}">${icon("link")}</span>` : "";
       return `<button class="wa-conv-item ${state.activeId === String(c.id) ? "is-active" : ""} ${unread ? "has-unread" : ""}" data-conv="${c.id}" type="button">
-        <span class="wa-conv-avatar">${initials(c.customer_name && c.customer_name !== c.phone ? c.customer_name : (c.phone || "?"))}</span>
+        ${avatar(c)}
         <span class="wa-conv-main">
-          <span class="wa-conv-top"><b>${esc(name)}</b><small>${esc(timeLabel(c.last_message_at || c.created_at))}</small></span>
-          <span class="wa-conv-bottom"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span><span class="wa-conv-meta">${channelBadge(c)}${clientBadge}${badge}${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span></span>
+          <span class="wa-conv-row"><span class="wa-conv-name">${esc(nameOf(c))}</span><span class="wa-conv-time">${esc(timeLabel(c.status === "closed" ? (c.closed_at || c.updated_at) : (c.last_message_at || c.created_at)))}</span></span>
+          <span class="wa-conv-row"><span class="wa-conv-last">${esc(c.last_message || "Sem mensagens")}</span>${unread ? `<b class="wa-unread">${unread}</b>` : ""}</span>
+          <span class="wa-conv-tags">${sector}${agent}${channelBadge(c)}${client}${waitTag(c)}<span class="wa-tag is-plain" title="Protocolo">#${c.id}</span></span>
         </span>
       </button>`;
     }).join("");
-    $$("[data-conv]").forEach(item => item.onclick = () => {
-      state.activeId = item.dataset.conv;
-      loadConversation(Number(item.dataset.conv));
-    });
+    $$("[data-conv]", host).forEach(item => item.onclick = () => openConversation(item.dataset.conv));
+  }
+
+  /* ---------- equipe / presença ---------- */
+
+  function selfPresence() {
+    return (state.data?.presence || []).find(p => Number(p.user_id) === myId());
   }
 
   function renderPresence() {
+    const self = selfPresence();
+    const pill = $("#presenceToggle");
+    const status = self?.available === false ? "paused" : self?.busy ? "busy" : "available";
+    pill.className = `wa-status-pill ${status === "busy" ? "is-busy" : status === "paused" ? "is-paused" : ""}`;
+    pill.innerHTML = `<span class="wa-dot"></span><span class="wa-status-text">${
+      status === "paused" ? "Pausado" : status === "busy" ? "Online · em atendimento" : "Online · disponível"
+    } <small>— ${status === "paused" ? "retomar" : "pausar"}</small></span>${icon("chevronDown")}`;
+    pill.title = status === "paused" ? "Você não recebe novos atendimentos. Clique para voltar." : "Clique para pausar o recebimento de atendimentos.";
+
     const list = (state.data?.presence || []).filter(p => !state.sector || p.sectors.includes(Number(state.sector)));
-    const self = (state.data?.presence || []).find(p => Number(p.user_id) === Number(window.UPDOWN_AUTH?.id));
-    $("#presenceToggle").innerHTML = self?.status === "chat"
-      ? `${icon("clock")} Em atendimento`
-      : self?.available === false
-        ? `${icon("eyeOff")} Retomar disponibilidade`
-        : `${icon("eye")} Ficar disponível`;
-    $("#presenceToggle").classList.toggle("is-off", self?.available === false);
+    const groups = [
+      ["Em atendimento", list.filter(p => p.busy)],
+      ["Disponíveis", list.filter(p => !p.busy && p.available !== false)],
+      ["Pausados", list.filter(p => !p.busy && p.available === false)]
+    ];
     const item = p => {
       const label = p.busy
-        ? (state.can.supervise && p.current ? `Em conversa com ${esc(p.current.customer_name && p.current.customer_name !== p.current.phone ? p.current.customer_name : formatPhone(p.current.phone))}` : "Em conversa")
+        ? (state.can.supervise && p.current ? `Com ${esc(nameOf(p.current))}` : "Em conversa")
         : (p.available === false ? "Pausado" : "Disponível");
-      return `<div class="wa-presence-item ${p.busy ? "is-busy" : ""} ${p.available === false ? "is-paused" : ""}" ${state.can.supervise && p.current ? `data-conv="${p.current.conversation_id}"` : ""}>
-        <span class="wa-presence-dot"></span>
-        <span class="wa-presence-who"><b>${esc(p.display_name)}</b><small>${label}</small></span>
+      return `<div class="wa-presence-item ${p.busy ? "is-busy" : ""} ${p.available === false ? "is-paused" : ""}" ${state.can.supervise && p.current ? `data-conv="${p.current.conversation_id}" title="Abrir a conversa"` : ""}>
+        <span class="wa-avatar is-sm">${esc(initials(p.display_name))}<span class="wa-channel"></span></span>
+        <span class="wa-presence-who"><b>${esc(p.display_name)}${Number(p.user_id) === myId() ? " (você)" : ""}</b><small>${label}</small></span>
       </div>`;
     };
     $("#presenceList").innerHTML = list.length
-      ? list.map(item).join("")
-      : '<p class="dim" style="padding:var(--s-3);text-align:center;font-size:var(--fs-12)">Nenhum atendente no setor selecionado.</p>';
+      ? groups.filter(([, items]) => items.length).map(([title, items]) => `<div class="wa-presence-group">${title} · ${items.length}</div>${items.map(item).join("")}`).join("")
+      : `<div class="wa-side-empty">${icon("users")}<b>Ninguém por aqui</b>Nenhum atendente no setor selecionado.</div>`;
     if (state.can.supervise) {
-      $$(".wa-presence-item[data-conv]").forEach(el => el.onclick = () => {
-        state.activeId = el.dataset.conv;
-        loadConversation(Number(el.dataset.conv));
-      });
+      $$(".wa-presence-item[data-conv]").forEach(el => el.onclick = () => openConversation(el.dataset.conv));
     }
   }
 
+  /* ---------- conversa ---------- */
+
   function updateHead(conv) {
     state.conversation = { ...(state.conversation || {}), ...conv };
-    const name = conv.customer_name && conv.customer_name !== conv.phone ? conv.customer_name : formatPhone(conv.phone);
-    $("#chatName").textContent = name;
-    $("#chatAvatar").textContent = initials(name);
-    const parts = [];
-    parts.push(conv.status === "routing" ? "Aguardando escolha de setor" : conv.status === "closed" ? "Encerrada" : conv.assigned_name ? `Atendente: ${conv.assigned_name}` : "Aguardando atendente");
-    if (conv.sector_name) parts.push(conv.sector_name);
-    if (conv.channel && CHANNEL_LABELS[conv.channel]) parts.push(CHANNEL_LABELS[conv.channel].label);
-    parts.push(formatPhone(conv.phone));
+    const c = state.conversation;
+    $("#chatName").textContent = nameOf(c);
+    $("#chatAvatar").outerHTML = avatar(c).replace('class="wa-avatar ', 'id="chatAvatar" class="wa-avatar ');
+    const parts = [`Protocolo #${c.id}`, channelOf(c).label, formatPhone(c.phone)];
+    if (c.sector_name) parts.splice(1, 0, c.sector_name);
     $("#chatMeta").textContent = parts.join(" · ");
-    renderHeadButtons(conv);
+    renderHeadButtons(c);
   }
 
   function renderHeadButtons(conv) {
@@ -189,28 +291,89 @@
     const closed = conv.status === "closed";
     const routing = conv.status === "routing";
     take.hidden = closed || isMine || !state.can.chat;
-    take.innerHTML = icon("plus") + (routing ? " Pegar para o setor" : " Pegar");
+    take.innerHTML = `${icon("plus")}<span class="wa-btn-label"> Assumir</span>`;
+    take.title = routing ? "Assumir e escolher o setor" : "Assumir o atendimento";
     assign.hidden = closed || !state.can.supervise;
-    assign.innerHTML = icon("edit") + " Atribuir";
-    close.hidden = !state.can.chat || (closed);
-    close.innerHTML = icon("check") + (isMine || conv.status === "routing" ? " Encerrar" : " Encerrar");
+    assign.innerHTML = `${SVG.transfer}<span class="wa-btn-label"> Transferir</span>`;
+    assign.title = "Transferir para outro setor ou atendente";
+    close.hidden = closed || !state.can.chat;
+    close.innerHTML = `${icon("check")}<span class="wa-btn-label"> Encerrar</span>`;
+    close.title = "Encerrar o atendimento";
+
     const canRespond = !closed && !routing && state.can.chat && (isMine || state.can.supervise);
     $("#composer").hidden = !canRespond;
     $("#composer").dataset.ready = canRespond ? "1" : "0";
+    const locked = $("#composerLocked");
+    locked.hidden = canRespond;
+    if (!canRespond) {
+      const canTake = state.can.chat && !closed && !isMine;
+      const text = closed ? `Atendimento encerrado${conv.closed_at ? ` em ${TEMPO.dataHora(conv.closed_at, "")}` : ""}.`
+        : !state.can.chat ? "Seu perfil permite apenas acompanhar as conversas."
+        : routing ? "O agente virtual está aguardando o cliente escolher o setor."
+        : conv.assigned_name ? `Em atendimento com ${conv.assigned_name}.`
+        : `Aguardando atendente${conv.sector_name ? ` no setor ${conv.sector_name}` : ""}.`;
+      locked.innerHTML = `${icon(closed ? "lock" : "info")}<span>${esc(text)}</span>${canTake ? `<button class="btn btn-primary btn-sm" type="button" data-locked-take>${icon("plus")} Assumir atendimento</button>` : ""}`;
+      const btn = $("[data-locked-take]", locked);
+      if (btn) btn.onclick = () => takeConversation(state.conversation);
+    }
   }
 
-  function renderMessages() {
+  const linkify = text => esc(text).replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)"']/g, url => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+
+  function ticks(m) {
+    if (m.direction !== "out") return "";
+    const map = {
+      sent: ["", SVG.tick, "Enviada"],
+      delivered: ["", SVG.ticks, "Entregue"],
+      read: ["is-read", SVG.ticks, "Lida"],
+      failed: ["is-failed", SVG.clockSm, "Falhou o envio"]
+    };
+    const [cls, svg, label] = map[m.status] || map.sent;
+    return `<span class="wa-ticks ${cls}" title="${label}" aria-label="${label}">${svg}</span>`;
+  }
+
+  function renderMessages(forceBottom = false) {
     const host = $("#messages");
+    const nearBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 120;
     const messages = state.messages || [];
-    host.innerHTML = messages.length ? messages.map(m => {
-      const isIn = m.direction === "in";
-      const isBot = m.direction === "bot";
-      const statusLabel = m.direction === "out" && m.status ? { sent: "enviada", delivered: "entregue", read: "lida", failed: "falhou" }[m.status] || "" : "";
-      return `<div class="wa-msg ${isIn ? "is-in" : isBot ? "is-bot" : "is-out"}">
-        <div class="wa-bubble">${esc(m.body)}<span class="wa-msg-meta"><small>${esc(m.direction === "out" ? "Você" : isBot ? "Sistema" : "")}</small><small>${esc(formatTime(m.created_at))}</small>${m.direction === "out" && statusLabel ? `<small class="wa-msg-status">${statusLabel}</small>` : ""}</span></div>
-      </div>`;
-    }).join("") : '<p class="dim" style="text-align:center;padding:var(--s-8)">Nenhuma mensagem nesta conversa ainda.</p>';
-    host.scrollTop = host.scrollHeight;
+    state.messagesSig = messages.map(m => `${m.id}:${m.status}`).join(",");
+    if (!messages.length) {
+      host.innerHTML = '<p class="wa-thread-empty">Nenhuma mensagem nesta conversa ainda.</p>';
+      return;
+    }
+    let prevDay = "", prevKey = "";
+    const out = [];
+    for (const m of messages) {
+      const day = TEMPO.chaveDia(m.created_at);
+      if (day !== prevDay) { out.push(`<div class="wa-day">${esc(dayLabel(m.created_at))}</div>`); prevDay = day; prevKey = ""; }
+      const kind = m.direction === "in" ? "is-in" : m.direction === "bot" ? "is-bot" : "is-out";
+      const key = `${m.direction}:${m.sender_name || ""}`;
+      const first = key !== prevKey;
+      prevKey = key;
+      const sender = m.direction === "bot" ? (m.sender_name || "Agente virtual")
+        : m.direction === "out" && first ? (Number(m.sender_user_id) === myId() ? "Você" : (m.sender_name || "Atendente")) : "";
+      const body = m.type === "image" && String(m.body).startsWith("/api/media/")
+        ? `<img class="wa-img" src="${esc(m.body)}" alt="Imagem enviada na conversa" loading="lazy">`
+        : linkify(m.body);
+      out.push(`<div class="wa-msg ${kind} ${first ? "is-first" : ""}"><div class="wa-bubble">${sender ? `<span class="wa-sender">${esc(sender)}</span>` : ""}${body}<span class="wa-meta">${esc(formatTime(m.created_at))}${ticks(m)}</span></div></div>`);
+    }
+    host.innerHTML = out.join("");
+    if (forceBottom || nearBottom) host.scrollTop = host.scrollHeight;
+    $$(".wa-img", host).forEach(img => {
+      img.onclick = () => openLightbox(img.src);
+      img.onload = () => { if (forceBottom || nearBottom) host.scrollTop = host.scrollHeight; };
+    });
+  }
+
+  function openLightbox(src) {
+    const box = document.createElement("div");
+    box.className = "wa-lightbox";
+    box.innerHTML = `<img src="${esc(src)}" alt="Imagem ampliada">`;
+    const close = () => { box.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = e => { if (e.key === "Escape") close(); };
+    box.onclick = close;
+    document.addEventListener("keydown", onKey);
+    document.body.append(box);
   }
 
   function renderChat() {
@@ -218,11 +381,11 @@
     if (!conv) { closePane(true); return; }
     $("#chatEmpty").hidden = true;
     $("#chatThread").hidden = false;
+    closePopovers();
     updateHead(conv);
-    renderClientStrip();
-    renderMessages();
-    const input = $("#msgInput");
-    if ($("#composer").dataset.ready === "1") setTimeout(() => input.focus(), 30);
+    renderMessages(true);
+    renderSide();
+    if ($("#composer").dataset.ready === "1" && !coarse.matches) setTimeout(() => $("#msgInput").focus(), 30);
   }
 
   function closePane(silent = false) {
@@ -230,43 +393,108 @@
     state.conversation = null;
     state.messages = [];
     state.cliente = null;
-    state.lastMessageCount = 0;
+    state.messagesSig = "";
     $("#chatEmpty").hidden = false;
     $("#chatThread").hidden = true;
+    $("#waDesk").classList.remove("chat-open");
+    closePopovers();
+    renderSide();
     if (!silent) renderConvList();
   }
 
-  /* ---------- vínculo com o cadastro de cliente ---------- */
+  /* ---------- painel lateral: cliente ---------- */
 
-  function renderClientStrip() {
-    const strip = $("#clientStrip");
+  function sideVisible() {
+    const desk = $("#waDesk");
+    return narrow.matches ? desk.classList.contains("side-open") : !desk.classList.contains("side-collapsed");
+  }
+
+  function toggleSide(force) {
+    const desk = $("#waDesk");
+    const show = force ?? !sideVisible();
+    if (narrow.matches) {
+      desk.classList.toggle("side-open", show);
+      $("#sideScrim").hidden = !show;
+    } else {
+      desk.classList.toggle("side-collapsed", !show);
+      try { localStorage.setItem(SIDE_KEY, show ? "open" : "closed"); } catch { /* sem armazenamento */ }
+    }
+    syncSideButton();
+  }
+
+  function syncSideButton() {
+    const open = sideVisible();
+    $("#infoBtn").setAttribute("aria-expanded", String(open));
+    $("#infoBtn").setAttribute("aria-label", open ? "Ocultar painel do cliente" : "Mostrar painel do cliente");
+  }
+
+  function setSideTab(tab) {
+    state.sideTab = tab;
+    $$("[data-side]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.side === tab)));
+    $("#sideClient").hidden = tab !== "client";
+    $("#sideTeam").hidden = tab !== "team";
+  }
+
+  function renderSide() {
+    const host = $("#sideClient");
     const conv = state.conversation;
-    if (!conv) { strip.hidden = true; return; }
+    if (!conv) {
+      host.innerHTML = `<div class="wa-side-empty">${icon("user")}<b>Painel do cliente</b>Selecione um atendimento para ver os dados do contato, o cadastro vinculado e o histórico.</div>`;
+      return;
+    }
+    const ch = channelOf(conv);
     const canManage = state.can.clientes && state.can.chat && conv.status !== "closed" &&
       (mine(conv) || state.can.supervise || conv.status === "routing");
     const cliente = state.cliente;
+    const statusText = conv.status === "closed" ? "Encerrado" : conv.status === "routing" ? "Triagem (agente virtual)" : conv.assigned_user_id ? "Em atendimento" : "Na fila";
+    const row = (label, value) => value ? `<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>` : "";
+    let clientBlock;
     if (cliente) {
-      strip.hidden = false;
-      const meta = [cliente.plano, cliente.telefone ? formatPhone(cliente.telefone) : "", cliente.cidade].filter(Boolean).join(" · ");
-      strip.innerHTML = `
-        <span class="wa-client-linked">${icon("link")}<span class="wa-client-name">${esc(cliente.nome || cliente.client_id)}</span>${meta ? `<span class="wa-client-meta">${esc(meta)}</span>` : ""}</span>
-        <span class="wa-client-actions">${canManage ? `<button class="btn btn-sm btn-ghost" id="clientUnlinkBtn" type="button">Desvincular</button>` : ""}</span>`;
-      if (canManage) $("#clientUnlinkBtn").onclick = () => unlinkClient(conv);
-    } else if (canManage) {
-      strip.hidden = false;
-      strip.innerHTML = `<span class="dim" style="font-size:var(--fs-12)">Nenhum cliente vinculado a esta conversa.</span>
-        <span class="wa-client-actions"><button class="btn btn-sm" id="clientLinkBtn" type="button">${icon("link")} Vincular cliente</button></span>`;
-      $("#clientLinkBtn").onclick = () => openClientLinkModal(conv);
+      const endereco = [cliente.endereco, cliente.bairro, [cliente.cidade, cliente.uf].filter(Boolean).join("/")].filter(Boolean).join(", ");
+      clientBlock = `<div class="wa-client-card">
+          <b>${esc(cliente.nome || cliente.client_id)}</b>
+          <small>Código ${esc(cliente.client_id)}</small>
+        </div>
+        <dl class="wa-dl">
+          ${row("CPF/CNPJ", cliente.cpf_cnpj)}${row("Plano", cliente.plano)}${row("Faturamento", cliente.status_faturamento)}
+          ${row("Telefone", cliente.telefone ? formatPhone(cliente.telefone) : "")}${row("E-mail", cliente.email)}${row("Endereço", endereco)}
+        </dl>`;
     } else {
-      strip.hidden = true;
+      clientBlock = `<p class="wa-side-note">Nenhum cadastro vinculado a este contato.</p>`;
     }
+    host.innerHTML = `
+      <div class="wa-profile">
+        ${avatar(conv, "is-lg")}
+        <b>${esc(nameOf(conv))}</b>
+        <small>${esc(formatPhone(conv.phone))}</small>
+        <span class="wa-conv-tags"><span class="wa-tag" style="--tag:${ch.color}">${esc(ch.label)}</span>${conv.sector_name ? `<span class="wa-tag" style="--tag:${esc(conv.sector_color || "var(--cyan-400)")}">${esc(conv.sector_name)}</span>` : ""}</span>
+      </div>
+      <section class="wa-section">
+        <div class="wa-section-head"><h3>Cliente vinculado</h3>${canManage ? (cliente
+          ? `<button class="btn btn-sm btn-ghost" id="clientUnlinkBtn" type="button">Desvincular</button>`
+          : `<button class="btn btn-sm" id="clientLinkBtn" type="button">${icon("link")} Vincular</button>`) : ""}</div>
+        ${clientBlock}
+      </section>
+      <section class="wa-section">
+        <div class="wa-section-head"><h3>Atendimento</h3></div>
+        <dl class="wa-dl">
+          ${row("Protocolo", `#${conv.id}`)}${row("Situação", statusText)}${row("Setor", conv.sector_name || "—")}
+          ${row("Atendente", conv.assigned_name || "—")}${row("Canal", ch.label)}
+          ${row("Aberto em", TEMPO.dataHora(conv.created_at, ""))}
+          ${row("Última mensagem", TEMPO.dataHora(conv.last_message_at, ""))}
+          ${conv.status === "closed" ? row("Encerrado em", TEMPO.dataHora(conv.closed_at || conv.updated_at, "")) : row("Duração", duration(since(conv.created_at)))}
+        </dl>
+      </section>`;
+    const unlinkBtn = $("#clientUnlinkBtn", host), linkBtn = $("#clientLinkBtn", host);
+    if (unlinkBtn) unlinkBtn.onclick = () => unlinkClient(conv);
+    if (linkBtn) linkBtn.onclick = () => openClientLinkModal(conv);
   }
 
   function openClientLinkModal(conv) {
     modal({
       labelledBy: "waLinkClientTitle",
       html: `
-        <div class="modal-head"><div><span class="kicker">Cadastro de cliente</span><h2 id="waLinkClientTitle">Vincular cliente à conversa</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+        <div class="modal-head"><div><span class="kicker">Cadastro de cliente</span><h2 id="waLinkClientTitle">Vincular cliente ao atendimento</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
         <div class="modal-body">
           <div class="field"><label for="clientSearch">Buscar por nome, código, telefone ou CPF/CNPJ</label><input class="input" id="clientSearch" autocomplete="off" placeholder="Digite para buscar…"></div>
           <div class="wa-client-search-results" id="clientSearchResults"></div>
@@ -297,6 +525,9 @@
           } catch (err) { error.hidden = false; error.textContent = err.message; }
         };
         input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 300); });
+        // começa pelo telefone do contato: quase sempre é o que acha o cadastro
+        const digits = String(conv.phone || "").replace(/\D/g, "").replace(/^55(?=\d{10,11}$)/, "");
+        if (digits) { input.value = digits; search(); }
         setTimeout(() => input.focus(), 30);
       }
     });
@@ -305,7 +536,7 @@
   function unlinkClient(conv) {
     askConfirm({
       title: "Desvincular este cliente?",
-      text: "A conversa deixa de estar associada ao cadastro do cliente.",
+      text: "O atendimento deixa de estar associado ao cadastro do cliente.",
       confirmLabel: "Desvincular",
       danger: true,
       onConfirm: async () => {
@@ -317,6 +548,83 @@
         } catch (err) { toast("Não foi possível desvincular", { text: err.message, type: "danger" }); }
       }
     });
+  }
+
+  /* ---------- composer: emojis e mensagens rápidas ---------- */
+
+  const quickReplies = () => state.data?.settings?.quickReplies || [];
+
+  function fillVariables(text) {
+    const conv = state.conversation || {};
+    const cliente = (state.cliente?.nome || (conv.customer_name !== conv.phone ? conv.customer_name : "") || "").trim().split(/\s+/)[0] || "";
+    const pretty = cliente ? cliente[0].toUpperCase() + cliente.slice(1).toLowerCase() : "";
+    return text
+      // sem nome conhecido, "Olá, {cliente}!" vira "Olá!" em vez de "Olá, !"
+      .replace(/,?\s*\{cliente\}/g, m => pretty ? m.replace("{cliente}", pretty) : "")
+      .replace(/\{atendente\}/g, session().name.split(/\s+/)[0]);
+  }
+
+  function closePopovers() {
+    $("#quickMenu").hidden = true;
+    $("#emojiMenu").hidden = true;
+    $("#quickBtn").setAttribute("aria-expanded", "false");
+    $("#emojiBtn").setAttribute("aria-expanded", "false");
+  }
+
+  function quickMatches() {
+    const value = $("#msgInput").value;
+    const m = value.match(/^\/([^\s]*)$/);
+    const term = (m ? m[1] : "").toLowerCase();
+    return quickReplies().filter(q => !term || q.shortcut.includes(term) || q.text.toLowerCase().includes(term));
+  }
+
+  function renderQuick() {
+    const menu = $("#quickMenu");
+    const items = quickMatches();
+    state.quickIndex = Math.min(state.quickIndex, Math.max(0, items.length - 1));
+    menu.innerHTML = `<div class="wa-quick-head">Mensagens rápidas</div>` + (items.length
+      ? items.map((q, i) => `<button class="wa-quick-item" type="button" role="option" data-quick="${i}" aria-selected="${i === state.quickIndex}"><b>/${esc(q.shortcut)}</b><span>${esc(fillVariables(q.text))}</span></button>`).join("")
+      : `<div class="wa-quick-empty">${quickReplies().length ? "Nenhum atalho com esse nome." : "Nenhuma mensagem rápida cadastrada."}${state.can.manage ? " Cadastre em Configurar o chat." : ""}</div>`);
+    $$("[data-quick]", menu).forEach(btn => {
+      btn.onmousedown = e => e.preventDefault();
+      btn.onclick = () => applyQuick(items[Number(btn.dataset.quick)]);
+    });
+    const sel = $('[aria-selected="true"]', menu);
+    if (sel) sel.scrollIntoView({ block: "nearest" });
+    return items;
+  }
+
+  function openQuick() {
+    $("#emojiMenu").hidden = true;
+    $("#emojiBtn").setAttribute("aria-expanded", "false");
+    $("#quickMenu").hidden = false;
+    $("#quickBtn").setAttribute("aria-expanded", "true");
+    renderQuick();
+  }
+
+  function applyQuick(q) {
+    if (!q) return;
+    const input = $("#msgInput");
+    input.value = fillVariables(q.text);
+    closePopovers();
+    autoGrow();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  function insertAtCaret(text) {
+    const input = $("#msgInput");
+    const start = input.selectionStart ?? input.value.length, end = input.selectionEnd ?? input.value.length;
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    input.focus();
+    input.setSelectionRange(start + text.length, start + text.length);
+    autoGrow();
+  }
+
+  function autoGrow() {
+    const input = $("#msgInput");
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 140) + "px";
   }
 
   /* ---------- ações ---------- */
@@ -333,15 +641,14 @@
     state.sending = true;
     const sendBtn = $("#sendBtn");
     sendBtn.disabled = true;
+    closePopovers();
     try {
       await NOC.api(`/api/whatsapp/conversations/${state.activeId}/messages`, { method: "POST", body: JSON.stringify({ body: text }) });
       input.value = "";
-      input.style.height = "auto";
-      state.messages.push({ direction: "out", body: text, status: "sent", created_at: new Date().toISOString(), sender_name: "Você" });
-      state.lastMessageCount = state.messages.length;
-      renderMessages();
+      autoGrow();
+      state.messages.push({ id: `tmp-${Date.now()}`, direction: "out", body: text, status: "sent", created_at: new Date().toISOString(), sender_user_id: myId(), sender_name: session().name });
+      renderMessages(true);
       load(true);
-      toast("Mensagem enviada", { type: "ok" });
     } catch (err) {
       toast("Não foi possível enviar", { text: err.message, type: "danger" });
     } finally {
@@ -351,25 +658,30 @@
     }
   }
 
+  async function afterTake(id) {
+    toast("Atendimento assumido", { type: "ok" });
+    setStatusTab("open");
+    await load();
+    await loadConversation(id);
+  }
+
   async function takeConversation(conv) {
     if (conv.status === "routing") {
       const options = state.data?.sectors || [];
-      const usable = options.filter(s => (state.data?.conversations || []).some() ? true : true);
       if (options.length > 1) {
         modal({
           labelledBy: "waTakeTitle",
           html: `
-            <div class="modal-head"><div><span class="kicker">Fila de roteamento</span><h2 id="waTakeTitle">Pegar conversa para o setor</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
-            <div class="modal-body"><div class="field"><label for="takeSector">Setor do atendimento</label><select class="select" id="takeSector">${options.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select><span class="field-hint">A conversa entra na fila do setor escolhido e você assume o atendimento.</span></div></div>
-            <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-take type="button">Pegar conversa</button></span></div>`,
+            <div class="modal-head"><div><span class="kicker">Triagem</span><h2 id="waTakeTitle">Assumir atendimento</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+            <div class="modal-body"><div class="field"><label for="takeSector">Setor do atendimento</label><select class="select" id="takeSector">${options.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select><span class="field-hint">O atendimento entra no setor escolhido e fica com você.</span></div></div>
+            <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-take type="button">Assumir</button></span></div>`,
           onMount: (host, close) => {
             $("[data-take]", host).onclick = async () => {
               try {
                 await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: Number($("#takeSector", host).value) }) });
                 close();
-                toast("Conversa atribuída a você", { type: "ok" });
-                await load(); await loadConversation(conv.id);
-              } catch (err) { toast("Não foi possível pegar", { text: err.message, type: "danger" }); }
+                await afterTake(conv.id);
+              } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
             };
           }
         });
@@ -377,16 +689,14 @@
       }
       try {
         await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: options[0]?.id }) });
-        toast("Conversa atribuída a você", { type: "ok" });
-        await load(); await loadConversation(conv.id);
-      } catch (err) { toast("Não foi possível pegar", { text: err.message, type: "danger" }); }
+        await afterTake(conv.id);
+      } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
       return;
     }
     try {
       await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST" });
-      toast("Conversa atribuída a você", { type: "ok" });
-      await load(); await loadConversation(conv.id);
-    } catch (err) { toast("Não foi possível pegar", { text: err.message, type: "danger" }); }
+      await afterTake(conv.id);
+    } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
   }
 
   function assignConversation(conv) {
@@ -396,18 +706,19 @@
       wide: true,
       labelledBy: "waAssignTitle",
       html: `
-        <div class="modal-head"><div><span class="kicker">Supervisão</span><h2 id="waAssignTitle">Atribuir conversa</h2><p class="dim">${esc(conv.customer_name && conv.customer_name !== conv.phone ? conv.customer_name : formatPhone(conv.phone))}</p></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+        <div class="modal-head"><div><span class="kicker">Protocolo #${conv.id}</span><h2 id="waAssignTitle">Transferir atendimento</h2><p class="dim">${esc(nameOf(conv))}</p></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
         <div class="modal-body"><div class="row wrap">
           <div class="field" style="flex:1;min-width:220px"><label for="assignSector">Setor</label><select class="select" id="assignSector">${sectors.map(s => `<option value="${s.id}" ${String(s.id) === String(conv.sector_id || "") ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select></div>
-          <div class="field" style="flex:1;min-width:220px"><label for="assignUser">Responsável</label><select class="select" id="assignUser"><option value="">Sem responsável (fila)</option></select></div>
+          <div class="field" style="flex:1;min-width:220px"><label for="assignUser">Atendente</label><select class="select" id="assignUser"><option value="">Sem atendente (fila do setor)</option></select></div>
         </div><span class="field-error" id="assignError" hidden></span></div>
-        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Atribuir</button></span></div>`,
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Transferir</button></span></div>`,
       onMount: (host, close) => {
         const sector = $("#assignSector", host), user = $("#assignUser", host);
         const choices = () => {
           const sid = Number(sector.value);
           const members = [...new Map(presence.filter(p => p.sectors.includes(sid)).map(p => [p.user_id, p])).values()];
-          user.innerHTML = '<option value="">Sem responsável (fila)</option>' + members.map(m => `<option value="${m.user_id}" ${String(m.user_id) === String(conv.assigned_user_id || "") ? "selected" : ""}>${esc(m.display_name)}</option>`).join("");
+          const status = p => p.busy ? " — em atendimento" : p.available === false ? " — pausado" : " — disponível";
+          user.innerHTML = '<option value="">Sem atendente (fila do setor)</option>' + members.map(m => `<option value="${m.user_id}" ${String(m.user_id) === String(conv.assigned_user_id || "") ? "selected" : ""}>${esc(m.display_name + status(m))}</option>`).join("");
         };
         choices();
         sector.onchange = choices;
@@ -416,7 +727,7 @@
           if (user.value) payload.user_id = Number(user.value);
           try {
             await NOC.api(`/api/whatsapp/conversations/${conv.id}/assign`, { method: "POST", body: JSON.stringify(payload) });
-            close(); toast("Conversa atribuída", { type: "ok" }); await load();
+            close(); toast("Atendimento transferido", { type: "ok" }); await load();
             if (state.activeId === String(conv.id)) await loadConversation(conv.id);
           } catch (err) {
             const error = $("#assignError", host);
@@ -429,23 +740,23 @@
 
   async function closeConversation(conv) {
     askConfirm({
-      title: "Encerrar esta conversa?",
-      text: `O atendimento com ${conv.customer_name && conv.customer_name !== conv.phone ? conv.customer_name : formatPhone(conv.phone)} será encerrado e você voltará a ficar disponível.`,
+      title: "Encerrar este atendimento?",
+      text: `O atendimento com ${nameOf(conv)} (protocolo #${conv.id}) será encerrado e o cliente recebe a mensagem de encerramento.`,
       confirmLabel: "Encerrar",
       danger: true,
       onConfirm: async () => {
         try {
           await NOC.api(`/api/whatsapp/conversations/${conv.id}/close`, { method: "POST" });
-          toast("Conversa encerrada", { type: "ok" });
-          closePane(); await load(); renderPresence();
+          toast("Atendimento encerrado", { type: "ok" });
+          closePane(); await load();
         } catch (err) { toast("Não foi possível encerrar", { text: err.message, type: "danger" }); }
       }
     });
   }
 
   async function togglePresence() {
-    const self = (state.data?.presence || []).find(p => Number(p.user_id) === Number(window.UPDOWN_AUTH?.id));
-    const next = self?.busy ? !self.available : !(self?.available ?? true);
+    const self = selfPresence();
+    const next = !(self?.available ?? true);
     try {
       await NOC.api("/api/whatsapp/presence", { method: "POST", body: JSON.stringify({ available: next }) });
       toast(next ? "Você está disponível" : "Você pausou o atendimento", { type: "ok" });
@@ -459,15 +770,15 @@
       wide: true,
       labelledBy: "waNewTitle",
       html: `
-        <div class="modal-head"><div><span class="kicker">Novo atendimento</span><h2 id="waNewTitle">Iniciar conversa pelo WhatsApp</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+        <div class="modal-head"><div><span class="kicker">Novo atendimento</span><h2 id="waNewTitle">Abrir atendimento pelo WhatsApp</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
         <div class="modal-body"><div class="crm-form-grid">
           <div class="field span-2"><label for="newPhone">Número do WhatsApp</label><input class="input" id="newPhone" inputmode="tel" placeholder="5511999999999 (DDI + DDD + número)"></div>
-          <div class="field"><label for="newName">Nome do cliente</label><input class="input" id="newName" maxlength="200"></div>
+          <div class="field"><label for="newName">Nome do contato</label><input class="input" id="newName" maxlength="200"></div>
           <div class="field"><label for="newSector">Setor</label><select class="select" id="newSector">${sectors.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></div>
           <div class="field span-2"><label for="newBody">Primeira mensagem</label><textarea class="textarea" id="newBody" rows="3">Olá! Aqui é a UPDOWN Telecom.</textarea></div>
           <span class="field-error span-2" id="newError" hidden></span>
         </div></div>
-        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Iniciar</button></span></div>`,
+        <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Abrir atendimento</button></span></div>`,
       onMount: (host, close) => {
         $("[data-save]", host).onclick = async () => {
           const error = $("#newError", host);
@@ -480,10 +791,10 @@
           if (!payload.phone || !payload.body) { error.hidden = false; error.textContent = "Informe o número e a primeira mensagem."; return; }
           try {
             const saved = await NOC.api("/api/whatsapp/conversations", { method: "POST", body: JSON.stringify(payload) });
-            close(); toast("Conversa iniciada", { type: "ok" });
+            close(); toast("Atendimento aberto", { type: "ok" });
+            setStatusTab("open");
             await load();
-            state.activeId = String(saved.id);
-            await loadConversation(saved.id);
+            openConversation(saved.id);
           } catch (err) { error.hidden = false; error.textContent = err.message; }
         };
       }
@@ -495,42 +806,70 @@
     if (!data?.settings) return;
     const s = data.settings;
     const options = enabledSectors();
+    const qrRow = (q = { shortcut: "", text: "" }) => `<div class="wa-qr-row">
+      <input class="input" data-qr-shortcut maxlength="30" placeholder="atalho" value="${esc(q.shortcut)}" aria-label="Atalho">
+      <textarea class="textarea" data-qr-text rows="1" maxlength="1000" placeholder="Texto da mensagem" aria-label="Texto">${esc(q.text)}</textarea>
+      <button class="btn btn-ghost btn-icon btn-sm" type="button" data-qr-remove aria-label="Remover">${icon("trash")}</button>
+    </div>`;
     modal({
       wide: true,
       labelledBy: "waSettingsTitle",
       html: `
-        <div class="modal-head"><div><span class="kicker">Bot de setor</span><h2 id="waSettingsTitle">Configurar o chat</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
+        <div class="modal-head"><div><span class="kicker">Agente virtual e atendimento</span><h2 id="waSettingsTitle">Configurar o chat</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
         <div class="modal-body"><div class="crm-form-grid">
-          <div class="field span-2"><label for="setGreeting">Saudação do bot</label><textarea class="textarea" id="setGreeting" rows="3">${esc(s.greeting || "")}</textarea></div>
-          <div class="field span-2"><label for="setRouted">Setores disponíveis no menu</label>
+          <div class="field span-2"><label for="setGreeting">Saudação do agente virtual</label><textarea class="textarea" id="setGreeting" rows="3">${esc(s.greeting || "")}</textarea></div>
+          <div class="field span-2"><label>Setores disponíveis no menu</label>
             <div class="wa-check-grid">${(state.data?.sectors || []).map(x => `<label class="wa-check"><input type="checkbox" value="${esc(x.code)}" ${options.some(o => o.code === x.code) ? "checked" : ""}>${esc(x.name)}</label>`).join("")}</div>
           </div>
           <div class="field span-2"><label for="setRoutingDone">Confirmação de roteamento</label><textarea class="textarea" id="setRoutingDone" rows="2">${esc(s.routingDone || "")}</textarea><span class="field-hint">Use {setor} para inserir o nome do setor escolhido.</span></div>
           <div class="field span-2"><label for="setRoutingError">Resposta quando a opção não é reconhecida</label><textarea class="textarea" id="setRoutingError" rows="2">${esc(s.routingError || "")}</textarea></div>
-          <div class="field span-2"><label for="setClosed">Mensagem de conversa encerrada</label><textarea class="textarea" id="setClosed" rows="2">${esc(s.closedMessage || "")}</textarea></div>
+          <div class="field span-2"><label for="setClosed">Mensagem de atendimento encerrado</label><textarea class="textarea" id="setClosed" rows="2">${esc(s.closedMessage || "")}</textarea></div>
+          <div class="field span-2"><label>Mensagens rápidas</label>
+            <div class="wa-qr-list" id="qrList">${(s.quickReplies || []).map(qrRow).join("")}</div>
+            <div class="row" style="justify-content:space-between;margin-top:var(--s-2)"><span class="field-hint">No chat, digite / e o atalho. {cliente} e {atendente} viram o primeiro nome de cada um.</span><button class="btn btn-sm" type="button" id="qrAdd">${icon("plus")} Adicionar</button></div>
+          </div>
           <span class="field-error span-2" id="setError" hidden></span>
         </div></div>
         <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Salvar</button></span></div>`,
       onMount: (host, close) => {
+        const list = $("#qrList", host);
+        const bindRemove = () => $$("[data-qr-remove]", list).forEach(b => b.onclick = () => b.closest(".wa-qr-row").remove());
+        bindRemove();
+        $("#qrAdd", host).onclick = () => {
+          list.insertAdjacentHTML("beforeend", qrRow());
+          bindRemove();
+          $(".wa-qr-row:last-child [data-qr-shortcut]", list).focus();
+        };
         $("[data-save]", host).onclick = async () => {
-          const routedSectors = $$("input[type=checkbox]:checked", host).map(cb => cb.value);
+          const routedSectors = $$(".wa-check-grid input[type=checkbox]:checked", host).map(cb => cb.value);
+          const quick = $$(".wa-qr-row", list).map(r => ({
+            shortcut: $("[data-qr-shortcut]", r).value.trim(),
+            text: $("[data-qr-text]", r).value.trim()
+          })).filter(q => q.shortcut || q.text);
           const payload = {
             greeting: $("#setGreeting", host).value.trim(),
             routingDone: $("#setRoutingDone", host).value.trim(),
             routingError: $("#setRoutingError", host).value.trim(),
             closedMessage: $("#setClosed", host).value.trim(),
-            routedSectors
+            routedSectors,
+            quickReplies: quick
           };
+          const error = $("#setError", host);
+          if (quick.some(q => !q.shortcut || !q.text)) { error.hidden = false; error.textContent = "Cada mensagem rápida precisa de atalho e texto."; return; }
           try {
             await NOC.api("/api/whatsapp/settings", { method: "PUT", body: JSON.stringify(payload) });
             close(); toast("Configurações salvas", { type: "ok" }); await load();
           } catch (err) {
-            const error = $("#setError", host);
             error.hidden = false; error.textContent = err.message;
           }
         };
       }
     });
+  }
+
+  function setStatusTab(status) {
+    state.status = status;
+    $$("[data-status]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.status === status)));
   }
 
   /* ---------- polling ---------- */
@@ -542,18 +881,14 @@
       if (state.activeId && state.conversation && state.conversation.status !== "closed") {
         try {
           const detail = await NOC.api(`/api/whatsapp/conversations/${state.activeId}`);
-          state.conversation = detail.conversation;
-          state.messages = detail.messages || [];
+          if (String(detail.conversation?.id) !== state.activeId) return;
           const clienteChanged = (detail.cliente?.client_id || null) !== (state.cliente?.client_id || null);
+          state.messages = detail.messages || [];
           state.cliente = detail.cliente || null;
           updateHead(detail.conversation);
-          if (clienteChanged) renderClientStrip();
-          if (state.messages.length !== state.lastMessageCount) {
-            state.lastMessageCount = state.messages.length;
-            renderMessages();
-          } else if (state.conversation.unread > 0) {
-            renderMessages();
-          }
+          if (clienteChanged) renderSide();
+          const sig = state.messages.map(m => `${m.id}:${m.status}`).join(",");
+          if (sig !== state.messagesSig) renderMessages();
         } catch { /* mantém o estado atual */ }
       }
     }, 5000);
@@ -563,39 +898,112 @@
 
   async function boot() {
     UI.mountShell();
-    $("#newChatBtn").innerHTML = icon("plus") + " Novo contato";
+    $("#newChatBtn").innerHTML = icon("plus") + " Novo";
     $("#settingsBtn").innerHTML = icon("edit");
     $("#refreshBtn").innerHTML = icon("refresh");
-    $("#chatEmptyIcon").innerHTML = icon("users");
-    $("#sendBtn").innerHTML = icon("arrowRight");
+    $("#searchIcon").innerHTML = icon("search");
+    $("#chatEmptyIcon").innerHTML = SVG.whatsapp;
+    $("#sendBtn").innerHTML = SVG.send;
+    $("#emojiBtn").innerHTML = SVG.smile;
+    $("#quickBtn").innerHTML = '<span class="wa-slash">/</span>';
+    $("#backBtn").innerHTML = icon("chevronLeft");
+    $("#infoBtn").innerHTML = SVG.panel;
+    $("#sideCloseBtn").innerHTML = icon("close");
+    $("#emojiMenu").innerHTML = EMOJIS.map(e => `<button type="button" data-emoji="${e}" aria-label="${e}">${e}</button>`).join("");
+
+    let savedSide = "open";
+    try { savedSide = localStorage.getItem(SIDE_KEY) || "open"; } catch { /* sem armazenamento */ }
+    $("#waDesk").classList.toggle("side-collapsed", savedSide === "closed");
+    syncSideButton();
+    narrow.addEventListener("change", () => {
+      $("#waDesk").classList.remove("side-open");
+      $("#sideScrim").hidden = true;
+      syncSideButton();
+    });
 
     $("#refreshBtn").onclick = () => load();
     $("#newChatBtn").onclick = () => newChat();
     $("#settingsBtn").onclick = () => settings();
     $("#presenceToggle").onclick = () => togglePresence();
     $("#sectorFilter").onchange = e => { state.sector = e.target.value; renderConvList(); renderPresence(); };
-    $$("[data-status]").forEach(btn => btn.onclick = () => {
-      state.status = btn.dataset.status;
-      $$("[data-status]").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
+    $("#mineOnly").onclick = e => {
+      state.mineOnly = !state.mineOnly;
+      e.currentTarget.setAttribute("aria-pressed", String(state.mineOnly));
       renderConvList();
+    };
+    let searchTimer = null;
+    $("#convSearch").addEventListener("input", e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { state.search = e.target.value; renderConvList(); }, 120);
     });
+    $$("[data-status]").forEach(btn => btn.onclick = () => { setStatusTab(btn.dataset.status); renderConvList(); });
+    $$("[data-side]").forEach(btn => btn.onclick = () => setSideTab(btn.dataset.side));
     $("#takeBtn").onclick = () => state.conversation && takeConversation(state.conversation);
     $("#assignBtn").onclick = () => state.conversation && assignConversation(state.conversation);
     $("#closeBtn").onclick = () => state.conversation && closeConversation(state.conversation);
+    $("#backBtn").onclick = () => closePane();
+    $("#infoBtn").onclick = () => toggleSide();
+    $("#sideCloseBtn").onclick = () => toggleSide(false);
+    $("#sideScrim").onclick = () => toggleSide(false);
+
     $("#composer").onsubmit = e => { e.preventDefault(); sendMessage(); };
+    $("#emojiBtn").onclick = () => {
+      const menu = $("#emojiMenu");
+      const open = menu.hidden;
+      closePopovers();
+      menu.hidden = !open;
+      $("#emojiBtn").setAttribute("aria-expanded", String(open));
+    };
+    $("#emojiMenu").onclick = e => {
+      const btn = e.target.closest("[data-emoji]");
+      if (btn) insertAtCaret(btn.dataset.emoji);
+    };
+    $("#quickBtn").onclick = () => {
+      if (!$("#quickMenu").hidden) { closePopovers(); return; }
+      state.quickIndex = 0;
+      openQuick();
+      $("#msgInput").focus();
+    };
+
     const input = $("#msgInput");
     input.addEventListener("keydown", e => {
+      const quickOpen = !$("#quickMenu").hidden;
+      if (quickOpen && ["ArrowDown", "ArrowUp"].includes(e.key)) {
+        e.preventDefault();
+        const total = quickMatches().length;
+        if (total) state.quickIndex = (state.quickIndex + (e.key === "ArrowDown" ? 1 : -1) + total) % total;
+        renderQuick();
+        return;
+      }
+      if (quickOpen && (e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+        const items = quickMatches();
+        if (items.length) { e.preventDefault(); applyQuick(items[state.quickIndex]); return; }
+      }
+      if (e.key === "Escape" && (quickOpen || !$("#emojiMenu").hidden)) { e.preventDefault(); closePopovers(); return; }
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
     input.addEventListener("input", () => {
-      input.style.height = "auto";
-      input.style.height = Math.min(input.scrollHeight, 120) + "px";
+      autoGrow();
+      if (/^\/[^\s]*$/.test(input.value)) { state.quickIndex = 0; openQuick(); }
+      else if (!$("#quickMenu").hidden && input.value && !input.value.startsWith("/")) closePopovers();
     });
+    document.addEventListener("click", e => {
+      if (!e.target.closest(".wa-composer")) closePopovers();
+    });
+
+    setSideTab("client");
+    renderSide();
 
     try {
       await NOC.loadAccess();
       NOC.applyActions();
       await load();
+      // quem já tem atendimento assumido cai direto neles; senão, na fila
+      const convs = state.data?.conversations || [];
+      if (!convs.some(c => bucketOf(c) === "open" && inScope(c)) && convs.some(c => bucketOf(c) === "queue")) {
+        setStatusTab("queue");
+        renderConvList();
+      }
       startPolling();
     } catch (err) {
       NOC.errorState($("#convList"), err, () => boot());

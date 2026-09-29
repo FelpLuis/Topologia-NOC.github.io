@@ -3598,7 +3598,14 @@ async function defaultWhatsappSettings(db) {
     routingError: "Não consegui entender sua opção. Envie apenas o número correspondente ao setor desejado.",
     routingDone: "Seu atendimento foi direcionado para {setor}. Em instantes um atendente responde por aqui.",
     closedMessage: "Esta conversa foi encerrada. Se precisar de algo novo, é só chamar.",
-    routedSectors: sectors.filter(s => s.code !== "noc").map(s => s.code)
+    routedSectors: sectors.filter(s => s.code !== "noc").map(s => s.code),
+    // Mensagens rápidas do atendente: digitar "/atalho" no chat insere o
+    // texto. {cliente} e {atendente} são trocados na tela, antes do envio.
+    quickReplies: [
+      { shortcut: "ola", text: "Olá, {cliente}! Aqui é {atendente}, da UPDOWN Telecom. Como posso ajudar?" },
+      { shortcut: "aguarde", text: "Só um momento, por favor, que já estou verificando." },
+      { shortcut: "encerrar", text: "Posso ajudar em algo mais? Se precisar, é só chamar por aqui." }
+    ]
   };
 }
 
@@ -3625,7 +3632,17 @@ async function normalizeWhatsappSettings(db, body, previous = {}) {
   const valid = new Set((await db.prepare(`SELECT code FROM sectors WHERE active=1`).all()).results.map(r => r.code));
   routedSectors = routedSectors.filter(c => valid.has(c) && c !== "noc").slice(0, 30);
   if (!routedSectors.length) routedSectors = defaults.routedSectors;
-  return { greeting, routingError, routingDone, closedMessage, routedSectors };
+  let quickReplies = body.quickReplies === undefined ? (previous.quickReplies || defaults.quickReplies) : body.quickReplies;
+  if (!Array.isArray(quickReplies)) quickReplies = defaults.quickReplies;
+  const shortcuts = new Set();
+  quickReplies = quickReplies
+    .map(q => ({
+      shortcut: String(q?.shortcut ?? "").trim().toLowerCase().replace(/^\/+/, "").replace(/\s+/g, "-").slice(0, 30),
+      text: String(q?.text ?? "").trim().slice(0, 1000)
+    }))
+    .filter(q => q.shortcut && q.text && !shortcuts.has(q.shortcut) && shortcuts.add(q.shortcut))
+    .slice(0, 100);
+  return { greeting, routingError, routingDone, closedMessage, routedSectors, quickReplies };
 }
 
 async function waRoutedSectorOptions(db, settings) {
@@ -4209,28 +4226,25 @@ async function handleWhatsapp(env, request) {
     clientes: permissions.has("clientes.view")
   };
   const settings = await loadWhatsappSettings(db);
-  let rows;
-  if (gate.user.role === "administrador") {
-    rows = (await db.prepare(`
-      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
-      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
-      WHERE c.status!='closed' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
-    `).all()).results || [];
-  } else if (!sectorIds.length) {
-    rows = (await db.prepare(`
-      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
-      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
-      WHERE c.status!='closed' AND c.status='routing' ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
-    `).all()).results || [];
-  } else {
-    const placeholders = sectorIds.map(() => "?").join(",");
-    rows = (await db.prepare(`
-      SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
-      FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id
-      WHERE c.status!='closed' AND (c.status='routing' OR c.sector_id IN (${placeholders}) OR c.assigned_user_id=?)
-      ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500
-    `).bind(...sectorIds, gate.user.id).all()).results || [];
+  const select = `
+    SELECT c.*,s.name sector_name,s.color sector_color,u.display_name assigned_name
+    FROM wa_conversations c LEFT JOIN sectors s ON s.id=c.sector_id LEFT JOIN users u ON u.id=c.assigned_user_id`;
+  let scope = "", binds = [];
+  if (gate.user.role !== "administrador") {
+    if (!sectorIds.length) scope = ` AND c.status='routing'`;
+    else {
+      scope = ` AND (c.status='routing' OR c.sector_id IN (${sectorIds.map(() => "?").join(",")}) OR c.assigned_user_id=?)`;
+      binds = [...sectorIds, gate.user.id];
+    }
   }
+  const active = (await db.prepare(`${select} WHERE c.status!='closed'${scope}
+    ORDER BY COALESCE(c.last_message_at,c.created_at) DESC LIMIT 500`).bind(...binds).all()).results || [];
+  // Aba "Encerrados": só a última semana, em consulta própria para não
+  // disputar o LIMIT com as abertas. Filtra por updated_at (formato do
+  // SQLite) porque closed_at é gravado em ISO e não compara com datetime().
+  const closed = (await db.prepare(`${select} WHERE c.status='closed'${scope}
+    AND c.updated_at>=datetime('now','-7 days') ORDER BY c.updated_at DESC LIMIT 100`).bind(...binds).all()).results || [];
+  const rows = [...active, ...closed];
   const presence = await waPresence(db, sectorIds, gate.user, can.supervise);
   const clientIds = [...new Set(rows.map(c => c.client_id).filter(Boolean))];
   const clientNames = clientIds.length
