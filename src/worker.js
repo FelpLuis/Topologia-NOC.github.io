@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS screens (
 );
 
 -- Em quais blocos de setor do menu a tela aparece. Uma tela pode morar em
--- vários setores; sem vínculo nenhum, ela cai no bloco NOC. A coluna
+-- vários setores e, sem vínculo nenhum, cai no bloco NOC. A coluna
 -- screens.sector_id ficou só como origem da migração e não é mais lida.
 CREATE TABLE IF NOT EXISTS screen_sectors (
   screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
@@ -1565,7 +1565,9 @@ async function ensureDatabaseImpl(env) {
   // Cada item do SCHEMA é um CREATE independente. A divisão simples também
   // funciona quando há comentários entre dois comandos, algo que o D1
   // tolerava dentro de prepare(), mas o protocolo HTTP do Turso rejeita.
-  const schemaStatements = SCHEMA.replace(/\/\*[\s\S]*?\*\//g, "").split(";")
+  // Os comentários "--" saem antes da divisão: um ";" no meio deles criava um
+  // pedaço só de comentário, e o libsql derruba a partida com SQL_NO_STATEMENT.
+  const schemaStatements = SCHEMA.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*--.*$/gm, "").split(";")
     .map(x => x.trim()).filter(Boolean);
 
   // Índices que usam colunas adicionadas por migração só podem ser criados
