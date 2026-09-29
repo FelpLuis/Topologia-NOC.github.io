@@ -266,7 +266,7 @@ window.UI = (() => {
     if (!Array.isArray(telas) || !telas.length) return NAV_PADRAO;
     return telas
       .filter((s) => s.nav !== 0 && s.route)
-      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", sector: s.sector || "noc", desc: s.description || "", global: Number(s.global) === 1 }));
+      .map((s) => ({ code: s.code, label: s.name, href: s.route, icon: s.icon || "topology", sectors: Array.isArray(s.sectors) && s.sectors.length ? s.sectors : [s.sector || "noc"], desc: s.description || "", global: Number(s.global) === 1 }));
   }
 
   // A tela atual é reconhecida pela rota, e não por um id fixo em cada página.
@@ -335,8 +335,10 @@ window.UI = (() => {
        cliente, que o HELPDESK, a logística, o comercial, o SAC, o financeiro e
        o NOC usam ao mesmo tempo. */
     itens.forEach((n) => {
-      if (n.global) setores.forEach((s) => (porSetor.get(s.code) || setorPadrao).push(n));
-      else (porSetor.get(n.sector) || setorPadrao).push(n);
+      const destinos = n.global ? setores.map((s) => s.code) : (n.sectors || [n.sector]);
+      /* Uma tela pode estar em vários setores; o Set evita repeti-la no bloco
+         padrão quando mais de um dos setores dela está fora da lista. */
+      new Set(destinos.map((code) => porSetor.get(code) || setorPadrao)).forEach((lista) => lista.push(n));
     });
     return { itens, setores, porSetor };
   }

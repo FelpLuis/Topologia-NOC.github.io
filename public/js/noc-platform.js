@@ -785,7 +785,7 @@
     const rows = state.model.sectors || [], host = $("#sectorRows");
     if (!host) return;
     host.innerHTML = rows.length ? rows.map((s) => {
-      const menus = state.model.screens.filter((screen) => Number(screen.sector_id) === Number(s.id));
+      const menus = state.model.screens.filter((screen) => (screen.sector_ids || []).includes(Number(s.id)));
       return `<tr>
         <td><span class="row" style="gap:8px"><span style="color:${esc(s.color)}">${icon(s.icon || "circle")}</span><b>${esc(s.name)}</b></span></td>
         <td class="mono dim">${esc(s.code)}</td>
@@ -804,8 +804,13 @@
   function openSectorEditor(sector = null) {
     const editing = Boolean(sector);
     const selectedScreens = new Set(editing
-      ? state.model.screens.filter((screen) => Number(screen.sector_id) === Number(sector.id)).map((screen) => Number(screen.id))
+      ? state.model.screens.filter((screen) => (screen.sector_ids || []).includes(Number(sector.id))).map((screen) => Number(screen.id))
       : []);
+    // Onde mais a tela aparece, para ninguém se surpreender ao desmarcá-la aqui.
+    const outrosSetores = (screen) => (screen.sector_ids || [])
+      .filter((id) => !editing || id !== Number(sector.id))
+      .map((id) => (state.model.sectors || []).find((s) => Number(s.id) === id)?.name)
+      .filter(Boolean).join(", ");
     const iconOptions = [
       ["user","Atendimento"],["users","Equipe"],["pops","Localização"],["dashboard","Indicadores"],
       ["bell","SAC"],["finance","Financeiro"],["topology","Rede"],["calendar","Agenda"],
@@ -829,7 +834,7 @@
             <div class="field"><label for="sectorSort">Ordem no menu</label><input class="input" id="sectorSort" type="number" min="0" max="9999" value="${Number(sector?.sort || 0)}"></div>
             <div class="row-between" style="align-self:end;min-height:42px"><div><b>Setor ativo</b><p class="dim" style="font-size:var(--fs-11)">Visível no menu e na agenda.</p></div><label class="switch"><input type="checkbox" id="sectorActive" ${sector?.active !== 0 ? "checked" : ""} ${sector?.code === "noc" ? "disabled" : ""}><span class="switch-track"></span><span class="sr-only">Setor ativo</span></label></div>
           </div>
-          <fieldset><legend>Menus deste setor</legend><div class="permission-list">${state.model.screens.filter((screen) => screen.nav !== 0).map((screen) => `<label class="check-row"><input type="checkbox" data-sector-screen="${screen.id}" ${selectedScreens.has(Number(screen.id)) ? "checked" : ""}><span>${icon(screen.icon || "circle")}<b>${esc(screen.name)}</b><small>${esc(screen.route)}</small></span></label>`).join("")}</div></fieldset>
+          <fieldset><legend>Menus deste setor</legend><p class="field-hint">A mesma tela pode aparecer em vários setores: marcá-la aqui não a tira dos outros.</p><div class="permission-list">${state.model.screens.filter((screen) => screen.nav !== 0).map((screen) => `<label class="check-row"><input type="checkbox" data-sector-screen="${screen.id}" ${selectedScreens.has(Number(screen.id)) ? "checked" : ""}><span>${icon(screen.icon || "circle")}<b>${esc(screen.name)}</b><small>${esc(screen.route)}${outrosSetores(screen) ? ` · também em ${esc(outrosSetores(screen))}` : ""}</small></span></label>`).join("")}</div></fieldset>
           <div class="alert alert-danger" data-sector-error hidden></div>
         </div>
         <div class="modal-foot"><span class="dim">A alteração é registrada na auditoria.</span><span class="row"><button class="btn" data-close>Cancelar</button><button class="btn btn-primary" data-save>${editing ? "Salvar alterações" : "Criar setor"}</button></span></div>`,

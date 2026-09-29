@@ -165,6 +165,15 @@ CREATE TABLE IF NOT EXISTS screens (
   sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL
 );
 
+-- Em quais blocos de setor do menu a tela aparece. Uma tela pode morar em
+-- vários setores; sem vínculo nenhum, ela cai no bloco NOC. A coluna
+-- screens.sector_id ficou só como origem da migração e não é mais lida.
+CREATE TABLE IF NOT EXISTS screen_sectors (
+  screen_id INTEGER NOT NULL REFERENCES screens(id) ON DELETE CASCADE,
+  sector_id INTEGER NOT NULL REFERENCES sectors(id) ON DELETE CASCADE,
+  PRIMARY KEY (screen_id, sector_id)
+);
+
 CREATE TABLE IF NOT EXISTS platform_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT '',
@@ -601,6 +610,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 CREATE INDEX IF NOT EXISTS idx_user_sectors_sector ON user_sectors(sector_id,user_id);
+CREATE INDEX IF NOT EXISTS idx_screen_sectors_sector ON screen_sectors(sector_id,screen_id);
 CREATE INDEX IF NOT EXISTS idx_agenda_events_range ON agenda_events(start_at,end_at);
 CREATE INDEX IF NOT EXISTS idx_agenda_events_sector ON agenda_events(sector_id,start_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agenda_ics_external
@@ -1742,20 +1752,27 @@ async function ensureDatabaseImpl(env) {
     `).run();
   });
 
-  // A Central CRM aparece no bloco Comercial, mas seus registros e funis são
-  // separados pelo setor escolhido. A associação explícita também corrige
-  // instalações nas quais a tela entrou primeiro no bloco padrão (NOC).
-  await db.prepare(`
-    UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='comercial')
-    WHERE code='crm'
-  `).run();
-
-  // O Chat WhatsApp e o Painel de Tickets são o atendimento ao cliente:
-  // ficam no bloco HELPDESK.
-  await db.prepare(`
-    UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='atendimento')
-    WHERE code IN ('whatsapp','tickets')
-  `).run();
+  // O vínculo tela ↔ setor passa de uma coluna para screen_sectors, e uma
+  // tela pode morar em mais de um setor. A cópia leva o setor único de cada
+  // tela, com a Central CRM no Comercial e o Chat WhatsApp e o Painel de
+  // Tickets no HELPDESK — posições que antes eram reimpostas a cada partida
+  // e agora, como o resto, ficam a cargo do administrador.
+  await seedOnce(db, "seed.screen_sectors.v1", async () => {
+    await db.batch([
+      db.prepare(`
+        UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='comercial')
+        WHERE code='crm'
+      `),
+      db.prepare(`
+        UPDATE screens SET sector_id=(SELECT id FROM sectors WHERE code='atendimento')
+        WHERE code IN ('whatsapp','tickets')
+      `),
+      db.prepare(`
+        INSERT OR IGNORE INTO screen_sectors(screen_id,sector_id)
+        SELECT id,sector_id FROM screens WHERE sector_id IS NOT NULL
+      `)
+    ]);
+  });
 
   // As concessões são montadas como statements e enviadas em batch: sozinhas,
   // cada uma custava uma ida ao D1 e são dezenas por partida a frio.
@@ -2790,13 +2807,33 @@ async function validSectorScreenIds(db, screenIds) {
   return !ids.some(id => !existing.has(id));
 }
 
-async function replaceSectorScreens(db, sectorId, screenIds) {
-  if (!Array.isArray(screenIds)) return;
+/* Troca as telas de um setor sem tocar nos outros: a mesma tela pode estar
+   marcada em vários setores ao mesmo tempo. */
+function sectorScreenStatements(db, sectorId, screenIds) {
+  if (!Array.isArray(screenIds)) return [];
   const ids = [...new Set(screenIds.map(Number).filter(Number.isInteger))];
-  await db.batch([
-    db.prepare(`UPDATE screens SET sector_id=NULL WHERE sector_id=?`).bind(sectorId),
-    ...ids.map(id => db.prepare(`UPDATE screens SET sector_id=? WHERE id=?`).bind(sectorId,id))
-  ]);
+  return [
+    db.prepare(`DELETE FROM screen_sectors WHERE sector_id=?`).bind(sectorId),
+    ...ids.map(id => db.prepare(`INSERT OR IGNORE INTO screen_sectors(screen_id,sector_id) VALUES (?,?)`).bind(id,sectorId))
+  ];
+}
+
+async function replaceSectorScreens(db, sectorId, screenIds) {
+  const statements = sectorScreenStatements(db, sectorId, screenIds);
+  if (statements.length) await db.batch(statements);
+}
+
+async function sectorScreenIds(db, sectorId) {
+  return ((await db.prepare(`
+    SELECT s.id FROM screen_sectors ss JOIN screens s ON s.id=ss.screen_id
+    WHERE ss.sector_id=? ORDER BY s.sort,s.id
+  `).bind(sectorId).all()).results || []).map(row => Number(row.id));
+}
+
+// group_concat devolve "3,5" (ou null); a plataforma recebe a lista de ids.
+function comSetoresDaTela(tela) {
+  const { sector_ids, ...resto } = tela;
+  return { ...resto, sector_ids: String(sector_ids || "").split(",").filter(Boolean).map(Number) };
 }
 
 function safeAgendaEvent(row) {
@@ -3039,8 +3076,7 @@ async function handleSectorUpdate(env, request, id) {
     SELECT id,code,name,description,color,icon,sort,active FROM sectors WHERE id=?
   `).bind(id).first();
   if (!before) return json({ error: "SETOR_NAO_ENCONTRADO" },404);
-  before.screen_ids = ((await db.prepare(`SELECT id FROM screens WHERE sector_id=? ORDER BY sort,id`).bind(id).all()).results || [])
-    .map(row => Number(row.id));
+  before.screen_ids = await sectorScreenIds(db, id);
   let body; try { body = await readJson(request,16384); } catch { return json({ error: "INVALID_JSON" },400); }
   const sectorInput = normalizedSector(body,before);
   if (!sectorInput) return json({ error: "SETOR_INVALIDO" },400);
@@ -3050,19 +3086,12 @@ async function handleSectorUpdate(env, request, id) {
         UPDATE sectors SET name=?,description=?,color=?,icon=?,sort=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?
       `).bind(sectorInput.name,sectorInput.description,sectorInput.color,sectorInput.icon,
         sectorInput.sort,sectorInput.active,id)];
-    if (Array.isArray(body.screen_ids)) {
-      const ids = [...new Set(body.screen_ids.map(Number).filter(Number.isInteger))];
-      statements.push(
-        db.prepare(`UPDATE screens SET sector_id=NULL WHERE sector_id=?`).bind(id),
-        ...ids.map(screenId => db.prepare(`UPDATE screens SET sector_id=? WHERE id=?`).bind(id,screenId))
-      );
-    }
+    statements.push(...sectorScreenStatements(db, id, body.screen_ids));
     await db.batch(statements);
     const after = await db.prepare(`
       SELECT id,code,name,description,color,icon,sort,active FROM sectors WHERE id=?
     `).bind(id).first();
-    after.screen_ids = ((await db.prepare(`SELECT id FROM screens WHERE sector_id=? ORDER BY sort,id`).bind(id).all()).results || [])
-      .map(row => Number(row.id));
+    after.screen_ids = await sectorScreenIds(db, id);
     await audit(env,request,gate.user,"SECTOR_UPDATE","sector",id,before,after);
     return json(after);
   } catch { return json({ error: "SETOR_JA_EXISTE" },409); }
@@ -6221,11 +6250,14 @@ export function consultaTelasDoAcesso({ mestre = false, roleId = null, globais =
   return {
     sql: `
     SELECT s.code,s.name,s.description,s.route,s.icon,s.sort,s.nav,
-      COALESCE(sec.code,'noc') sector,
+      COALESCE((
+        SELECT group_concat(sec.code) FROM screen_sectors ss
+        JOIN sectors sec ON sec.id=ss.sector_id AND sec.active=1
+        WHERE ss.screen_id=s.id
+      ),'noc') sectors,
       CASE WHEN s.code IN (${globais.map(() => "?").join(",")}) THEN 1 ELSE 0 END global
     FROM screens s
     ${mestre ? "" : "JOIN role_screens rs ON rs.screen_id=s.id AND rs.role_id=?"}
-    LEFT JOIN sectors sec ON sec.id=s.sector_id AND sec.active=1
     WHERE s.active=1 ORDER BY s.sort,s.id`,
     binds: [...globais, ...(mestre ? [] : [roleId])]
   };
@@ -6243,7 +6275,12 @@ async function handleAccess(env, request) {
         WHERE rp.role_id=? ORDER BY p.code
       `).bind(user.role_id).all()).results.map(x=>x.code))].sort();
   const telas=consultaTelasDoAcesso({mestre, roleId:user.role_id});
-  const screens=(await db.prepare(telas.sql).bind(...telas.binds).all()).results;
+  // "sectors" chega do SQL como lista separada por vírgula; "sector" (o
+  // primeiro) segue para páginas antigas ainda em cache no navegador.
+  const screens=((await db.prepare(telas.sql).bind(...telas.binds).all()).results || []).map(tela => {
+    const setores=String(tela.sectors||"noc").split(",").filter(Boolean);
+    return {...tela, sectors:setores, sector:setores[0]||"noc"};
+  });
   const sectors=(await db.prepare(`
     SELECT code,name,color,icon,sort FROM sectors WHERE active=1 ORDER BY sort,name
   `).all()).results || [];
@@ -6268,9 +6305,11 @@ async function handlePlatformRoles(env, request) {
   const permissions=(await db.prepare(`
     SELECT id,code,name,description,module,screen_code,sort FROM permissions ORDER BY module,sort,code
   `).all()).results;
-  const screens=(await db.prepare(`
-    SELECT id,code,name,description,route,active,icon,sort,nav,sector_id FROM screens ORDER BY sort,id
-  `).all()).results;
+  const screens=((await db.prepare(`
+    SELECT s.id,s.code,s.name,s.description,s.route,s.active,s.icon,s.sort,s.nav,
+      (SELECT group_concat(ss.sector_id) FROM screen_sectors ss WHERE ss.screen_id=s.id) sector_ids
+    FROM screens s ORDER BY s.sort,s.id
+  `).all()).results || []).map(comSetoresDaTela);
   const rolePermissions=(await db.prepare(`SELECT role_id,permission_id FROM role_permissions`).all()).results;
   const roleScreens=(await db.prepare(`SELECT role_id,screen_id FROM role_screens`).all()).results;
   const sectors=await agendaSectors(db,gate.user.id,true);
@@ -9359,9 +9398,11 @@ export default {
         if(url.pathname === "/api/platform/screens" && request.method==="GET"){
           const gate=await requirePermission(env,request,"roles.view");if(gate.response)return gate.response;
           const rows=(await getDB(env).prepare(`
-            SELECT id,code,name,description,route,active,icon,sort,nav,sector_id FROM screens ORDER BY sort,id
+            SELECT s.id,s.code,s.name,s.description,s.route,s.active,s.icon,s.sort,s.nav,
+      (SELECT group_concat(ss.sector_id) FROM screen_sectors ss WHERE ss.screen_id=s.id) sector_ids
+    FROM screens s ORDER BY s.sort,s.id
           `).all()).results;
-          return json(rows);
+          return json((rows || []).map(comSetoresDaTela));
         }
 
         return json({ok:false,error:"Endpoint não encontrado.",path:url.pathname},404);

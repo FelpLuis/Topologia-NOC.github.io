@@ -36,3 +36,11 @@ test("mestre: enxerga o catálogo ativo inteiro, sem passar por role_screens", (
   assert.equal(sql.split("?").length - 1, binds.length);
   assert.ok(sql.includes("WHERE s.active=1"), "telas desativadas seguem fora, até para o mestre");
 });
+
+test("tela em vários setores: os setores saem de screen_sectors, com NOC como padrão", () => {
+  const { sql } = consultaTelasDoAcesso({ roleId: 7, globais: ["clientes"] });
+
+  assert.ok(sql.includes("FROM screen_sectors"), "o vínculo tela ↔ setor mora em screen_sectors");
+  assert.ok(/group_concat\(sec\.code\)[\s\S]*'noc'\) sectors/.test(sql), "sem vínculo, a tela cai no bloco NOC");
+  assert.ok(!/\bs\.sector_id/.test(sql),"a coluna antiga de setor único não é mais lida");
+});

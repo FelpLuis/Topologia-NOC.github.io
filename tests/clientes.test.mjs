@@ -65,7 +65,7 @@ test("Cadastro de Cliente aparece em todos os setores do menu", () => {
   assert.match(worker, /SCREENS_GLOBAIS/);
   assert.match(worker, /CASE WHEN s\.code IN .* THEN 1 ELSE 0 END global/);
   assert.match(ui, /n\.global/);
-  assert.match(ui, /if \(n\.global\) setores\.forEach/);
+  assert.match(ui, /n\.global \? setores\.map\(\(s\) => s\.code\)/);
   // Fallback de navegação também o marca como global.
   assert.match(ui, /global: true/);
 });
