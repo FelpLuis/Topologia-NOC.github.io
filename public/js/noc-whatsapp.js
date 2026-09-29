@@ -244,6 +244,18 @@
     return (state.data?.presence || []).find(p => Number(p.user_id) === myId());
   }
 
+  // Setores da aba Equipe em "Todos os setores": os do próprio usuário que
+  // atendem no WhatsApp. O presence vem com todos os setores visíveis (o
+  // administrador vê todos) porque a transferência precisa deles; sem esse
+  // recorte a aba listava todo mundo. Quem não está em nenhum setor do
+  // WhatsApp vê a equipe inteira do WhatsApp; null é sem recorte.
+  function teamSectorIds() {
+    const routed = enabledSectors().map(s => Number(s.id));
+    const base = routed.length ? routed : null;
+    const own = (selfPresence()?.sectors || []).filter(id => !base || base.includes(id));
+    return own.length ? own : base;
+  }
+
   function renderPresence() {
     const self = selfPresence();
     const pill = $("#presenceToggle");
@@ -254,7 +266,10 @@
     } <small>— ${status === "paused" ? "retomar" : "pausar"}</small></span>${icon("chevronDown")}`;
     pill.title = status === "paused" ? "Você não recebe novos atendimentos. Clique para voltar." : "Clique para pausar o recebimento de atendimentos.";
 
-    const list = (state.data?.presence || []).filter(p => !state.sector || p.sectors.includes(Number(state.sector)));
+    const team = teamSectorIds();
+    const list = (state.data?.presence || []).filter(p => state.sector
+      ? p.sectors.includes(Number(state.sector))
+      : !team || p.sectors.some(id => team.includes(id)));
     const groups = [
       ["Em atendimento", list.filter(p => p.busy)],
       ["Disponíveis", list.filter(p => !p.busy && p.available !== false)],
