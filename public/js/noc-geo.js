@@ -87,6 +87,9 @@ window.GEO = (() => {
     function novoTile(z, coluna, linha, n) {
       const img = document.createElement("img");
       const x = ((coluna % n) + n) % n;   // o mundo se repete na horizontal
+      // A página é no-referrer, mas a política de uso do OSM bloqueia (403) tile sem
+      // Referer. Só a origem vai junto — nunca o caminho nem a query.
+      img.referrerPolicy = "strict-origin";
       img.src = `${TILE_URL}/${z}/${x}/${linha}.png`;
       img.alt = "";
       img.loading = "eager";
