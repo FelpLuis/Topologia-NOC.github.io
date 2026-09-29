@@ -4067,7 +4067,7 @@ function uaCarimbo(iso) {
 }
 
 // Chamada ao app. Devolve { ok, resultado } ou { ok:false, error, status, detail }.
-async function uaEnviarAoApp(env, payload) {
+async function uaEnviarAoApp(env, payload, timeoutMs = UPDOWN_APP_TIMEOUT_MS) {
   const base = String(env.UPDOWN_APP_URL || "").replace(/\/+$/, "");
   const secret = env.UPDOWN_APP_SEGREDO;
   if (!base || !secret) return { ok: false, error: "UPDOWN_APP_NAO_CONFIGURADO" };
@@ -4082,7 +4082,7 @@ async function uaEnviarAoApp(env, payload) {
         "X-UpDown-Assinatura": await uaAssinatura(secret, ts, raw)
       },
       body: raw,
-      signal: AbortSignal.timeout(UPDOWN_APP_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeoutMs)
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, error: "UPDOWN_APP_ENVIO_FALHOU", status: res.status, detail: JSON.stringify(data).slice(0, 400) };
@@ -4105,6 +4105,48 @@ async function uaSendText(env, target, body, meta = {}) {
   });
   if (r.ok && r.resultado === "chamado_fechado") return { ok: false, error: "CHAMADO_ENCERRADO_NO_APP" };
   return r.ok ? { ok: true, wa_message_id: `noc:${mensagemId}` } : r;
+}
+
+// Tipos que o app aceita como mídia (LIMITES em packages/contracts/src/midia.ts
+// do AppClientes). O resto seria recusado lá depois do download; recusar aqui
+// dá ao atendente o motivo certo.
+const UA_MIMES_ACEITOS = new Set(["image/jpeg", "image/png", "image/webp", "video/mp4", "audio/mpeg", "audio/mp4", "audio/ogg", "audio/webm", "application/pdf"]);
+
+// Anexo do atendente → chamado do app. Os bytes não vão no evento: o app baixa
+// de GET /api/updown-app/midia assinando a chave (handleUpdownAppMidia), grava
+// no MinIO dele e passa pela mesma conferência de tipo de um upload do console.
+// O tempo é maior que o de texto porque, dentro desta chamada, o app vem buscar
+// o arquivo aqui antes de responder.
+async function uaSendMedia(env, target, media, meta = {}) {
+  const mime = mediaMimeOfKey(media.key);
+  if (!UA_MIMES_ACEITOS.has(mime)) return { ok: false, error: "ANEXO_TIPO_NAO_CHEGA_AO_APP" };
+  const mensagemId = crypto.randomUUID();
+  const r = await uaEnviarAoApp(env, {
+    evento: "mensagem.nova",
+    chamadoId: target.external_id,
+    mensagemId,
+    texto: "",
+    anexos: [{ chave: media.key, mime, nome: String(media.name || "").slice(0, 200) }],
+    atendente: String(meta.atendente || "").slice(0, 200)
+  }, 45000);
+  if (r.ok && r.resultado === "chamado_fechado") return { ok: false, error: "CHAMADO_ENCERRADO_NO_APP" };
+  return r.ok ? { ok: true, wa_message_id: `noc:${mensagemId}` } : r;
+}
+
+// GET /api/updown-app/midia?chave=staff/<id>/<uuid>.<ext> — só o servidor do app,
+// que assina a chave com UPDOWN_APP_SEGREDO (mesmo esquema do corpo dos eventos).
+async function handleUpdownAppMidia(env, request, url) {
+  const secret = env.UPDOWN_APP_SEGREDO;
+  if (!secret) return json({ error: "UPDOWN_APP_NAO_CONFIGURADO" }, 503);
+  const chave = url.searchParams.get("chave") || "";
+  if (!/^staff/d+/[0-9a-f-]{36}.[a-z0-9]+$/.test(chave)) return json({ error: "CHAVE_INVALIDA" }, 400);
+  if (!(await uaConferir(secret, request, chave))) return json({ error: "ASSINATURA_INVALIDA" }, 403);
+  const object = env.MEDIA ? await env.MEDIA.get(chave) : null;
+  if (!object) return json({ error: "NAO_ENCONTRADO" }, 404);
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("cache-control", "no-store");
+  return new Response(object.body, { headers });
 }
 
 // Assumir e encerrar avisam o app sem travar a tela do NOC: se o app estiver
@@ -4487,15 +4529,18 @@ async function handleWhatsappSend(env, request, id) {
   const preview = isMedia ? mediaPreview(kind, mediaName) : text;
   // Conversa nascida no app não tem canal externo pra espelhar (ver
   // handleClientMessageSend). Pelo número da Meta o arquivo sobe para lá e
-  // chega como no WhatsApp; Opa!Suite e App UpDown ainda não têm envio de
-  // mídia implementado — recusa em vez de mostrar como enviado algo que o
-  // cliente nunca vai ver.
+  // chega como no WhatsApp; no App UpDown o app vem buscar o arquivo aqui
+  // (uaSendMedia). O Opa!Suite ainda não tem envio de mídia — recusa em vez de
+  // mostrar como enviado algo que o cliente nunca vai ver.
   const isAppOnly = !conv.channel || conv.channel === "app";
-  if (isMedia && conv.channel === UPDOWN_APP_CHANNEL) return json({ error: "ANEXO_NAO_CHEGA_AO_APP" }, 400);
-  if (isMedia && !isAppOnly && conv.channel !== "whatsapp") return json({ error: "ANEXO_NAO_CHEGA_AO_CANAL" }, 400);
+  const isUpdownApp = conv.channel === UPDOWN_APP_CHANNEL;
+  if (isMedia && isUpdownApp && !UA_MIMES_ACEITOS.has(mediaMimeOfKey(key))) return json({ error: "ANEXO_TIPO_NAO_CHEGA_AO_APP" }, 400);
+  if (isMedia && !isAppOnly && !isUpdownApp && conv.channel !== "whatsapp") return json({ error: "ANEXO_NAO_CHEGA_AO_CANAL" }, 400);
+  const atendente = gate.user.display_name;
   const send = isAppOnly ? { ok: true, wa_message_id: null }
+    : isMedia && isUpdownApp ? await uaSendMedia(env, conv, { key, name: mediaName }, { atendente })
     : isMedia ? await waSendMedia(env, conv.phone, { key, kind, name: mediaName })
-    : await omniSendText(env, conv, text, { atendente: gate.user.display_name });
+    : await omniSendText(env, conv, text, { atendente });
   const result = await db.prepare(`INSERT INTO wa_messages(conversation_id,direction,type,body,wa_message_id,status,sender_user_id,sender_name,media_name) VALUES(?,?,?,?,?,?,?,?,?)`)
     .bind(id, "out", kind, text, send.wa_message_id, send.ok ? "sent" : "failed", gate.user.id, gate.user.display_name, mediaName).run();
   await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(preview, id).run();
@@ -9222,6 +9267,8 @@ export default {
         // Mesmo motivo acima: o webhook do Opa!Suite (canais Meta e Webchat)
         // também chega cross-site, sem cookie de sessão.
         // App do Assinante UpDown: servidor a servidor, autenticado pela assinatura.
+        if (url.pathname === "/api/updown-app/midia" && request.method === "GET")
+          return await handleUpdownAppMidia(env, request, url);
         if (url.pathname === "/api/updown-app/eventos" && request.method === "POST")
           return await handleUpdownAppEventos(env, request);
         if (url.pathname === "/api/opasuite/webhook" && request.method === "POST")

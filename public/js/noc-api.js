@@ -74,7 +74,7 @@ window.NOC = (() => {
     if (connectionErrors[data?.error]) return connectionErrors[data.error];
     /* Chat: conversas do App do Assinante UpDown (canal updown_app). */
     const appErrors = {
-      ANEXO_NAO_CHEGA_AO_APP: "Anexo e áudio ainda não chegam ao App UpDown. Descreva por texto ou peça para o cliente abrir pelo console do app.",
+      ANEXO_TIPO_NAO_CHEGA_AO_APP: "O App UpDown só recebe foto (JPG, PNG, WEBP), áudio, vídeo MP4 e PDF. Converta o arquivo ou descreva por texto.",
       ANEXO_NAO_CHEGA_AO_CANAL: "Anexo e áudio ainda não chegam por este canal (Opa!Suite). Descreva por texto.",
       ANEXO_INVALIDO: "O anexo não foi reconhecido. Envie o arquivo de novo.",
       TIPO_INVALIDO: "Tipo de arquivo não aceito. Envie imagem, áudio, vídeo MP4, PDF, Word, Excel, PowerPoint ou TXT.",
