@@ -119,6 +119,17 @@ test("atendente envia anexo e áudio pelo chat web", () => {
   assert.match(worker, /status: 206/);
 });
 
+test("rota de mídia do App UpDown aceita só chave de anexo do atendente", () => {
+  const fonte = worker.match(/const UA_CHAVE_DE_MIDIA = (\/.+\/);/);
+  assert.ok(fonte, "UA_CHAVE_DE_MIDIA precisa ser uma regex literal");
+  const chave = new Function(`return ${fonte[1]}`)();
+  assert.ok(chave instanceof RegExp);
+  assert.ok(chave.test("staff/7/5da98d8d-b45f-401e-a650-6936280a3dd9.ogg"));
+  for (const ruim of ["staff/7/../../etc/passwd", "client/3/5da98d8d-b45f-401e-a650-6936280a3dd9.ogg", "staff/x/5da98d8d-b45f-401e-a650-6936280a3dd9.ogg", "staffX7/5da98d8d-b45f-401e-a650-6936280a3dd9.ogg"])
+    assert.equal(chave.test(ruim), false, ruim);
+  assert.match(worker, /if \(!UA_CHAVE_DE_MIDIA\.test\(chave\)\)/);
+});
+
 test("gravador converte WebM/Opus do Chrome em Ogg/Opus válido", async () => {
   const { runInNewContext } = await import("node:vm");
   const code = await readFile(new URL("../public/js/noc-gravador.js", import.meta.url), "utf8");

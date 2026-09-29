@@ -4133,13 +4133,16 @@ async function uaSendMedia(env, target, media, meta = {}) {
   return r.ok ? { ok: true, wa_message_id: `noc:${mensagemId}` } : r;
 }
 
+// Mesmo formato que o app exige em anexoDoNoc (packages/contracts/src/noc.ts).
+const UA_CHAVE_DE_MIDIA = /^staff\/\d+\/[0-9a-f-]{36}\.[a-z0-9]+$/;
+
 // GET /api/updown-app/midia?chave=staff/<id>/<uuid>.<ext> — só o servidor do app,
 // que assina a chave com UPDOWN_APP_SEGREDO (mesmo esquema do corpo dos eventos).
 async function handleUpdownAppMidia(env, request, url) {
   const secret = env.UPDOWN_APP_SEGREDO;
   if (!secret) return json({ error: "UPDOWN_APP_NAO_CONFIGURADO" }, 503);
   const chave = url.searchParams.get("chave") || "";
-  if (!/^staff/d+/[0-9a-f-]{36}.[a-z0-9]+$/.test(chave)) return json({ error: "CHAVE_INVALIDA" }, 400);
+  if (!UA_CHAVE_DE_MIDIA.test(chave)) return json({ error: "CHAVE_INVALIDA" }, 400);
   if (!(await uaConferir(secret, request, chave))) return json({ error: "ASSINATURA_INVALIDA" }, 403);
   const object = env.MEDIA ? await env.MEDIA.get(chave) : null;
   if (!object) return json({ error: "NAO_ENCONTRADO" }, 404);
