@@ -1177,7 +1177,7 @@ function json(data, status = 200, extraHeaders = {}) {
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
-      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "permissions-policy": "camera=(), microphone=(self), geolocation=()",
       "access-control-allow-origin": "*",
       ...extraHeaders
     }
@@ -1203,10 +1203,13 @@ function securityHeaders(base) {
   h.set("Referrer-Policy", "no-referrer");
   h.set("X-Content-Type-Options", "nosniff");
   h.set("X-Frame-Options", "DENY");
-  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // Microfone só para o próprio site: o chat grava áudio. Com "microphone=()"
+  // o navegador recusava na hora, sem nem mostrar o pedido de permissão.
+  h.set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()");
   // img-src libera os tiles do OpenStreetMap usados como fundo do mapa da
-  // topologia. Só imagem: nenhum script de terceiro entra na página.
-  h.set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; connect-src 'self'");
+  // topologia. Só imagem: nenhum script de terceiro entra na página. blob:
+  // (imagem e mídia) é a prévia local do anexo do chat enquanto ele sobe.
+  h.set("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self'");
   return h;
 }
 

@@ -111,6 +111,10 @@ test("atendente envia anexo e áudio pelo chat web", () => {
   // migração rodar; só com ensureColumns o banco de produção não a ganhava (500)
   assert.match(worker, /CREATE TABLE IF NOT EXISTS wa_messages \([^;]*media_name TEXT[^;]*caption TEXT/);
   assert.match(worker, /\["media_name", "TEXT NOT NULL DEFAULT ''"\]/);
+  // "microphone=()" bloqueava a gravação sem o navegador nem perguntar
+  assert.doesNotMatch(worker, /"camera=\(\), microphone=\(\)/);
+  assert.match(worker, /microphone=\(self\)/);
+  assert.match(worker, /media-src 'self' blob:/);
   // player de áudio precisa de Range para mostrar a duração
   assert.match(worker, /status: 206/);
 });

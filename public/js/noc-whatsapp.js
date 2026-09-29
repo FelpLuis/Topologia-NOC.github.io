@@ -811,7 +811,7 @@
       rec = await NOCGravador.iniciar();
     } catch (err) {
       const denied = err?.name === "NotAllowedError" || err?.name === "SecurityError";
-      toast("Não foi possível gravar", { text: denied ? "Libere o microfone para este site no navegador." : err?.name === "NotFoundError" ? "Nenhum microfone encontrado." : String(err?.message || err), type: "danger" });
+      toast("Não foi possível gravar", { text: denied ? "O microfone está bloqueado para este site. Clique no cadeado ao lado do endereço, em Microfone escolha Permitir e recarregue a página." : err?.name === "NotFoundError" ? "Nenhum microfone encontrado." : String(err?.message || err), type: "danger" });
       return;
     } finally {
       state.startingRec = false;
