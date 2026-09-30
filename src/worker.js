@@ -4172,7 +4172,46 @@ const UA_CANAL_ROTULO = {
   financeiro: "Financeiro", sac: "Fale com a diretoria", cancelamento: "Cancelamento"
 };
 
-async function uaSincronizar(db, p) {
+const UA_ANEXO_CHEGANDO = "📎 Anexo chegando do app…";
+
+// Anexo do cliente no app → mídia deste chat. O app só lista o que já liberou
+// (varrido, foto sem EXIF); o arquivo vem de GET /integracoes/noc/midia/:id lá,
+// com o id assinado pelo segredo da ponte. Formato que este chat não mostra ou
+// arquivo acima do limite vira um aviso no lugar, sem baixar.
+async function uaBaixarMidia(env, externalId, md) {
+  const id = String(md?.id || "");
+  const mime = String(md?.mime || "").split(";")[0].trim().toLowerCase();
+  const kind = mediaKindOfMime(mime);
+  const rotulo = mediaPreview(kind, "Documento");
+  const recado = motivo => ({ ok: false, aviso: `📎 ${rotulo.replace(/^\S+\s/, "")}: ${motivo} — veja no console do app` });
+  const naoTrouxe = "não deu para trazer do app";
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return recado("anexo inválido");
+  if (!MEDIA_ALLOWED_TYPES[mime]) return recado("formato que o chat não mostra");
+  if (Number(md?.tamanhoBytes) > MEDIA_MAX_BYTES) return recado("maior que 16 MB");
+  const base = String(env.UPDOWN_APP_URL || "").replace(/\/+$/, "");
+  const secret = env.UPDOWN_APP_SEGREDO;
+  if (!base || !secret) return recado(naoTrouxe);
+  const ts = Math.floor(Date.now() / 1000);
+  try {
+    const res = await fetch(`${base}/integracoes/noc/midia/${id}`, {
+      headers: { "X-UpDown-Timestamp": String(ts), "X-UpDown-Assinatura": await uaAssinatura(secret, ts, id) },
+      signal: AbortSignal.timeout(UPDOWN_APP_TIMEOUT_MS)
+    });
+    if (!res.ok) {
+      console.error(`[updown_app] mídia ${id} não veio do app: HTTP ${res.status}`);
+      return recado(naoTrouxe);
+    }
+    const pasta = String(externalId).replace(/[^0-9a-f-]/gi, "").slice(0, 40) || "sem-chamado";
+    const stored = await storeMediaBytes(env, `app/${pasta}`, mime, await res.arrayBuffer());
+    if (!stored.ok) return recado("não deu para guardar aqui");
+    return { ok: true, kind, path: `/api/media/${stored.key}` };
+  } catch (e) {
+    console.error(`[updown_app] mídia ${id} não veio do app:`, String(e?.message || e));
+    return recado(naoTrouxe);
+  }
+}
+
+async function uaSincronizar(env, db, p) {
   const c = p.chamado || {}, cli = p.cliente || {};
   const externalId = String(c.id || "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(externalId)) return { error: "CHAMADO_INVALIDO" };
@@ -4203,6 +4242,11 @@ async function uaSincronizar(db, p) {
       .bind(conv.id, "bot", "text", abertura.slice(0, 600), `app:chamado:${externalId}`, "App", aberto).run();
   }
 
+  // Cada mensagem do app vira até N linhas aqui: o texto em `app:<id>` e cada
+  // anexo liberado em `app:<id>:<midia>`. Anexo que o app ainda não liberou
+  // (varredura, EXIF) não vem em `midias`; quando liberar, o app manda a mesma
+  // mensagem de novo com ele. Sem texto e sem anexo pronto, um marcador ocupa
+  // `app:<id>` e some quando o arquivo chega.
   let novasDoCliente = 0, ultima = null;
   for (const m of Array.isArray(p.mensagens) ? p.mensagens.slice(0, 200) : []) {
     const waId = `app:${String(m.id || "").slice(0, 60)}`;
@@ -4210,13 +4254,36 @@ async function uaSincronizar(db, p) {
     const quem = UA_REMETENTE[m.remetente] || UA_REMETENTE.system;
     const anexos = Number(m.anexos) || 0;
     const texto = String(m.texto || "").trim().slice(0, 4096);
-    const aviso = anexos ? `📎 ${anexos === 1 ? "1 anexo" : `${anexos} anexos`} — veja no console do app` : "";
-    const body = [texto, aviso].filter(Boolean).join("\n") || "(mensagem vazia)";
-    const r = await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,COALESCE(?,CURRENT_TIMESTAMP))`)
-      .bind(conv.id, quem.direction, "text", body, waId, quem.nome || conv.customer_name, uaCarimbo(m.criadaEm)).run();
-    if (!r.meta?.changes) continue;
-    ultima = body;
-    if (quem.direction === "in") novasDoCliente++;
+    const midias = Array.isArray(m.midias) ? m.midias.slice(0, 10) : [];
+    const criada = uaCarimbo(m.criadaEm);
+    const nome = quem.nome || conv.customer_name;
+    const inserir = async (id, type, body) => {
+      const r = await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,COALESCE(?,CURRENT_TIMESTAMP))`)
+        .bind(conv.id, quem.direction, type, body, id, nome, criada).run();
+      if (!r.meta?.changes) return false;
+      ultima = type === "text" ? body : mediaPreview(type, "");
+      return true;
+    };
+
+    let novas = 0;
+    if (texto && await inserir(waId, "text", texto)) novas++;
+    for (const md of midias) {
+      const idMidia = `${waId}:${String(md?.id || "").slice(0, 40)}`;
+      if (await db.prepare(`SELECT 1 FROM wa_messages WHERE wa_message_id=?`).bind(idMidia).first()) continue;
+      const trazida = await uaBaixarMidia(env, externalId, md);
+      if (await inserir(idMidia, trazida.ok ? trazida.kind : "text", trazida.ok ? trazida.path : trazida.aviso)) novas++;
+    }
+    if (!texto && midias.length) {
+      // O arquivo que o marcador anunciava chegou: tira o marcador (inclusive o
+      // antigo "veja no console do app") e não conta a mesma mensagem duas vezes.
+      const sumiu = await db.prepare(`DELETE FROM wa_messages WHERE wa_message_id=? AND type='text' AND body LIKE '📎 %'`).bind(waId).run();
+      if (sumiu.meta?.changes && novas > 0) novas--;
+    } else if (!texto && anexos > 0) {
+      if (await inserir(waId, "text", UA_ANEXO_CHEGANDO)) novas++;
+    } else if (!texto && await inserir(waId, "text", "(mensagem vazia)")) {
+      novas++;
+    }
+    if (quem.direction === "in") novasDoCliente += novas;
   }
   if (ultima !== null) {
     await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
@@ -4244,7 +4311,7 @@ async function handleUpdownAppEventos(env, request) {
   let payload;
   try { payload = JSON.parse(raw); } catch { return json({ error: "INVALID_JSON" }, 400); }
   if (payload?.evento !== "chamado.sincronizar") return json({ error: "EVENTO_DESCONHECIDO" }, 400);
-  const r = await uaSincronizar(getDB(env), payload);
+  const r = await uaSincronizar(env, getDB(env), payload);
   if (r.error) return json({ error: r.error }, 400);
   return json({ ok: true, conversation_id: r.conversation_id });
 }

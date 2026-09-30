@@ -130,6 +130,14 @@ test("rota de mídia do App UpDown aceita só chave de anexo do atendente", () =
   assert.match(worker, /if \(!UA_CHAVE_DE_MIDIA\.test\(chave\)\)/);
 });
 
+test("anexo do cliente no App UpDown vira mídia no chat", () => {
+  assert.match(worker, /async function uaBaixarMidia/);
+  assert.match(worker, /\/integracoes\/noc\/midia\/\$\{id\}/);
+  // o marcador sai quando o arquivo chega, inclusive o antigo "veja no console"
+  assert.match(worker, /DELETE FROM wa_messages WHERE wa_message_id=\? AND type='text' AND body LIKE '📎 %'/);
+  assert.doesNotMatch(worker, /anexos\} anexos`\} — veja no console do app/);
+});
+
 test("gravador converte WebM/Opus do Chrome em Ogg/Opus válido", async () => {
   const { runInNewContext } = await import("node:vm");
   const code = await readFile(new URL("../public/js/noc-gravador.js", import.meta.url), "utf8");
