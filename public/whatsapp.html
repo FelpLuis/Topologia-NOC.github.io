@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/css/noc/base.css">
 <link rel="stylesheet" href="/css/noc/components.css?v=20260930-1">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-1">
-<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20260929-2">
+<link rel="stylesheet" href="/css/noc/whatsapp.css?v=20261001-1">
 <script src="/js/auth-guard.js"></script>
 </head>
 <body>
@@ -34,7 +34,10 @@
               <button class="btn btn-primary btn-sm" id="newChatBtn" type="button" data-action="whatsapp.chat" title="Abrir novo atendimento"></button>
             </div>
           </div>
-          <button class="wa-status-pill" id="presenceToggle" type="button" data-action="whatsapp.view"></button>
+          <div class="wa-status-wrap">
+            <button class="wa-status-pill" id="presenceToggle" type="button" data-action="whatsapp.view" aria-haspopup="menu" aria-expanded="false" aria-controls="presenceMenu"></button>
+            <div class="wa-status-menu" id="presenceMenu" role="menu" aria-label="Seu status no atendimento" hidden></div>
+          </div>
           <label class="wa-search">
             <span class="wa-search-icon" id="searchIcon"></span>
             <input class="wa-search-input" id="convSearch" type="search" autocomplete="off" placeholder="Buscar nome, telefone ou protocolo" aria-label="Buscar atendimento">
@@ -123,6 +126,6 @@
 <script src="/js/noc-ui.js?v=20260930-1"></script>
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-gravador.js?v=20260929-1"></script>
-<script src="/js/noc-whatsapp.js?v=20260929-3"></script>
+<script src="/js/noc-whatsapp.js?v=20261001-1"></script>
 </body>
 </html>

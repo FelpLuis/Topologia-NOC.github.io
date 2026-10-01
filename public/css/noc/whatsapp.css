@@ -67,6 +67,39 @@
 .wa-status-pill.is-busy { --dot: var(--cyan-400); }
 .wa-status-pill.is-paused { --dot: var(--warn-500); }
 .wa-status-pill .icon { width: 16px; height: 16px; color: var(--text-3); }
+/* Rotina do atendente: pausa (café/água/banheiro), almoço, offline e pausa
+   que passou do teto. O relógio usa algarismos tabulares para não pular. */
+.wa-status-pill.is-pausa { --dot: var(--warn-500); }
+.wa-status-pill.is-almoco { --dot: var(--purple-400); }
+.wa-status-pill.is-offline { --dot: var(--text-3); }
+.wa-status-pill.is-over { --dot: var(--danger-500); border-color: var(--danger-line); background: var(--danger-bg); }
+.wa-status-pill.is-over .wa-status-text { color: var(--danger-text); }
+.wa-clock { font-variant-numeric: tabular-nums; }
+
+.wa-status-wrap { position: relative; }
+.wa-status-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20;
+  display: grid; gap: 2px; padding: 4px;
+  background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  box-shadow: var(--shadow-3);
+}
+.wa-status-menu[hidden] { display: none; }
+.wa-status-option {
+  --dot: var(--ok-500);
+  display: flex; align-items: center; gap: var(--s-3); width: 100%; padding: 8px 10px;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-1);
+  text-align: left; cursor: pointer;
+}
+.wa-status-option:hover, .wa-status-option:focus-visible { background: var(--surface-2); outline: none; }
+.wa-status-option .wa-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dot); flex: none; }
+.wa-status-option span { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.wa-status-option b { font-size: var(--fs-13); }
+.wa-status-option small { color: var(--text-3); font-size: var(--fs-11); }
+.wa-status-option[aria-checked="true"] { background: var(--surface-2); }
+.wa-status-option[aria-checked="true"]::after { content: "✓"; color: var(--text-2); font-weight: 800; }
+.wa-status-option.is-pausa { --dot: var(--warn-500); }
+.wa-status-option.is-almoco { --dot: var(--purple-400); }
+.wa-status-option.is-offline { --dot: var(--text-3); }
 
 .wa-search {
   display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-3);
@@ -392,6 +425,11 @@
 .wa-presence-item .wa-channel { background: var(--dot); width: 13px; height: 13px; right: -1px; bottom: -1px; }
 .wa-presence-item.is-busy { --dot: var(--cyan-400); }
 .wa-presence-item.is-paused { --dot: var(--warn-500); }
+.wa-presence-item.is-almoco { --dot: var(--purple-400); }
+.wa-presence-item.is-offline { --dot: var(--text-3); }
+.wa-presence-item.is-offline .wa-presence-who b { color: var(--text-2); }
+.wa-presence-item.is-over { --dot: var(--danger-500); }
+.wa-presence-item.is-over .wa-presence-who small { color: var(--danger-text); font-weight: 650; }
 .wa-presence-who { min-width: 0; display: grid; gap: 1px; }
 .wa-presence-who b { font-size: var(--fs-13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wa-presence-who small { color: var(--text-3); font-size: var(--fs-11); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

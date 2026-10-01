@@ -688,9 +688,15 @@ CREATE TABLE IF NOT EXISTS wa_messages (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+/* Rotina do atendente: status online | pausa (café, água, banheiro — até
+   15 min) | almoco (até 1 h) | offline, com 'since' marcando o início do
+   estado para a tela contar o tempo da pausa. 'available' fica espelhado
+   (1 só quando online) para quem ainda lê a coluna antiga. */
 CREATE TABLE IF NOT EXISTS wa_agent_presence (
   user_id INTEGER NOT NULL PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   available INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'online',
+  since TEXT,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1683,6 +1689,13 @@ async function ensureDatabaseImpl(env) {
   ]);
   /* method/headers: adicionados depois pra diagnosticar o handshake do
      webhook do Opa!Suite (formato de autenticação ainda não confirmado). */
+  /* Rotina de presença do chat. Quem estava no "pausado" antigo (available=0,
+     sem prazo) vira offline: é o equivalente de não receber atendimentos. */
+  await ensureColumns(db, "wa_agent_presence", [
+    ["status", "TEXT NOT NULL DEFAULT 'online'"],
+    ["since", "TEXT"]
+  ]);
+  await db.prepare(`UPDATE wa_agent_presence SET status='offline' WHERE available=0 AND status='online'`).run();
   await ensureColumns(db, "wa_webhook_log", [
     ["method", "TEXT NOT NULL DEFAULT ''"],
     ["headers", "TEXT NOT NULL DEFAULT ''"]
@@ -4440,6 +4453,46 @@ async function waConversationFor(db, user, id) {
   return visible ? row : null;
 }
 
+/* Rotina do atendente no chat. limitMin é o teto da pausa: passado dele a
+   pausa aparece como excedida (para o próprio atendente e para a equipe),
+   mas ninguém é tirado da pausa automaticamente. */
+const WA_PRESENCE_STATUS = {
+  online: { label: "Online", limitMin: 0 },
+  pausa: { label: "Pausa (café, água, banheiro)", limitMin: 15 },
+  almoco: { label: "Almoço", limitMin: 60 },
+  offline: { label: "Offline", limitMin: 0 }
+};
+
+function waPresenceStatusOf(row) {
+  if (row && WA_PRESENCE_STATUS[row.status]) return row.status;
+  return row && Number(row.available) === 0 ? "offline" : "online";
+}
+
+// 'since' é gravado em ISO; o formato do SQLite ("YYYY-MM-DD HH:MM:SS") é UTC.
+function waParseTimestamp(value) {
+  const text = String(value || "");
+  return Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? text : `${text.replace(" ", "T")}Z`);
+}
+
+async function waSetPresence(env, request, db, user, status) {
+  const current = await db.prepare(`SELECT available,status,since FROM wa_agent_presence WHERE user_id=?`).bind(user.id).first();
+  const previous = waPresenceStatusOf(current);
+  // Sem linha ainda conta como online (padrão de sempre): nada a gravar.
+  if (previous === status) return { status, since: current?.since || null, changed: false };
+  const since = new Date().toISOString();
+  await db.prepare(`
+    INSERT INTO wa_agent_presence(user_id,available,status,since,updated_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET available=excluded.available,status=excluded.status,since=excluded.since,updated_at=CURRENT_TIMESTAMP
+  `).bind(user.id, status === "online" ? 1 : 0, status, since).run();
+  // A auditoria guarda quanto durou o estado anterior: é o histórico das pausas.
+  const duration = current?.since ? Math.max(0, Math.round((Date.now() - waParseTimestamp(current.since)) / 1000)) : null;
+  const limit = (WA_PRESENCE_STATUS[previous].limitMin || 0) * 60;
+  await audit(env, request, user, "WHATSAPP_PRESENCE", "wa_agent_presence", user.id,
+    { status: previous, since: current?.since || null, duration_s: Number.isFinite(duration) ? duration : null, exceeded: !!(limit && duration > limit) },
+    { status, since });
+  return { status, since, changed: true };
+}
+
 async function waPresence(db, sectorIds, viewer, supervise) {
   if (!sectorIds.length) return [];
   const placeholders = sectorIds.map(() => "?").join(",");
@@ -4459,8 +4512,9 @@ async function waPresence(db, sectorIds, viewer, supervise) {
   `).bind(...userIds).all()).results || [];
   const busyMap = new Map();
   for (const b of busyRows) if (!busyMap.has(Number(b.user_id))) busyMap.set(Number(b.user_id), b);
-  const presenceRows = (await db.prepare(`SELECT user_id,available FROM wa_agent_presence`).all()).results || [];
-  const availMap = new Map(presenceRows.map(r => [Number(r.user_id), Number(r.available)]));
+  const presenceRows = (await db.prepare(`SELECT user_id,available,status,since FROM wa_agent_presence`).all()).results || [];
+  const presenceMap = new Map(presenceRows.map(r => [Number(r.user_id), r]));
+  const now = Date.now();
   const byUser = new Map();
   for (const m of members) {
     const id = Number(m.user_id);
@@ -4469,14 +4523,23 @@ async function waPresence(db, sectorIds, viewer, supervise) {
   }
   return [...byUser.values()].map(u => {
     const busy = busyMap.get(u.user_id);
-    const paused = availMap.get(u.user_id) === 0;
+    const row = presenceMap.get(u.user_id);
+    const presence = waPresenceStatusOf(row);
+    const since = row?.since || null;
+    const elapsed = since ? Math.max(0, Math.floor((now - waParseTimestamp(since)) / 1000)) : null;
+    const limit = (WA_PRESENCE_STATUS[presence].limitMin || 0) * 60 || null;
     const item = {
       user_id: u.user_id,
       display_name: u.display_name,
       sectors: u.sectors,
-      available: !paused,
+      available: presence === "online",
       busy: !!busy,
-      status: busy ? "chat" : (paused ? "paused" : "available")
+      presence,
+      since,
+      elapsed_s: Number.isFinite(elapsed) ? elapsed : null,
+      limit_s: limit,
+      exceeded: !!(limit && elapsed > limit),
+      status: busy ? "chat" : (presence === "online" ? "available" : presence)
     };
     if (busy && supervise) {
       item.current = {
@@ -4720,7 +4783,9 @@ async function handleWhatsappTake(env, request, id) {
   `).bind(sectorId, gate.user.id, id).run();
   await audit(env, request, gate.user, "WHATSAPP_CONVERSATION_TAKE", "wa_conversation", id, null, { sector_id: sectorId });
   if (Number(conv.assigned_user_id) !== Number(gate.user.id)) await uaAvisar(env, conv, "conversa.assumida", gate.user.display_name);
-  return json({ ok: true, assigned_user_id: gate.user.id, sector_id: sectorId });
+  // Assumir um atendimento é voltar ao trabalho: encerra a pausa ou o offline.
+  const presence = await waSetPresence(env, request, db, gate.user, "online");
+  return json({ ok: true, assigned_user_id: gate.user.id, sector_id: sectorId, back_online: presence.changed });
 }
 
 async function handleWhatsappAssign(env, request, id) {
@@ -4775,12 +4840,11 @@ async function handleWhatsappPresence(env, request) {
   if (gate.response) return gate.response;
   const db = getDB(env);
   let body; try { body = await readJson(request, 8192); } catch { return json({ error: "INVALID_JSON" }, 400); }
-  const available = body.available ? 1 : 0;
-  await db.prepare(`
-    INSERT INTO wa_agent_presence(user_id,available,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(user_id) DO UPDATE SET available=excluded.available,updated_at=CURRENT_TIMESTAMP
-  `).bind(gate.user.id, available).run();
-  return json({ ok: true, available: Boolean(available) });
+  // { status } é a rotina nova; { available } continua aceito (liga/desliga).
+  const status = body.status != null ? String(body.status) : (body.available ? "online" : "offline");
+  if (!WA_PRESENCE_STATUS[status]) return json({ error: "STATUS_INVALIDO" }, 400);
+  const result = await waSetPresence(env, request, db, gate.user, status);
+  return json({ ok: true, status: result.status, since: result.since, available: result.status === "online" });
 }
 
 async function handleWhatsappSettings(env, request) {

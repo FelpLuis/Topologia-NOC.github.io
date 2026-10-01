@@ -54,8 +54,21 @@ test("front atualiza por polling e controla presença", () => {
   assert.match(client, /setInterval/);
   assert.match(client, /\/api\/whatsapp\/conversations\//);
   assert.match(client, /takeConversation/);
-  assert.match(client, /togglePresence/);
+  assert.match(client, /setPresence/);
   assert.match(client, /renderPresence/);
+});
+
+test("rotina do atendente: online, pausas com teto e offline", () => {
+  assert.match(worker, /pausa: \{ label: "Pausa \(café, água, banheiro\)", limitMin: 15 \}/);
+  assert.match(worker, /almoco: \{ label: "Almoço", limitMin: 60 \}/);
+  // coluna nova no CREATE TABLE do SCHEMA: é o que dispara a migração
+  assert.match(worker, /status TEXT NOT NULL DEFAULT 'online',\n  since TEXT,/);
+  assert.match(worker, /ensureColumns\(db, "wa_agent_presence"/);
+  assert.match(worker, /"WHATSAPP_PRESENCE"/);
+  assert.match(worker, /waSetPresence\(env, request, db, gate\.user, "online"\)/);
+  assert.match(page, /id="presenceMenu"/);
+  for (const code of ["online", "pausa", "almoco", "offline"]) assert.match(client, new RegExp(`\\b${code}: \\{ label:`));
+  assert.match(client, /pauseClock/);
 });
 
 test("canais externos (Opa!Suite Meta e Webchat) caem na mesma fila", () => {

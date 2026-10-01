@@ -140,6 +140,7 @@
     try {
       const data = await NOC.api("/api/whatsapp");
       state.data = data;
+      state.presenceAt = Date.now();
       state.can = data.can || state.can;
       if (state.sector && !data.sectors.some(s => String(s.id) === state.sector)) state.sector = "";
       renderFilters();
@@ -264,30 +265,81 @@
     return own.length ? own : base;
   }
 
+  /* Rotina do atendente. O teto da pausa vem do servidor (limit_s); aqui só
+     ficam rótulos e a ordem do menu. */
+  const PRESENCE = {
+    online: { label: "Online", hint: "Recebe novos atendimentos" },
+    pausa: { label: "Pausa café, água, banheiro", short: "Pausa", over: "Pausa excedida", hint: "Até 15 minutos" },
+    almoco: { label: "Pausa para almoço", short: "Almoço", over: "Almoço excedido", hint: "Até 1 hora" },
+    offline: { label: "Offline", hint: "Não recebe atendimentos" }
+  };
+
+  const presenceOf = p => (p && PRESENCE[p.presence]) ? p.presence : (p?.available === false ? "offline" : "online");
+
+  // Segundos no estado atual: o que o servidor contou na última leitura mais
+  // o que passou desde então, para o relógio andar entre um polling e outro.
+  const elapsedOf = p => p?.elapsed_s == null ? null : p.elapsed_s + Math.max(0, Math.floor((Date.now() - (state.presenceAt || Date.now())) / 1000));
+
+  const clock = s => {
+    const total = Math.max(0, Math.round(s));
+    const h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), sec = total % 60;
+    const mm = String(m).padStart(h ? 2 : 1, "0"), ss = String(sec).padStart(2, "0");
+    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  };
+
+  // Pausa com prazo: { over, text } com o tempo restante ou o quanto passou.
+  function pauseClock(p) {
+    const elapsed = elapsedOf(p);
+    if (!p?.limit_s || elapsed == null) return null;
+    const over = elapsed > p.limit_s;
+    return { over, text: over ? `+${clock(elapsed - p.limit_s)}` : clock(p.limit_s - elapsed) };
+  }
+
   function renderPresence() {
     const self = selfPresence();
     const pill = $("#presenceToggle");
-    const status = self?.available === false ? "paused" : self?.busy ? "busy" : "available";
-    pill.className = `wa-status-pill ${status === "busy" ? "is-busy" : status === "paused" ? "is-paused" : ""}`;
-    pill.innerHTML = `<span class="wa-dot"></span><span class="wa-status-text">${
-      status === "paused" ? "Pausado" : status === "busy" ? "Online · em atendimento" : "Online · disponível"
-    } <small>— ${status === "paused" ? "retomar" : "pausar"}</small></span>${icon("chevronDown")}`;
-    pill.title = status === "paused" ? "Você não recebe novos atendimentos. Clique para voltar." : "Clique para pausar o recebimento de atendimentos.";
+    const mine = presenceOf(self);
+    const pc = pauseClock(self);
+    const busy = mine === "online" && self?.busy;
+    pill.className = `wa-status-pill ${busy ? "is-busy" : mine !== "online" ? `is-${mine}` : ""} ${pc?.over ? "is-over" : ""}`;
+    const text = mine === "online"
+      ? (busy ? "Online · em atendimento" : "Online · disponível")
+      : pc
+        ? (pc.over ? `${PRESENCE[mine].over} · <span class="wa-clock">${pc.text}</span>` : `${PRESENCE[mine].short} · <span class="wa-clock">${pc.text}</span> restantes`)
+        : PRESENCE[mine].label;
+    pill.innerHTML = `<span class="wa-dot"></span><span class="wa-status-text">${text} <small>— alterar</small></span>${icon("chevronDown")}`;
+    pill.title = mine === "online"
+      ? "Clique para entrar em pausa ou ficar offline."
+      : pc?.over ? "O tempo da pausa acabou. Clique para voltar a ficar online." : "Você não recebe novos atendimentos. Clique para alterar o status.";
+    if (pc?.over && state.overWarned !== self.since) {
+      state.overWarned = self.since;
+      toast(`Sua ${mine === "almoco" ? "pausa para almoço" : "pausa"} passou do limite`, {
+        text: "Volte para online assim que puder.", type: "warn", timeout: 20000,
+        action: { label: "Ficar online", run: () => setPresence("online") }
+      });
+    }
+    if (!$("#presenceMenu").hidden) renderPresenceMenu();
 
     const team = teamSectorIds();
     const list = (state.data?.presence || []).filter(p => state.sector
       ? p.sectors.includes(Number(state.sector))
       : !team || p.sectors.some(id => team.includes(id)));
     const groups = [
-      ["Em atendimento", list.filter(p => p.busy)],
-      ["Disponíveis", list.filter(p => !p.busy && p.available !== false)],
-      ["Pausados", list.filter(p => !p.busy && p.available === false)]
+      ["Em atendimento", list.filter(p => presenceOf(p) === "online" && p.busy)],
+      ["Disponíveis", list.filter(p => presenceOf(p) === "online" && !p.busy)],
+      ["Em pausa", list.filter(p => ["pausa", "almoco"].includes(presenceOf(p)))],
+      ["Offline", list.filter(p => presenceOf(p) === "offline")]
     ];
     const item = p => {
-      const label = p.busy
-        ? (state.can.supervise && p.current ? `Com ${esc(nameOf(p.current))}` : "Em conversa")
-        : (p.available === false ? "Pausado" : "Disponível");
-      return `<div class="wa-presence-item ${p.busy ? "is-busy" : ""} ${p.available === false ? "is-paused" : ""}" ${state.can.supervise && p.current ? `data-conv="${p.current.conversation_id}" title="Abrir a conversa"` : ""}>
+      const st = presenceOf(p);
+      const pcl = pauseClock(p);
+      let label;
+      if (st === "online") label = p.busy ? (state.can.supervise && p.current ? `Com ${esc(nameOf(p.current))}` : "Em conversa") : "Disponível";
+      else if (pcl) label = `${pcl.over ? PRESENCE[st].over : PRESENCE[st].short} · <span class="wa-clock">${pcl.over ? pcl.text : `${clock(elapsedOf(p))} de ${clock(p.limit_s)}`}</span>`;
+      else label = PRESENCE[st].label;
+      if (st !== "online" && p.busy) label += " · com atendimento aberto";
+      const cls = st === "online" ? (p.busy ? "is-busy" : "") : st === "pausa" ? "is-paused" : `is-${st}`;
+      return `<div class="wa-presence-item ${cls} ${pcl?.over ? "is-over" : ""}" ${state.can.supervise && p.current ? `data-conv="${p.current.conversation_id}" title="Abrir a conversa"` : ""}>
         <span class="wa-avatar is-sm">${esc(initials(p.display_name))}<span class="wa-channel"></span></span>
         <span class="wa-presence-who"><b>${esc(p.display_name)}${Number(p.user_id) === myId() ? " (você)" : ""}</b><small>${label}</small></span>
       </div>`;
@@ -916,8 +968,8 @@
     return sendMessage();
   }
 
-  async function afterTake(id) {
-    toast("Atendimento assumido", { type: "ok" });
+  async function afterTake(id, res) {
+    toast("Atendimento assumido", { type: "ok", text: res?.back_online ? "Sua pausa foi encerrada: você voltou para online." : "" });
     setStatusTab("open");
     await load();
     await loadConversation(id);
@@ -936,9 +988,9 @@
           onMount: (host, close) => {
             $("[data-take]", host).onclick = async () => {
               try {
-                await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: Number($("#takeSector", host).value) }) });
+                const res = await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: Number($("#takeSector", host).value) }) });
                 close();
-                await afterTake(conv.id);
+                await afterTake(conv.id, res);
               } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
             };
           }
@@ -946,14 +998,14 @@
         return;
       }
       try {
-        await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: options[0]?.id }) });
-        await afterTake(conv.id);
+        const res = await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST", body: JSON.stringify({ sector_id: options[0]?.id }) });
+        await afterTake(conv.id, res);
       } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
       return;
     }
     try {
-      await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST" });
-      await afterTake(conv.id);
+      const res = await NOC.api(`/api/whatsapp/conversations/${conv.id}/take`, { method: "POST" });
+      await afterTake(conv.id, res);
     } catch (err) { toast("Não foi possível assumir", { text: err.message, type: "danger" }); }
   }
 
@@ -975,7 +1027,11 @@
         const choices = () => {
           const sid = Number(sector.value);
           const members = [...new Map(presence.filter(p => p.sectors.includes(sid)).map(p => [p.user_id, p])).values()];
-          const status = p => p.busy ? " — em atendimento" : p.available === false ? " — pausado" : " — disponível";
+          const status = p => {
+            const st = presenceOf(p);
+            if (st !== "online") return ` — ${PRESENCE[st].short || PRESENCE[st].label}`.replace("Offline", "offline");
+            return p.busy ? " — em atendimento" : " — disponível";
+          };
           user.innerHTML = '<option value="">Sem atendente (fila do setor)</option>' + members.map(m => `<option value="${m.user_id}" ${String(m.user_id) === String(conv.assigned_user_id || "") ? "selected" : ""}>${esc(m.display_name + status(m))}</option>`).join("");
         };
         choices();
@@ -1012,12 +1068,41 @@
     });
   }
 
-  async function togglePresence() {
-    const self = selfPresence();
-    const next = !(self?.available ?? true);
+  /* ---------- rotina: online, pausas e offline ---------- */
+
+  function renderPresenceMenu() {
+    const mine = presenceOf(selfPresence());
+    $("#presenceMenu").innerHTML = Object.entries(PRESENCE).map(([code, p]) => `
+      <button class="wa-status-option is-${code}" type="button" role="menuitemradio" aria-checked="${code === mine}" data-presence="${code}">
+        <i class="wa-dot" aria-hidden="true"></i><span><b>${esc(p.label)}</b><small>${esc(p.hint)}</small></span>
+      </button>`).join("");
+  }
+
+  function togglePresenceMenu(open) {
+    const menu = $("#presenceMenu");
+    const next = open ?? menu.hidden;
+    if (next) renderPresenceMenu();
+    menu.hidden = !next;
+    $("#presenceToggle").setAttribute("aria-expanded", String(next));
+    if (next) $(`[data-presence][aria-checked="true"]`, menu)?.focus();
+  }
+
+  const PRESENCE_TOAST = {
+    online: "Você está online",
+    pausa: "Pausa iniciada — até 15 minutos",
+    almoco: "Pausa para almoço iniciada — até 1 hora",
+    offline: "Você está offline"
+  };
+
+  async function setPresence(status) {
+    togglePresenceMenu(false);
+    if (status === presenceOf(selfPresence())) return;
     try {
-      await NOC.api("/api/whatsapp/presence", { method: "POST", body: JSON.stringify({ available: next }) });
-      toast(next ? "Você está disponível" : "Você pausou o atendimento", { type: "ok" });
+      await NOC.api("/api/whatsapp/presence", { method: "POST", body: JSON.stringify({ status }) });
+      toast(PRESENCE_TOAST[status], {
+        type: "ok",
+        text: status === "online" ? "" : "Você não recebe novos atendimentos até voltar para online."
+      });
       await load();
     } catch (err) { toast("Não foi possível atualizar", { text: err.message, type: "danger" }); }
   }
@@ -1189,7 +1274,28 @@
     $("#refreshBtn").onclick = () => load();
     $("#newChatBtn").onclick = () => newChat();
     $("#settingsBtn").onclick = () => settings();
-    $("#presenceToggle").onclick = () => togglePresence();
+    $("#presenceToggle").onclick = () => togglePresenceMenu();
+    $("#presenceMenu").onclick = e => {
+      const btn = e.target.closest("[data-presence]");
+      if (btn) setPresence(btn.dataset.presence);
+    };
+    $("#presenceMenu").addEventListener("keydown", e => {
+      const items = $$("[data-presence]", $("#presenceMenu"));
+      const at = items.indexOf(document.activeElement);
+      if (e.key === "Escape") { e.preventDefault(); togglePresenceMenu(false); $("#presenceToggle").focus(); }
+      else if (["ArrowDown", "ArrowUp"].includes(e.key)) {
+        e.preventDefault();
+        items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+      }
+    });
+    document.addEventListener("click", e => {
+      if (!$("#presenceMenu").hidden && !e.target.closest(".wa-status-wrap")) togglePresenceMenu(false);
+    });
+    // O relógio da pausa anda de segundo em segundo; só redesenha se alguém
+    // visível estiver numa pausa com prazo.
+    setInterval(() => {
+      if ((state.data?.presence || []).some(p => p.limit_s)) renderPresence();
+    }, 1000);
     $("#sectorFilter").onchange = e => { state.sector = e.target.value; renderConvList(); renderPresence(); };
     $("#mineOnly").onclick = e => {
       state.mineOnly = !state.mineOnly;
