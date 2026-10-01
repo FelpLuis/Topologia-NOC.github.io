@@ -660,6 +660,7 @@ CREATE TABLE IF NOT EXISTS wa_conversations (
   guest_id TEXT,
   client_id TEXT,
   app_diagnostico TEXT,
+  app_conexao TEXT,
   sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
   assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'routing' CHECK(status IN ('routing','open','closed')),
@@ -1675,7 +1676,9 @@ async function ensureDatabaseImpl(env) {
     ["guest_id", "TEXT"],
     ["client_id", "TEXT"],
     // JSON do diagnóstico do celular (App UpDown, uaDiagnostico). Também no SCHEMA.
-    ["app_diagnostico", "TEXT"]
+    ["app_diagnostico", "TEXT"],
+    // Leitura de conexão de 15 s do celular (uaGuardarConexao). Também no SCHEMA.
+    ["app_conexao", "TEXT"]
   ]);
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
   /* Anexos: body guarda o path /api/media/...; o nome original do arquivo
@@ -4266,12 +4269,15 @@ function uaDiagnostico(d) {
 
 // Uma linha na conversa quando o diagnóstico chega, para quem não está com o
 // painel aberto: "📶 Wi-Fi CASA_5G · ↓ 312 ↑ 152 Mbps · ping 7 ms".
-function uaResumoDiagnostico(d) {
-  const mbps = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
-  const rede = d.conexao === "wifi" ? `Wi-Fi${d.redeWifi ? ` ${d.redeWifi}` : ""}`
+function uaRotuloRede(d) {
+  return d.conexao === "wifi" ? `Wi-Fi${d.redeWifi ? ` ${d.redeWifi}` : ""}`
     : d.conexao === "movel" ? `Dados móveis${d.operadora ? ` ${d.operadora}` : ""}`
     : d.conexao === "cabo" ? "Cabo" : d.conexao === "sem_conexao" ? "Sem conexão" : "Rede não identificada";
-  const partes = [rede];
+}
+
+function uaResumoDiagnostico(d) {
+  const mbps = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
+  const partes = [uaRotuloRede(d)];
   if (d.velocidade) partes.push(`↓ ${mbps(d.velocidade.downloadMbps)} ↑ ${mbps(d.velocidade.uploadMbps)} Mbps`, `ping ${d.velocidade.pingMs ?? "?"} ms`);
   else partes.push("teste de velocidade não concluído");
   if (!d.localizacao) partes.push("sem localização");
@@ -4287,6 +4293,36 @@ async function uaGuardarDiagnostico(db, conv, externalId, bruto) {
   conv.app_diagnostico = texto;
   await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)`)
     .bind(conv.id, "bot", "text", uaResumoDiagnostico(d).slice(0, 600), `app:diag:${externalId}:${d.medidoEm}`, "App").run();
+}
+
+// Leitura que o app repete a cada 20 s com a conversa aberta
+// (`conexaoAtualDoAparelho`): conexão, local e, no Wi-Fi, um teste de velocidade
+// curto. Mesmo formato do diagnóstico, sem os avisos. A API do app repassa cada
+// leitura, então isto grava uma vez a cada 20 s por conversa aberta no celular.
+function uaConexaoAtual(c) {
+  const d = uaDiagnostico(c);
+  if (!d) return null;
+  const { avisos, ...leitura } = d;
+  return leitura;
+}
+
+// A troca de rede vira uma linha na conversa ("O celular passou para Dados
+// móveis TIM"): é o que explica o "caiu agora" do cliente para quem está
+// lendo o chat, sem precisar olhar o painel. A primeira leitura não conta.
+async function uaGuardarConexao(db, conv, bruto) {
+  const c = uaConexaoAtual(bruto);
+  if (!c) return;
+  let anterior = null;
+  try { anterior = conv.app_conexao ? JSON.parse(conv.app_conexao) : null; } catch { /* sobrescreve */ }
+  if (anterior && Date.parse(`${anterior.medidoEm.replace(" ", "T")}Z`) > Date.parse(`${c.medidoEm.replace(" ", "T")}Z`)) return;
+  const texto = JSON.stringify(c);
+  if (texto === conv.app_conexao) return;
+  await db.prepare(`UPDATE wa_conversations SET app_conexao=? WHERE id=?`).bind(texto, conv.id).run();
+  conv.app_conexao = texto;
+  if (anterior && (anterior.conexao !== c.conexao || anterior.redeWifi !== c.redeWifi || anterior.operadora !== c.operadora)) {
+    await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)`)
+      .bind(conv.id, "bot", "text", `📶 O celular passou para ${uaRotuloRede(c)}`.slice(0, 600), `app:conexao:${conv.external_id}:${c.medidoEm}`, "App").run();
+  }
 }
 
 async function uaSincronizar(env, db, p) {
@@ -4368,6 +4404,7 @@ async function uaSincronizar(env, db, p) {
       .bind(ultima.slice(0, 500), novasDoCliente, conv.id).run();
   }
   if (p.diagnostico) await uaGuardarDiagnostico(db, conv, externalId, p.diagnostico);
+  if (p.conexaoAtual) await uaGuardarConexao(db, conv, p.conexaoAtual);
 
   if (c.status === "fechado" && conv.status !== "closed") {
     await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name) VALUES(?,?,?,?,?,?)`)
@@ -4595,7 +4632,7 @@ async function handleWhatsapp(env, request) {
     : new Map();
   // O diagnóstico do app só aparece no painel da conversa aberta (vem no detalhe);
   // não pesa a lista que a tela recarrega a cada 5 s.
-  const conversations = rows.map(({ app_diagnostico, ...c }) => ({
+  const conversations = rows.map(({ app_diagnostico, app_conexao, ...c }) => ({
     ...c,
     client_nome: c.client_id ? (clientNames.get(String(c.client_id)) || null) : null,
     is_mine: Number(c.assigned_user_id) === Number(gate.user.id),
@@ -4634,9 +4671,12 @@ async function handleWhatsappConversation(env, request, id) {
     FROM cliente_cadastro WHERE client_id=?
   `).bind(conv.client_id).first() : null;
   let diagnostico = null;
+  let conexaoAtual = null;
   try { diagnostico = conv.app_diagnostico ? JSON.parse(conv.app_diagnostico) : null; } catch { /* linha corrompida: painel sem diagnóstico */ }
+  try { conexaoAtual = conv.app_conexao ? JSON.parse(conv.app_conexao) : null; } catch { /* idem */ }
   delete conv.app_diagnostico;
-  return json({ conversation: conv, messages, can, cliente: cliente || null, diagnostico });
+  delete conv.app_conexao;
+  return json({ conversation: conv, messages, can, cliente: cliente || null, diagnostico, conexaoAtual });
 }
 
 /* Vincula/desvincula a conversa a um registro de cliente_cadastro, pra o

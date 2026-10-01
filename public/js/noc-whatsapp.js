@@ -13,6 +13,7 @@
     messages: [],
     cliente: null,         // cadastro vinculado à conversa aberta (cliente_cadastro)
     diagnostico: null,     // celular do cliente ao abrir chamado no App UpDown
+    conexaoAtual: null,    // conexão do celular relida pelo app a cada 15 s
     can: { chat: false, supervise: false, manage: false, clientes: false },
     messagesSig: "",
     sideTab: "client",
@@ -167,6 +168,7 @@
       state.messages = detail.messages || [];
       state.cliente = detail.cliente || null;
       state.diagnostico = detail.diagnostico || null;
+      state.conexaoAtual = detail.conexaoAtual || null;
       renderChat();
       renderConvList();
       renderPresence();
@@ -498,6 +500,7 @@
     state.messages = [];
     state.cliente = null;
     state.diagnostico = null;
+    state.conexaoAtual = null;
     state.messagesSig = "";
     $("#chatEmpty").hidden = false;
     $("#chatThread").hidden = true;
@@ -580,7 +583,7 @@
           : `<button class="btn btn-sm" id="clientLinkBtn" type="button">${icon("link")} Vincular</button>`) : ""}</div>
         ${clientBlock}
       </section>
-      ${conv.channel === "updown_app" ? deviceSection(state.diagnostico) : ""}
+      ${conv.channel === "updown_app" ? deviceSection(state.diagnostico, state.conexaoAtual, state.cliente) : ""}
       <section class="wa-section">
         <div class="wa-section-head"><h3>Atendimento</h3></div>
         <dl class="wa-dl">
@@ -594,11 +597,13 @@
     const unlinkBtn = $("#clientUnlinkBtn", host), linkBtn = $("#clientLinkBtn", host);
     if (unlinkBtn) unlinkBtn.onclick = () => unlinkClient(conv);
     if (linkBtn) linkBtn.onclick = () => openClientLinkModal(conv);
+    refreshConnAge();
   }
 
-  /* O que o App UpDown mediu do celular ao abrir o chamado de suporte: velocidade
-     contra o nosso servidor, Wi-Fi (nome da rede) ou dados móveis (operadora) e a
-     localização. Chega pela sincronização do app (uaGuardarDiagnostico no worker). */
+  /* Celular do cliente nos chats do App UpDown (uaGuardarDiagnostico e
+     uaGuardarConexao no worker). O diagnóstico é o da abertura do chamado; com o
+     cliente na conversa, o app relê a cada 20 s conexão, local e (no Wi-Fi)
+     velocidade, e o polling de 5 s redesenha o painel quando a leitura muda. */
   const DIAG_AVISOS = {
     localizacao_negada: "O cliente não liberou a localização.",
     localizacao_desligada: "A localização do celular estava desligada.",
@@ -606,45 +611,152 @@
     teste_falhou: "O teste de velocidade não terminou.",
     teste_sem_conexao: "O celular estava sem internet na hora do teste."
   };
+  // Uma leitura a cada 20 s (mais uns 10 s de teste e envio); sem nenhuma em 75 s,
+  // o app parou de mandar (cliente saiu da conversa ou do app).
+  const CONN_STALE_MS = 75000;
+  const CONN_ICON = {
+    wifi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/><path d="M8.6 16a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19.4" r="1.2" fill="currentColor" stroke="none"/></svg>',
+    movel: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="15" width="3.4" height="6" rx="1"/><rect x="8.2" y="11" width="3.4" height="10" rx="1"/><rect x="13.4" y="7" width="3.4" height="14" rx="1"/><rect x="18.6" y="3" width="3.4" height="18" rx="1"/></svg>',
+    cabo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="9" rx="2"/><path d="M9 12v3h6v-3M12 15v6"/></svg>',
+    off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0" opacity=".35"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0" opacity=".35"/><path d="M4 4l16 16"/></svg>'
+  };
+  const mbpsText = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
 
-  function deviceSection(d) {
-    const head = extra => `<div class="wa-section-head"><h3>Celular do cliente</h3>${extra || ""}</div>`;
-    if (!d) {
-      return `<section class="wa-section">${head()}
+  // "FIBRA 500 MEGA", "PLANO 1 GIGA", "300MB" → Mbps contratados. Sem número
+  // reconhecível, o painel não compara com o plano.
+  function planMbps(plano) {
+    const m = String(plano || "").match(/(\d+(?:[.,]\d+)?)\s*(GIGA|GBPS|GB|G|MEGA|MBPS|MB|M)\b/i);
+    if (!m) return null;
+    const n = Number(m[1].replace(",", "."));
+    const v = /^G/i.test(m[2]) ? n * 1000 : n;
+    return v > 0 && v <= 100000 ? v : null;
+  }
+
+  const pingLevel = ms => ms <= 30 ? ["ok", "Ótimo"] : ms <= 60 ? ["ok", "Bom"] : ms <= 100 ? ["warn", "Regular"] : ["danger", "Alto"];
+  const jitterLevel = ms => ms <= 10 ? ["ok", "Estável"] : ms <= 30 ? ["warn", "Oscila"] : ["danger", "Instável"];
+
+  // Medidor de 240° em escala log (1 Mbps a 1 Gbps): 20 Mega e 900 Mega cabem no
+  // mesmo desenho sem um virar risco e o outro estourar.
+  function speedGauge(mbps, tone) {
+    const cx = 80, cy = 78, r = 60, start = 150, span = 240;
+    const pt = deg => { const a = deg * Math.PI / 180; return `${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`; };
+    const arc = frac => {
+      const sweep = Math.max(0.001, Math.min(1, frac)) * span;
+      return `M ${pt(start)} A ${r} ${r} 0 ${sweep > 180 ? 1 : 0} 1 ${pt(start + sweep)}`;
+    };
+    const frac = Math.log10(Math.min(1000, Math.max(1, mbps))) / 3;
+    // 10 e 100 por dentro do arco; 1 e 1G embaixo das pontas, longe do número.
+    const ticks = [[0, "1", 16], [1 / 3, "10", -19], [2 / 3, "100", -19], [1, "1G", 16]].map(([f, label, dr]) => {
+      const a = (start + f * span) * Math.PI / 180;
+      const [x, y] = [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+      return dr > 0
+        ? `<text x="${x.toFixed(1)}" y="${(y + dr).toFixed(1)}">${label}</text>`
+        : `<text x="${(cx + (r + dr) * Math.cos(a)).toFixed(1)}" y="${(cy + (r + dr) * Math.sin(a) + 3).toFixed(1)}">${label}</text>`;
+    }).join("");
+    return `<svg class="wa-diag-gauge is-${tone}" viewBox="0 0 160 128" role="img" aria-label="Download de ${esc(mbpsText(mbps))} Mbps">
+        <path class="track" d="${arc(1)}"/>
+        <path class="value" d="${arc(frac)}"/>
+        <g class="ticks">${ticks}</g>
+        <text class="num" x="${cx}" y="${cy + 4}">${esc(mbpsText(mbps))}</text>
+        <text class="unit" x="${cx}" y="${cy + 20}">Mbps · download</text>
+      </svg>`;
+  }
+
+  function connAge(at) {
+    const d = TEMPO.instante(at);
+    return d ? Math.max(0, Date.now() - d.getTime()) : null;
+  }
+
+  // Atualiza só o "há N s" da conexão a cada volta do polling, sem redesenhar o
+  // painel (o que tiraria o foco de quem está selecionando texto nele).
+  function refreshConnAge() {
+    const el = document.querySelector("#sideClient [data-conn-at]");
+    if (!el) return;
+    const age = connAge(el.dataset.connAt);
+    const box = el.closest(".wa-diag-live");
+    if (age == null) return;
+    const stale = age > CONN_STALE_MS;
+    box?.classList.toggle("is-stale", stale);
+    const s = Math.round(age / 1000);
+    el.textContent = stale
+      ? `sem leitura nova desde ${TEMPO.hora(el.dataset.connAt, "")} — o cliente saiu da conversa no app?`
+      : `atualizada ${s < 60 ? `há ${Math.max(1, s)} s` : `há ${Math.round(s / 60)} min`}`;
+  }
+
+  function connBlock(c, live) {
+    const kind = c.conexao === "wifi" ? "wifi" : c.conexao === "movel" ? "movel" : c.conexao === "cabo" ? "cabo" : "off";
+    const title = c.conexao === "wifi" ? "Wi-Fi" : c.conexao === "movel" ? "Dados móveis" : c.conexao === "cabo" ? "Cabo de rede"
+      : c.conexao === "sem_conexao" ? "Sem conexão" : "Não identificada";
+    const detail = c.conexao === "wifi" ? (c.redeWifi ? `<b>${esc(c.redeWifi)}</b>` : `<span class="dim">nome da rede não informado</span>`)
+      : c.conexao === "movel" ? (c.operadora ? `<b>${esc(c.operadora)}</b>` : `<span class="dim">operadora não informada</span>`) : "";
+    const updown = c.naRedeDaUpdown === true ? `<span class="wa-diag-tag is-ok">Rede UpDown</span>`
+      : c.naRedeDaUpdown === false ? `<span class="wa-diag-tag is-warn">Fora da rede UpDown</span>` : "";
+    const when = live
+      ? `<span class="wa-diag-live-dot" aria-hidden="true"></span><small data-conn-at="${esc(c.medidoEm)}"></small>`
+      : `<small>na abertura do chamado, ${esc(TEMPO.hora(c.medidoEm, ""))}</small>`;
+    return `<div class="wa-diag-live is-${kind}${live ? " is-live" : ""}">
+        <span class="wa-diag-conn-icon">${CONN_ICON[kind]}</span>
+        <div class="wa-diag-conn-text">
+          <span class="wa-diag-conn-title">${esc(title)}${detail ? ` · ${detail}` : ""}</span>
+          ${updown ? `<span>${updown}</span>` : ""}
+          <span class="wa-diag-conn-when">${when}</span>
+        </div>
+      </div>`;
+  }
+
+  function speedBlock(d, plano, aoVivo) {
+    const v = d.velocidade;
+    if (!v) return `<p class="wa-side-note">Sem resultado do teste de velocidade.</p>`;
+    const plan = d.conexao === "movel" ? null : planMbps(plano);
+    const pct = plan ? Math.round(v.downloadMbps / plan * 100) : null;
+    const tone = pct == null ? "accent" : pct >= 80 ? "ok" : pct >= 50 ? "warn" : "danger";
+    const [pingTone, pingLabel] = pingLevel(v.pingMs ?? 0);
+    const [jitTone, jitLabel] = jitterLevel(v.jitterMs ?? 0);
+    const stat = (label, value, unit, q) => `<div><small>${label}</small><b>${value}</b><small>${unit}</small>${q ? `<span class="wa-diag-q is-${q[0]}">${q[1]}</span>` : ""}</div>`;
+    const note = d.conexao === "movel" ? "Medido no 4G: mostra a rede da operadora, não a internet UpDown."
+      : d.conexao === "wifi" && pct != null && pct < 80 ? "No Wi-Fi o resultado também depende do sinal no cômodo." : "";
+    return `<div class="wa-diag-test">
+        <div class="wa-diag-subhead"><h4>Teste de velocidade</h4><small>${aoVivo ? "" : "na abertura, "}${esc(TEMPO.hora(d.medidoEm, ""))}</small></div>
+        ${speedGauge(v.downloadMbps, tone)}
+        ${pct != null ? `<div class="wa-diag-plan is-${tone}">
+            <div class="wa-diag-plan-bar"><span style="width:${Math.min(100, pct)}%"></span></div>
+            <small><b>${pct}%</b> do plano de ${esc(mbpsText(plan))} Mega</small>
+          </div>` : ""}
+        <div class="wa-diag-stats">
+          ${stat("Upload", esc(mbpsText(v.uploadMbps)), "Mbps")}
+          ${stat("Ping", esc(String(v.pingMs ?? "—")), "ms", v.pingMs != null ? [pingTone, pingLabel] : null)}
+          ${stat("Jitter", esc(String(v.jitterMs ?? "—")), "ms", v.jitterMs != null ? [jitTone, jitLabel] : null)}
+        </div>
+        ${note ? `<p class="wa-side-note">${esc(note)}</p>` : ""}
+      </div>`;
+  }
+
+  function deviceSection(d, live, cliente) {
+    const head = `<div class="wa-section-head"><h3>Celular do cliente</h3></div>`;
+    if (!d && !live) {
+      return `<section class="wa-section">${head}
         <p class="wa-side-note">O app ainda não mandou o diagnóstico. Ele chega uns segundos depois de o cliente abrir um chamado de suporte técnico.</p>
       </section>`;
     }
-    const row = (label, value) => value ? `<div><dt>${esc(label)}</dt><dd>${value}</dd></div>` : "";
-    const mbps = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
-    const v = d.velocidade;
-    const speed = v
-      ? `<div class="wa-diag-speed">
-          <div><small>Download</small><b>${esc(mbps(v.downloadMbps))}</b><small>Mbps</small></div>
-          <div><small>Upload</small><b>${esc(mbps(v.uploadMbps))}</b><small>Mbps</small></div>
-          <div><small>Ping</small><b>${esc(String(v.pingMs ?? "—"))}</b><small>ms${v.jitterMs != null ? ` · jitter ${esc(String(v.jitterMs))}` : ""}</small></div>
-        </div>`
-      : "";
-    const updown = d.naRedeDaUpdown === true ? `<span class="wa-diag-tag is-ok">Rede UpDown</span>`
-      : d.naRedeDaUpdown === false ? `<span class="wa-diag-tag is-warn">Fora da rede UpDown</span>` : "";
-    const conexao = d.conexao === "wifi" ? `Wi-Fi${d.redeWifi ? ` · <b>${esc(d.redeWifi)}</b>` : " · nome da rede não informado"}`
-      : d.conexao === "movel" ? `Dados móveis${d.operadora ? ` · <b>${esc(d.operadora)}</b>` : ""}`
-      : d.conexao === "cabo" ? "Cabo de rede"
-      : d.conexao === "sem_conexao" ? "Sem conexão" : "Não identificada";
-    const loc = d.localizacao;
+    // A leitura de 20 s vale mais que a da abertura, desde que seja mais nova. No
+    // 4G ela vem sem teste de velocidade: fica o da abertura, dito como tal.
+    const liveNewer = live && (!d || (TEMPO.instante(live.medidoEm)?.getTime() || 0) >= (TEMPO.instante(d.medidoEm)?.getTime() || 0));
+    const conn = liveNewer ? live : d;
+    const speedLive = liveNewer && live.velocidade ? live : null;
+    const speed = speedLive || d;
+    const loc = (liveNewer && live.localizacao) || d?.localizacao;
     const local = loc
       ? `${esc(loc.latitude.toFixed(5))}, ${esc(loc.longitude.toFixed(5))}${loc.precisaoMetros ? ` <span class="dim">(±${esc(String(Math.round(loc.precisaoMetros)))} m)</span>` : ""}
          <a class="wa-diag-map" href="https://www.google.com/maps?q=${encodeURIComponent(`${loc.latitude},${loc.longitude}`)}" target="_blank" rel="noopener noreferrer">Abrir no mapa</a>`
       : "";
-    const avisos = (d.avisos || []).map(a => DIAG_AVISOS[a]).filter(Boolean);
+    const avisos = (d?.avisos || []).map(a => DIAG_AVISOS[a]).filter(Boolean);
     return `<section class="wa-section">
-        ${head(`<small class="wa-side-note" title="${esc(TEMPO.dataHora(d.medidoEm, ""))}">${esc(timeLabel(d.medidoEm))}</small>`)}
-        ${speed || `<p class="wa-side-note">Sem resultado do teste de velocidade.</p>`}
-        <dl class="wa-dl">
-          ${row("Conexão", `${conexao}${updown ? ` ${updown}` : ""}`)}
-          ${row("Localização", local || '<span class="dim">Não enviada</span>')}
-          ${row("Medido em", esc(TEMPO.dataHora(d.medidoEm, "")))}
-          ${v?.servidor ? row("Servidor", esc(v.servidor)) : ""}
-        </dl>
+        ${head}
+        ${connBlock(conn, !!liveNewer)}
+        ${speed ? speedBlock(speed, cliente?.plano, !!speedLive) : ""}
+        ${d || loc ? `<dl class="wa-dl">
+          <div><dt>Localização</dt><dd>${local || '<span class="dim">Não enviada</span>'}</dd></div>
+        </dl>` : ""}
         ${avisos.length ? `<ul class="wa-diag-avisos">${avisos.map(a => `<li>${esc(a)}</li>`).join("")}</ul>` : ""}
       </section>`;
   }
@@ -1231,10 +1343,13 @@
           state.cliente = detail.cliente || null;
           // O diagnóstico chega uns 15 s depois de o chamado abrir no app: o painel
           // se atualiza sozinho, sem o atendente reabrir a conversa.
-          const diagChanged = JSON.stringify(detail.diagnostico || null) !== JSON.stringify(state.diagnostico);
+          const diagChanged = JSON.stringify(detail.diagnostico || null) !== JSON.stringify(state.diagnostico) ||
+            JSON.stringify(detail.conexaoAtual || null) !== JSON.stringify(state.conexaoAtual);
           state.diagnostico = detail.diagnostico || null;
+          state.conexaoAtual = detail.conexaoAtual || null;
           updateHead(detail.conversation);
           if (clienteChanged || diagChanged) renderSide();
+          else refreshConnAge();
           const sig = state.messages.map(m => `${m.id}:${m.status}`).join(",");
           if (sig !== state.messagesSig) renderMessages();
         } catch { /* mantém o estado atual */ }

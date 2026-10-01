@@ -179,16 +179,56 @@ test("diagnóstico do celular do App UpDown chega ao painel do chat", () => {
   assert.deepEqual(movel.avisos, ["localizacao_negada"]);
   assert.equal(uaDiagnostico({ conexao: "wifi" }), null, "sem medidoEm não é diagnóstico");
 
-  // guardado na conversa (coluna também no SCHEMA, por causa da impressão digital)
-  assert.match(worker, /client_id TEXT,\n  app_diagnostico TEXT,/);
+  // guardado na conversa (colunas também no SCHEMA, por causa da impressão digital)
+  assert.match(worker, /client_id TEXT,\n  app_diagnostico TEXT,\n  app_conexao TEXT,/);
   assert.match(worker, /\["app_diagnostico", "TEXT"\]/);
+  assert.match(worker, /\["app_conexao", "TEXT"\]/);
   assert.match(worker, /if \(p\.diagnostico\) await uaGuardarDiagnostico/);
+  assert.match(worker, /if \(p\.conexaoAtual\) await uaGuardarConexao/);
   // vai no detalhe da conversa e fica fora da lista recarregada a cada 5 s
-  assert.match(worker, /cliente: cliente \|\| null, diagnostico \}/);
-  assert.match(worker, /rows\.map\(\(\{ app_diagnostico, \.\.\.c \}\)/);
+  assert.match(worker, /cliente: cliente \|\| null, diagnostico, conexaoAtual \}/);
+  assert.match(worker, /rows\.map\(\(\{ app_diagnostico, app_conexao, \.\.\.c \}\)/);
   // painel mostra só nos chats do app e se atualiza no polling
-  assert.match(client, /conv\.channel === "updown_app" \? deviceSection\(state\.diagnostico\)/);
-  assert.match(client, /if \(clienteChanged \|\| diagChanged\) renderSide\(\)/);
+  assert.match(client, /conv\.channel === "updown_app" \? deviceSection\(state\.diagnostico, state\.conexaoAtual, state\.cliente\)/);
+  assert.match(client, /if \(clienteChanged \|\| diagChanged\) renderSide\(\);\n\s+else refreshConnAge\(\);/);
+  // o servidor do teste não aparece mais no painel
+  assert.doesNotMatch(client, /row\("Servidor"/);
+});
+
+test("leitura de 20 s do celular aparece ao vivo no painel", () => {
+  const carimbo = worker.match(/function uaCarimbo\(iso\) \{[\s\S]*?\n\}/)[0];
+  const ini = worker.indexOf("const UA_CONEXOES");
+  const fim = worker.indexOf("async function uaGuardarDiagnostico");
+  const sanitizar = worker.match(/function uaConexaoAtual\(c\) \{[\s\S]*?\n\}/)[0];
+  const { uaConexaoAtual, uaRotuloRede } = new Function(`${carimbo}\n${worker.slice(ini, fim)}\n${sanitizar}\nreturn { uaConexaoAtual, uaRotuloRede };`)();
+
+  // 4G: sem teste de velocidade (APK antigo nem manda local/velocidade)
+  const c = uaConexaoAtual({ medidoEm: "2026-10-01T12:30:15Z", conexao: "movel", redeWifi: null, operadora: " TIM ", naRedeDaUpdown: null, encaminhadaEm: "x" });
+  assert.deepEqual(c, { medidoEm: "2026-10-01 12:30:15", conexao: "movel", redeWifi: null, operadora: "TIM", naRedeDaUpdown: null, localizacao: null, velocidade: null });
+  assert.equal(uaRotuloRede(c), "Dados móveis TIM");
+  assert.equal(uaConexaoAtual({ conexao: "wifi" }), null);
+  // Wi-Fi: local e velocidade da leitura vêm junto, filtrados como no diagnóstico
+  const w = uaConexaoAtual({ medidoEm: "2026-10-01T12:30:35Z", conexao: "wifi", redeWifi: "CASA_5G",
+    localizacao: { latitude: -23.89602, longitude: -46.42446, precisaoMetros: 12 },
+    velocidade: { downloadMbps: 34.6, uploadMbps: 13.3, pingMs: 57, jitterMs: 8, servidor: "<b>x</b>".repeat(60) } });
+  assert.equal(w.localizacao.latitude, -23.89602);
+  assert.equal(w.velocidade.downloadMbps, 34.6);
+  assert.equal(w.velocidade.servidor.length, 200);
+  assert.equal(w.avisos, undefined);
+
+  // leitura atrasada não sobrescreve a mais nova; troca de rede vira linha no chat
+  assert.match(worker, /Date\.parse\(`\$\{anterior\.medidoEm\.replace\(" ", "T"\)\}Z`\) > Date\.parse/);
+  assert.match(worker, /📶 O celular passou para \$\{uaRotuloRede\(c\)\}/);
+
+  // plano do cadastro vira referência do medidor
+  const planMbps = new Function(`${client.match(/function planMbps\(plano\) \{[\s\S]*?\n {2}\}/)[0]}\nreturn planMbps;`)();
+  assert.equal(planMbps("FIBRA 500 MEGA"), 500);
+  assert.equal(planMbps("PLANO 1 GIGA"), 1000);
+  assert.equal(planMbps("300MB EMPRESARIAL"), 300);
+  assert.equal(planMbps("PLANO RURAL"), null);
+  // leitura velha (o app parou de mandar) é dita, não escondida
+  assert.match(client, /const CONN_STALE_MS = 75000;/);
+  assert.match(client, /o cliente saiu da conversa no app\?/);
 });
 
 test("gravador converte WebM/Opus do Chrome em Ogg/Opus válido", async () => {

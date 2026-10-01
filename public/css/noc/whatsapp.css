@@ -388,10 +388,53 @@
 .wa-dl dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
 .wa-side-note { font-size: var(--fs-12); color: var(--text-3); }
 /* Celular do cliente (diagnóstico do App UpDown) */
-.wa-diag-speed { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
-.wa-diag-speed > div { display: grid; justify-items: center; gap: 2px; padding: var(--s-2) 4px; border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-md); text-align: center; min-width: 0; }
-.wa-diag-speed b { font-size: var(--fs-16); font-weight: 800; color: var(--text-1); font-variant-numeric: tabular-nums; }
-.wa-diag-speed small { font-size: var(--fs-11); color: var(--text-3); }
+.wa-diag-live { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: var(--s-3); align-items: center; padding: var(--s-3); border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-md); }
+.wa-diag-conn-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--surface-3); color: var(--text-3); }
+.wa-diag-conn-icon svg { width: 20px; height: 20px; }
+.wa-diag-live.is-wifi .wa-diag-conn-icon, .wa-diag-live.is-cabo .wa-diag-conn-icon { color: var(--cyan-400); }
+.wa-diag-live.is-movel .wa-diag-conn-icon { color: var(--warn-text); background: var(--warn-bg); }
+.wa-diag-live.is-off .wa-diag-conn-icon { color: var(--danger-text); background: var(--danger-bg); }
+.wa-diag-conn-text { display: grid; gap: 3px; min-width: 0; font-size: var(--fs-12); }
+.wa-diag-conn-title { font-size: var(--fs-13); font-weight: 700; color: var(--text-1); overflow-wrap: anywhere; }
+.wa-diag-conn-text .wa-diag-tag { margin-left: 0; }
+.wa-diag-conn-when { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: var(--fs-11); }
+.wa-diag-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-500); box-shadow: 0 0 0 0 var(--ok-line); animation: wa-diag-pulse 2s ease-out infinite; flex: none; }
+.wa-diag-live.is-stale .wa-diag-live-dot { background: var(--text-3); animation: none; }
+.wa-diag-live.is-stale .wa-diag-conn-when { color: var(--warn-text); }
+@keyframes wa-diag-pulse { 0% { box-shadow: 0 0 0 0 var(--ok-line); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .wa-diag-live-dot { animation: none; } }
+
+.wa-diag-test { display: grid; gap: var(--s-2); padding: var(--s-3); border: 1px solid var(--line); background: var(--surface-2); border-radius: var(--r-md); }
+.wa-diag-subhead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.wa-diag-subhead h4 { margin: 0; font-size: var(--fs-12); font-weight: 700; color: var(--text-1); }
+.wa-diag-subhead small { font-size: var(--fs-11); color: var(--text-3); }
+.wa-diag-gauge { display: block; width: 100%; max-width: 200px; margin: 0 auto; overflow: visible; }
+.wa-diag-gauge path { fill: none; stroke-width: 11; stroke-linecap: round; }
+.wa-diag-gauge .track { stroke: var(--surface-3); }
+.wa-diag-gauge .value { stroke: var(--cyan-400); }
+.wa-diag-gauge.is-ok .value { stroke: var(--ok-500); }
+.wa-diag-gauge.is-warn .value { stroke: var(--warn-500); }
+.wa-diag-gauge.is-danger .value { stroke: var(--danger-500); }
+.wa-diag-gauge text { text-anchor: middle; fill: var(--text-3); font-family: inherit; }
+.wa-diag-gauge .ticks text { font-size: 8.5px; }
+.wa-diag-gauge .num { font-size: 30px; font-weight: 800; fill: var(--text-1); font-variant-numeric: tabular-nums; }
+.wa-diag-gauge .unit { font-size: 9.5px; letter-spacing: .02em; }
+.wa-diag-plan { display: grid; gap: 4px; }
+.wa-diag-plan small { font-size: var(--fs-11); color: var(--text-3); text-align: center; }
+.wa-diag-plan small b { color: var(--text-1); }
+.wa-diag-plan-bar { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.wa-diag-plan-bar span { display: block; height: 100%; border-radius: inherit; background: var(--cyan-400); }
+.wa-diag-plan.is-ok .wa-diag-plan-bar span { background: var(--ok-500); }
+.wa-diag-plan.is-warn .wa-diag-plan-bar span { background: var(--warn-500); }
+.wa-diag-plan.is-danger .wa-diag-plan-bar span { background: var(--danger-500); }
+.wa-diag-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+.wa-diag-stats > div { display: grid; justify-items: center; align-content: start; gap: 1px; padding: var(--s-2) 2px; border-radius: var(--r-md); background: var(--surface-1, transparent); border: 1px solid var(--line); text-align: center; min-width: 0; }
+.wa-diag-stats b { font-size: var(--fs-16); font-weight: 800; color: var(--text-1); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.wa-diag-stats small { font-size: var(--fs-11); color: var(--text-3); }
+.wa-diag-q { margin-top: 3px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 700; border: 1px solid; }
+.wa-diag-q.is-ok { color: var(--ok-text); background: var(--ok-bg); border-color: var(--ok-line); }
+.wa-diag-q.is-warn { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.wa-diag-q.is-danger { color: var(--danger-text); background: var(--danger-bg); border-color: var(--danger-line); }
 .wa-diag-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font-size: var(--fs-11); font-weight: 700; border: 1px solid; vertical-align: 1px; }
 .wa-diag-tag.is-ok { color: var(--ok-text); background: var(--ok-bg); border-color: var(--ok-line); }
 .wa-diag-tag.is-warn { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
