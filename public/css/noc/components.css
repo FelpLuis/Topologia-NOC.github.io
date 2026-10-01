@@ -1388,3 +1388,109 @@ table.table { width: 100%; border-collapse: collapse; }
 #formOltPorta .field > label {
   margin-bottom: -4px;
 }
+
+/* ---------------------------------------------------------
+   Ajuda (perguntas frequentes) — gaveta aberta pelo botão "?"
+   da barra ou pelo F1. Conteúdo em /js/noc-ajuda.js.
+   --------------------------------------------------------- */
+.help-head { display: flex; flex-direction: column; gap: var(--s-3); }
+.help-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.help-body { display: flex; flex-direction: column; gap: var(--s-5); }
+.help-cat-t {
+  font-size: var(--fs-11);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: var(--s-2);
+}
+.help-item {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.help-item + .help-item { margin-top: var(--s-2); }
+.help-item > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  list-style: none;
+}
+.help-item > summary::-webkit-details-marker { display: none; }
+.help-item > summary:hover { color: var(--cyan-400); }
+.help-chev { flex: none; color: var(--text-3); transition: transform var(--dur-1) var(--ease); }
+.help-item[open] > summary .help-chev { transform: rotate(180deg); }
+.help-item[open] { border-color: var(--line-strong); }
+.help-a {
+  padding: 0 var(--s-4) var(--s-4);
+  font-size: var(--fs-13);
+  line-height: 1.6;
+  color: var(--text-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.help-a ul, .help-a ol { padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+.help-a a { color: var(--cyan-400); }
+.help-a code { font-family: var(--font-mono); font-size: var(--fs-12); }
+.help-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: 1.7;
+  padding: var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--surface-input);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  white-space: pre;
+}
+.help-fala {
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--cyan-400);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--surface-3);
+  font-style: italic;
+}
+.help-nota { color: var(--text-3); font-size: var(--fs-12); }
+.help-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--d);
+  margin: 0 4px 0 2px;
+  vertical-align: -1px;
+}
+.help-faixas { display: flex; flex-direction: column; gap: 6px; }
+.help-faixa {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) minmax(80px, auto) 1fr;
+  align-items: baseline;
+  gap: 4px var(--s-3);
+  padding: 8px var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  box-shadow: inset 3px 0 0 var(--fc);
+}
+.help-faixa-v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.help-faixa > b { color: var(--fc); }
+/* No fundo escuro, roxo e vermelho puros somem: clareia sem perder o tom. */
+:root[data-theme="dark"] .help-faixa > b { color: color-mix(in srgb, var(--fc) 65%, #fff); }
+.help-faixa-d { color: var(--text-3); font-size: var(--fs-12); }
+@media (max-width: 640px) {
+  .help-faixa { grid-template-columns: 1fr auto; }
+  .help-faixa-d { grid-column: 1 / -1; }
+}
+/* Telefone: marca, busca, ajuda, tema e o chip do usuário com nome não cabem
+   em 375px — a barra já vazava 44px antes da ajuda. O nome continua no menu
+   que o avatar abre. */
+@media (max-width: 480px) {
+  .appbar .user-menu .user-info,
+  .appbar .user-menu > .icon { display: none; }
+  .appbar-actions { gap: 4px; }
+}

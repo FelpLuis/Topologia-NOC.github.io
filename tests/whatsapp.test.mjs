@@ -138,6 +138,46 @@ test("anexo do cliente no App UpDown vira mídia no chat", () => {
   assert.doesNotMatch(worker, /anexos\} anexos`\} — veja no console do app/);
 });
 
+test("diagnóstico do celular do App UpDown chega ao painel do chat", () => {
+  // As funções puras saem do worker e rodam aqui: o diagnóstico vai parar no HTML
+  // do atendente, então o filtro de tipo e tamanho precisa valer de verdade.
+  const carimbo = worker.match(/function uaCarimbo\(iso\) \{[\s\S]*?\n\}/)[0];
+  const ini = worker.indexOf("const UA_CONEXOES");
+  const fim = worker.indexOf("async function uaGuardarDiagnostico");
+  assert.ok(ini > 0 && fim > ini);
+  const { uaDiagnostico, uaResumoDiagnostico } = new Function(`${carimbo}\n${worker.slice(ini, fim)}\nreturn { uaDiagnostico, uaResumoDiagnostico };`)();
+
+  const d = uaDiagnostico({
+    medidoEm: "2026-10-01T12:30:00.000Z", conexao: "wifi", redeWifi: " CASA_5G ", operadora: null,
+    naRedeDaUpdown: true, localizacao: { latitude: -7.2307, longitude: -35.8817, precisaoMetros: 14 },
+    velocidade: { downloadMbps: 312.4, uploadMbps: 151.9, pingMs: 7, jitterMs: 2, servidor: "app.updown.com.br" },
+    avisos: [], extra: "<script>"
+  });
+  assert.equal(d.medidoEm, "2026-10-01 12:30:00");
+  assert.equal(d.redeWifi, "CASA_5G");
+  assert.equal(d.extra, undefined);
+  assert.equal(uaResumoDiagnostico(d), "📶 Diagnóstico do celular: Wi-Fi CASA_5G · ↓ 312 ↑ 152 Mbps · ping 7 ms");
+
+  const movel = uaDiagnostico({ medidoEm: "2026-10-01T12:30:00Z", conexao: "satelite", operadora: "TIM",
+    localizacao: { latitude: 999, longitude: 0 }, velocidade: { downloadMbps: "rápido" }, avisos: ["localizacao_negada", 3] });
+  assert.equal(movel.conexao, "desconhecida");
+  assert.equal(movel.localizacao, null);
+  assert.equal(movel.velocidade, null);
+  assert.deepEqual(movel.avisos, ["localizacao_negada"]);
+  assert.equal(uaDiagnostico({ conexao: "wifi" }), null, "sem medidoEm não é diagnóstico");
+
+  // guardado na conversa (coluna também no SCHEMA, por causa da impressão digital)
+  assert.match(worker, /client_id TEXT,\n  app_diagnostico TEXT,/);
+  assert.match(worker, /\["app_diagnostico", "TEXT"\]/);
+  assert.match(worker, /if \(p\.diagnostico\) await uaGuardarDiagnostico/);
+  // vai no detalhe da conversa e fica fora da lista recarregada a cada 5 s
+  assert.match(worker, /cliente: cliente \|\| null, diagnostico \}/);
+  assert.match(worker, /rows\.map\(\(\{ app_diagnostico, \.\.\.c \}\)/);
+  // painel mostra só nos chats do app e se atualiza no polling
+  assert.match(client, /conv\.channel === "updown_app" \? deviceSection\(state\.diagnostico\)/);
+  assert.match(client, /if \(clienteChanged \|\| diagChanged\) renderSide\(\)/);
+});
+
 test("gravador converte WebM/Opus do Chrome em Ogg/Opus válido", async () => {
   const { runInNewContext } = await import("node:vm");
   const code = await readFile(new URL("../public/js/noc-gravador.js", import.meta.url), "utf8");

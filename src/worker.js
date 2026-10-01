@@ -659,6 +659,7 @@ CREATE TABLE IF NOT EXISTS wa_conversations (
   external_id TEXT NOT NULL DEFAULT '',
   guest_id TEXT,
   client_id TEXT,
+  app_diagnostico TEXT,
   sector_id INTEGER REFERENCES sectors(id) ON DELETE SET NULL,
   assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'routing' CHECK(status IN ('routing','open','closed')),
@@ -1666,7 +1667,9 @@ async function ensureDatabaseImpl(env) {
     ["channel", "TEXT NOT NULL DEFAULT 'whatsapp'"],
     ["external_id", "TEXT NOT NULL DEFAULT ''"],
     ["guest_id", "TEXT"],
-    ["client_id", "TEXT"]
+    ["client_id", "TEXT"],
+    // JSON do diagnóstico do celular (App UpDown, uaDiagnostico). Também no SCHEMA.
+    ["app_diagnostico", "TEXT"]
   ]);
   await db.prepare(`CREATE INDEX IF NOT EXISTS idx_wa_conv_client ON wa_conversations(client_id)`).run();
   /* Anexos: body guarda o path /api/media/...; o nome original do arquivo
@@ -4211,6 +4214,68 @@ async function uaBaixarMidia(env, externalId, md) {
   }
 }
 
+// Diagnóstico do celular que o app mede ao abrir chamado de suporte
+// (`diagnosticoDoAparelho` em packages/contracts/src/velocidade.ts do AppClientes).
+// O app já validou; aqui só passa o que este painel sabe mostrar, com tipo e
+// tamanho conferidos, porque vai parar no HTML do atendente. Sem `medidoEm`
+// válido, não é diagnóstico.
+const UA_CONEXOES = new Set(["wifi", "movel", "cabo", "sem_conexao", "desconhecida"]);
+
+function uaDiagnostico(d) {
+  if (!d || typeof d !== "object") return null;
+  const medidoEm = uaCarimbo(d.medidoEm);
+  if (!medidoEm) return null;
+  const num = (v, min, max) => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null);
+  const txt = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+  const loc = d.localizacao && typeof d.localizacao === "object" ? {
+    latitude: num(d.localizacao.latitude, -90, 90),
+    longitude: num(d.localizacao.longitude, -180, 180),
+    precisaoMetros: num(d.localizacao.precisaoMetros, 0, 1e6)
+  } : null;
+  const vel = d.velocidade && typeof d.velocidade === "object" ? {
+    downloadMbps: num(d.velocidade.downloadMbps, 0, 1e5),
+    uploadMbps: num(d.velocidade.uploadMbps, 0, 1e5),
+    pingMs: num(d.velocidade.pingMs, 0, 6e4),
+    jitterMs: num(d.velocidade.jitterMs, 0, 6e4),
+    servidor: txt(d.velocidade.servidor, 200)
+  } : null;
+  return {
+    medidoEm,
+    conexao: UA_CONEXOES.has(d.conexao) ? d.conexao : "desconhecida",
+    redeWifi: txt(d.redeWifi, 64),
+    operadora: txt(d.operadora, 64),
+    naRedeDaUpdown: typeof d.naRedeDaUpdown === "boolean" ? d.naRedeDaUpdown : null,
+    localizacao: loc && loc.latitude !== null && loc.longitude !== null ? loc : null,
+    velocidade: vel && vel.downloadMbps !== null && vel.uploadMbps !== null ? vel : null,
+    avisos: Array.isArray(d.avisos) ? d.avisos.filter(a => typeof a === "string").slice(0, 10).map(a => a.slice(0, 40)) : []
+  };
+}
+
+// Uma linha na conversa quando o diagnóstico chega, para quem não está com o
+// painel aberto: "📶 Wi-Fi CASA_5G · ↓ 312 ↑ 152 Mbps · ping 7 ms".
+function uaResumoDiagnostico(d) {
+  const mbps = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
+  const rede = d.conexao === "wifi" ? `Wi-Fi${d.redeWifi ? ` ${d.redeWifi}` : ""}`
+    : d.conexao === "movel" ? `Dados móveis${d.operadora ? ` ${d.operadora}` : ""}`
+    : d.conexao === "cabo" ? "Cabo" : d.conexao === "sem_conexao" ? "Sem conexão" : "Rede não identificada";
+  const partes = [rede];
+  if (d.velocidade) partes.push(`↓ ${mbps(d.velocidade.downloadMbps)} ↑ ${mbps(d.velocidade.uploadMbps)} Mbps`, `ping ${d.velocidade.pingMs ?? "?"} ms`);
+  else partes.push("teste de velocidade não concluído");
+  if (!d.localizacao) partes.push("sem localização");
+  return `📶 Diagnóstico do celular: ${partes.join(" · ")}`;
+}
+
+async function uaGuardarDiagnostico(db, conv, externalId, bruto) {
+  const d = uaDiagnostico(bruto);
+  if (!d) return;
+  const texto = JSON.stringify(d);
+  if (texto === conv.app_diagnostico) return;
+  await db.prepare(`UPDATE wa_conversations SET app_diagnostico=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(texto, conv.id).run();
+  conv.app_diagnostico = texto;
+  await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)`)
+    .bind(conv.id, "bot", "text", uaResumoDiagnostico(d).slice(0, 600), `app:diag:${externalId}:${d.medidoEm}`, "App").run();
+}
+
 async function uaSincronizar(env, db, p) {
   const c = p.chamado || {}, cli = p.cliente || {};
   const externalId = String(c.id || "").trim();
@@ -4289,6 +4354,7 @@ async function uaSincronizar(env, db, p) {
     await db.prepare(`UPDATE wa_conversations SET last_message=?,last_message_at=CURRENT_TIMESTAMP,unread=unread+?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
       .bind(ultima.slice(0, 500), novasDoCliente, conv.id).run();
   }
+  if (p.diagnostico) await uaGuardarDiagnostico(db, conv, externalId, p.diagnostico);
 
   if (c.status === "fechado" && conv.status !== "closed") {
     await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name) VALUES(?,?,?,?,?,?)`)
@@ -4464,7 +4530,9 @@ async function handleWhatsapp(env, request) {
         `SELECT client_id,nome FROM cliente_cadastro WHERE client_id IN (${clientIds.map(() => "?").join(",")})`
       ).bind(...clientIds).all()).results?.map(r => [String(r.client_id), r.nome]) || [])
     : new Map();
-  const conversations = rows.map(c => ({
+  // O diagnóstico do app só aparece no painel da conversa aberta (vem no detalhe);
+  // não pesa a lista que a tela recarrega a cada 5 s.
+  const conversations = rows.map(({ app_diagnostico, ...c }) => ({
     ...c,
     client_nome: c.client_id ? (clientNames.get(String(c.client_id)) || null) : null,
     is_mine: Number(c.assigned_user_id) === Number(gate.user.id),
@@ -4502,7 +4570,10 @@ async function handleWhatsappConversation(env, request, id) {
     SELECT client_id,nome,cpf_cnpj,telefone,email,endereco,bairro,cidade,uf,plano,status_faturamento
     FROM cliente_cadastro WHERE client_id=?
   `).bind(conv.client_id).first() : null;
-  return json({ conversation: conv, messages, can, cliente: cliente || null });
+  let diagnostico = null;
+  try { diagnostico = conv.app_diagnostico ? JSON.parse(conv.app_diagnostico) : null; } catch { /* linha corrompida: painel sem diagnóstico */ }
+  delete conv.app_diagnostico;
+  return json({ conversation: conv, messages, can, cliente: cliente || null, diagnostico });
 }
 
 /* Vincula/desvincula a conversa a um registro de cliente_cadastro, pra o

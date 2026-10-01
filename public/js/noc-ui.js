@@ -66,6 +66,7 @@ window.UI = (() => {
     menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     trafego: '<path d="M7 20V10M7 10L4 13M7 10l3 3"/><path d="M17 4v10M17 14l3-3M17 14l-3-3"/>',
     pulse: '<path d="M2.5 12h4l2.2-7 3.2 14 2.4-9.5 1.6 4.5h5.6"/>',
+    help: '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.7M12 17h.01"/>',
   };
   const icon = (name, cls = "icon") =>
     `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${PATHS[name] || PATHS.circle}</svg>`;
@@ -297,6 +298,7 @@ window.UI = (() => {
             <input class="appbar-search-input" id="globalSearch" type="search" placeholder="Buscar tela, equipamento ou POP…" aria-label="Busca global" autocomplete="off" tabindex="-1">
             <div class="appbar-search-results" role="listbox" aria-label="Resultados da busca" hidden></div>
           </div>
+          <button class="btn btn-ghost btn-icon" data-help-open type="button" title="Ajuda e perguntas frequentes (F1)" aria-label="Abrir ajuda">${icon("help")}</button>
           <button class="btn btn-ghost btn-icon appbar-palette-btn" data-palette-open type="button" title="Paleta de comandos (Ctrl+K)" aria-label="Abrir paleta de comandos">${icon("keyboard")}</button>
           <button class="btn btn-ghost btn-icon" data-theme-toggle type="button"></button>
           <div style="position:relative">
@@ -317,6 +319,7 @@ window.UI = (() => {
     $$("[data-nav-drawer]").forEach((b) => (b.onclick = openNavSheet));
     $$("[data-shortcuts]").forEach((b) => (b.onclick = openShortcuts));
     $$("[data-palette-open]").forEach((b) => (b.onclick = () => openPalette()));
+    $$("[data-help-open]").forEach((b) => (b.onclick = () => openHelp()));
     $$("[data-theme-toggle]").forEach((b) => (b.onclick = toggleTheme));
     toastHost();
     bindGlobalKeys();
@@ -792,6 +795,7 @@ window.UI = (() => {
         <button class="menu-item" data-calendar-menu type="button">${icon("calendar")} Importar agenda (.ics)</button>
         <button class="menu-item" data-theme-menu type="button">${icon("moon")} Alternar tema</button>
         <button class="menu-item" data-shortcuts type="button">${icon("keyboard")} Atalhos de teclado</button>
+        <button class="menu-item" data-help-menu type="button">${icon("help")} Ajuda</button>
         <div class="menu-sep"></div>
         <button class="menu-item is-danger" id="logoutBtn" type="button">${icon("logout")} Encerrar sessão</button>`;
       btn.parentElement.appendChild(menu);
@@ -799,6 +803,7 @@ window.UI = (() => {
       $("[data-calendar-menu]", menu).onclick = () => { close(); openAgendaImport(); };
       $("[data-theme-menu]", menu).onclick = () => { toggleTheme(); close(); };
       $("[data-shortcuts]", menu).onclick = () => { close(); openShortcuts(); };
+      $("[data-help-menu]", menu).onclick = () => { close(); openHelp(); };
       // Logout pela API: o Worker limpa o cookie HttpOnly.
       $("#logoutBtn", menu).onclick = async () => {
         try {
@@ -901,6 +906,7 @@ window.UI = (() => {
     cmds.push(
       { group: "Ações", label: "Alternar tema claro/escuro", hint: "Atalho: T", icon: "moon", run: toggleTheme },
       { group: "Ações", label: "Ver atalhos de teclado", hint: "Atalho: ?", icon: "keyboard", run: openShortcuts },
+      { group: "Ações", label: "Ajuda e perguntas frequentes", hint: "Atalho: F1", icon: "help", run: () => openHelp() },
       { group: "Ações", label: "Abrir Dashboard em modo TV", hint: "Telão do NOC", icon: "tv", run: () => (location.href = "/dashboard.html?tv=1") },
       { group: "Ações", label: "Editor clássico da topologia", hint: "Edição completa de portas, POPs e títulos", icon: "edit", run: () => (location.href = "/legado.html") }
     );
@@ -972,6 +978,112 @@ window.UI = (() => {
     observer.observe(document.body, { childList: true });
   }
 
+  /* ---------------- ajuda (perguntas frequentes) ---------------- */
+  /* O conteúdo mora em /js/noc-ajuda.js e só é baixado quando alguém abre a
+     Ajuda: são dezenas de KB de texto que nenhuma tela precisa para abrir.
+     Trocar a versão abaixo ao editar o conteúdo, para o navegador não servir
+     a cópia antiga. */
+  const AJUDA_SRC = "/js/noc-ajuda.js?v=20260930-1";
+  let ajudaCarregando = null;
+  function carregarAjuda() {
+    if (window.NOC_AJUDA) return Promise.resolve(window.NOC_AJUDA);
+    if (!ajudaCarregando) {
+      ajudaCarregando = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = AJUDA_SRC;
+        s.onload = () => (window.NOC_AJUDA ? resolve(window.NOC_AJUDA) : reject(new Error("vazio")));
+        s.onerror = () => { ajudaCarregando = null; s.remove(); reject(new Error("falhou")); };
+        document.head.appendChild(s);
+      });
+    }
+    return ajudaCarregando;
+  }
+
+  // Tabela de faixas (sinal, RSSI, logs): [valor, rótulo, cor, descrição].
+  const faixasHtml = (faixas) => `<div class="help-faixas">${faixas.map(([v, l, c, d]) => `
+    <div class="help-faixa" style="--fc:${esc(c)}"><span class="help-faixa-v">${esc(v)}</span><b>${esc(l)}</b>${d ? `<span class="help-faixa-d">${esc(d)}</span>` : ""}</div>`).join("")}</div>`;
+
+  const semAcento = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+  let ajudaAberta = false;
+  function openHelp(termo = "") {
+    if (ajudaAberta) return;
+    ajudaAberta = true;
+    fecharMenusAppbar();
+    const { host } = drawer({
+      labelledBy: "helpTitle",
+      html: `
+        <div class="drawer-head help-head">
+          <div class="row-between">
+            <div><span class="kicker">${icon("help")} Ajuda</span><h2 id="helpTitle" style="margin-top:6px;font-size:var(--fs-20)">Perguntas frequentes</h2></div>
+            <button class="btn btn-ghost btn-icon btn-sm" data-close type="button" aria-label="Fechar ajuda">${icon("close")}</button>
+          </div>
+          <div class="input-affix help-search">
+            <span class="affix-icon">${icon("search")}</span>
+            <input class="input" type="search" data-help-q placeholder="Pesquisar: RSSI, LOS, boleto, mesh…" aria-label="Pesquisar na ajuda" autocomplete="off" value="${esc(termo)}">
+          </div>
+          <div class="help-cats" role="group" aria-label="Categorias" data-help-cats></div>
+        </div>
+        <div class="drawer-body help-body" data-help-body><p class="dim">Carregando…</p></div>
+        <div class="drawer-foot"><span class="dim" style="font-size:var(--fs-11)" data-help-fonte></span><span class="dim" style="font-size:var(--fs-11)"><span class="kbd">F1</span> abre esta ajuda</span></div>`,
+      onMount(h) {
+        const corpo = $("[data-help-body]", h);
+        const campo = $("[data-help-q]", h);
+        const cats = $("[data-help-cats]", h);
+        let base = null, catAtual = "";
+
+        const render = () => {
+          if (!base) return;
+          const q = semAcento(campo.value.trim());
+          const categorias = base.categorias
+            .filter((c) => !catAtual || c.id === catAtual)
+            .map((c) => ({ ...c, perguntas: c.perguntas.filter((p) => !q || p._busca.includes(q)) }))
+            .filter((c) => c.perguntas.length);
+          if (!categorias.length) {
+            corpo.innerHTML = `<div class="empty"><b>Nada encontrado</b><p>Tente outra palavra, como “sinal”, “O.S.” ou “Wi-Fi”.</p></div>`;
+            return;
+          }
+          // Com busca ativa as respostas já vêm abertas: quem digitou quer ler.
+          corpo.innerHTML = categorias.map((c) => `
+            <section class="help-cat">
+              <h3 class="help-cat-t">${esc(c.nome)}</h3>
+              ${c.perguntas.map((p) => `
+                <details class="help-item" ${q ? "open" : ""}>
+                  <summary>${esc(p.q)}${icon("chevronDown", "icon help-chev")}</summary>
+                  <div class="help-a">${p.a || ""}${p.faixas ? faixasHtml(p.faixas) : ""}${p.nota ? `<p class="help-nota">${esc(p.nota)}</p>` : ""}</div>
+                </details>`).join("")}
+            </section>`).join("");
+        };
+
+        const renderCats = () => {
+          cats.innerHTML = [{ id: "", nome: "Todas" }, ...base.categorias].map((c) =>
+            `<button class="chip" type="button" data-cat="${esc(c.id)}" aria-pressed="${c.id === catAtual}">${esc(c.nome)}</button>`).join("");
+          $$("[data-cat]", cats).forEach((b) => (b.onclick = () => { catAtual = b.dataset.cat; renderCats(); render(); }));
+        };
+
+        carregarAjuda().then((dados) => {
+          base = dados;
+          base.categorias.forEach((c) => c.perguntas.forEach((p) => {
+            if (p._busca) return;
+            const texto = `${p.q} ${p.tags || ""} ${p.a || ""} ${(p.faixas || []).flat().join(" ")} ${p.nota || ""} ${c.nome}`;
+            p._busca = semAcento(texto.replace(/<[^>]+>/g, " "));
+          }));
+          $("[data-help-fonte]", h).textContent = base.fonte ? `Fonte: ${base.fonte}` : "";
+          renderCats();
+          render();
+        }).catch(() => {
+          corpo.innerHTML = `<div class="empty"><b>Não foi possível carregar a ajuda</b><p>Verifique a conexão e abra de novo.</p></div>`;
+        });
+        campo.addEventListener("input", render);
+        setTimeout(() => campo.focus(), 10);
+      },
+    });
+    const observer = new MutationObserver(() => {
+      if (!document.body.contains(host)) { ajudaAberta = false; observer.disconnect(); }
+    });
+    observer.observe(document.body, { childList: true });
+  }
+
   /* ---------------- atalhos ---------------- */
   const SHORTCUTS = [
     ["Ctrl / ⌘ + K", "Abrir a paleta de comandos e a busca global"],
@@ -984,6 +1096,7 @@ window.UI = (() => {
     ["G depois P", "Ir para os POPs"],
     ["G depois A", "Ir para a Plataforma"],
     ["?", "Abrir esta lista de atalhos"],
+    ["F1", "Abrir a Ajuda (perguntas frequentes)"],
     ["Esc", "Fechar gaveta, modal ou paleta"],
   ];
   function openShortcuts() {
@@ -1015,6 +1128,7 @@ window.UI = (() => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); openNavSheet(); return; }
+      if (e.key === "F1") { e.preventDefault(); openHelp(); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "/") { e.preventDefault(); if (abrirBuscaAppbar) abrirBuscaAppbar(); else openPalette(); return; }
       if (e.key === "?") { e.preventDefault(); openShortcuts(); return; }
@@ -1044,7 +1158,7 @@ window.UI = (() => {
 
   return {
     $, $$, esc, num, pct, icon, toast, modal, drawer, confirm, layer,
-    mountShell, refreshNav, openPalette, openShortcuts, toggleTheme, applyTheme,
+    mountShell, refreshNav, openPalette, openShortcuts, openHelp, toggleTheme, applyTheme,
     session, initials, clock, openAgendaImport, NAV, trapFocus,
   };
 })();

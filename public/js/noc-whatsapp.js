@@ -12,6 +12,7 @@
     conversation: null,    // detalhe da conversa aberta
     messages: [],
     cliente: null,         // cadastro vinculado à conversa aberta (cliente_cadastro)
+    diagnostico: null,     // celular do cliente ao abrir chamado no App UpDown
     can: { chat: false, supervise: false, manage: false, clientes: false },
     messagesSig: "",
     sideTab: "client",
@@ -164,6 +165,7 @@
       state.conversation = { ...(convOf(id) || {}), ...detail.conversation };
       state.messages = detail.messages || [];
       state.cliente = detail.cliente || null;
+      state.diagnostico = detail.diagnostico || null;
       renderChat();
       renderConvList();
       renderPresence();
@@ -443,6 +445,7 @@
     state.conversation = null;
     state.messages = [];
     state.cliente = null;
+    state.diagnostico = null;
     state.messagesSig = "";
     $("#chatEmpty").hidden = false;
     $("#chatThread").hidden = true;
@@ -525,6 +528,7 @@
           : `<button class="btn btn-sm" id="clientLinkBtn" type="button">${icon("link")} Vincular</button>`) : ""}</div>
         ${clientBlock}
       </section>
+      ${conv.channel === "updown_app" ? deviceSection(state.diagnostico) : ""}
       <section class="wa-section">
         <div class="wa-section-head"><h3>Atendimento</h3></div>
         <dl class="wa-dl">
@@ -538,6 +542,59 @@
     const unlinkBtn = $("#clientUnlinkBtn", host), linkBtn = $("#clientLinkBtn", host);
     if (unlinkBtn) unlinkBtn.onclick = () => unlinkClient(conv);
     if (linkBtn) linkBtn.onclick = () => openClientLinkModal(conv);
+  }
+
+  /* O que o App UpDown mediu do celular ao abrir o chamado de suporte: velocidade
+     contra o nosso servidor, Wi-Fi (nome da rede) ou dados móveis (operadora) e a
+     localização. Chega pela sincronização do app (uaGuardarDiagnostico no worker). */
+  const DIAG_AVISOS = {
+    localizacao_negada: "O cliente não liberou a localização.",
+    localizacao_desligada: "A localização do celular estava desligada.",
+    localizacao_sem_sinal: "O celular não conseguiu se localizar a tempo.",
+    teste_falhou: "O teste de velocidade não terminou.",
+    teste_sem_conexao: "O celular estava sem internet na hora do teste."
+  };
+
+  function deviceSection(d) {
+    const head = extra => `<div class="wa-section-head"><h3>Celular do cliente</h3>${extra || ""}</div>`;
+    if (!d) {
+      return `<section class="wa-section">${head()}
+        <p class="wa-side-note">O app ainda não mandou o diagnóstico. Ele chega uns segundos depois de o cliente abrir um chamado de suporte técnico.</p>
+      </section>`;
+    }
+    const row = (label, value) => value ? `<div><dt>${esc(label)}</dt><dd>${value}</dd></div>` : "";
+    const mbps = v => (v >= 100 ? Math.round(v) : Math.round(v * 10) / 10).toLocaleString("pt-BR");
+    const v = d.velocidade;
+    const speed = v
+      ? `<div class="wa-diag-speed">
+          <div><small>Download</small><b>${esc(mbps(v.downloadMbps))}</b><small>Mbps</small></div>
+          <div><small>Upload</small><b>${esc(mbps(v.uploadMbps))}</b><small>Mbps</small></div>
+          <div><small>Ping</small><b>${esc(String(v.pingMs ?? "—"))}</b><small>ms${v.jitterMs != null ? ` · jitter ${esc(String(v.jitterMs))}` : ""}</small></div>
+        </div>`
+      : "";
+    const updown = d.naRedeDaUpdown === true ? `<span class="wa-diag-tag is-ok">Rede UpDown</span>`
+      : d.naRedeDaUpdown === false ? `<span class="wa-diag-tag is-warn">Fora da rede UpDown</span>` : "";
+    const conexao = d.conexao === "wifi" ? `Wi-Fi${d.redeWifi ? ` · <b>${esc(d.redeWifi)}</b>` : " · nome da rede não informado"}`
+      : d.conexao === "movel" ? `Dados móveis${d.operadora ? ` · <b>${esc(d.operadora)}</b>` : ""}`
+      : d.conexao === "cabo" ? "Cabo de rede"
+      : d.conexao === "sem_conexao" ? "Sem conexão" : "Não identificada";
+    const loc = d.localizacao;
+    const local = loc
+      ? `${esc(loc.latitude.toFixed(5))}, ${esc(loc.longitude.toFixed(5))}${loc.precisaoMetros ? ` <span class="dim">(±${esc(String(Math.round(loc.precisaoMetros)))} m)</span>` : ""}
+         <a class="wa-diag-map" href="https://www.google.com/maps?q=${encodeURIComponent(`${loc.latitude},${loc.longitude}`)}" target="_blank" rel="noopener noreferrer">Abrir no mapa</a>`
+      : "";
+    const avisos = (d.avisos || []).map(a => DIAG_AVISOS[a]).filter(Boolean);
+    return `<section class="wa-section">
+        ${head(`<small class="wa-side-note" title="${esc(TEMPO.dataHora(d.medidoEm, ""))}">${esc(timeLabel(d.medidoEm))}</small>`)}
+        ${speed || `<p class="wa-side-note">Sem resultado do teste de velocidade.</p>`}
+        <dl class="wa-dl">
+          ${row("Conexão", `${conexao}${updown ? ` ${updown}` : ""}`)}
+          ${row("Localização", local || '<span class="dim">Não enviada</span>')}
+          ${row("Medido em", esc(TEMPO.dataHora(d.medidoEm, "")))}
+          ${v?.servidor ? row("Servidor", esc(v.servidor)) : ""}
+        </dl>
+        ${avisos.length ? `<ul class="wa-diag-avisos">${avisos.map(a => `<li>${esc(a)}</li>`).join("")}</ul>` : ""}
+      </section>`;
   }
 
   function openClientLinkModal(conv) {
@@ -1087,8 +1144,12 @@
           const local = state.messages.filter(m => String(m.id).startsWith("tmp-") && m.status !== "sent");
           state.messages = [...(detail.messages || []), ...local];
           state.cliente = detail.cliente || null;
+          // O diagnóstico chega uns 15 s depois de o chamado abrir no app: o painel
+          // se atualiza sozinho, sem o atendente reabrir a conversa.
+          const diagChanged = JSON.stringify(detail.diagnostico || null) !== JSON.stringify(state.diagnostico);
+          state.diagnostico = detail.diagnostico || null;
           updateHead(detail.conversation);
-          if (clienteChanged) renderSide();
+          if (clienteChanged || diagChanged) renderSide();
           const sig = state.messages.map(m => `${m.id}:${m.status}`).join(",");
           if (sig !== state.messagesSig) renderMessages();
         } catch { /* mantém o estado atual */ }
