@@ -4297,13 +4297,11 @@ async function uaGuardarDiagnostico(db, conv, externalId, bruto) {
 
 // Leitura que o app repete a cada 20 s com a conversa aberta
 // (`conexaoAtualDoAparelho`): conexão, local e, no Wi-Fi, um teste de velocidade
-// curto. Mesmo formato do diagnóstico, sem os avisos. A API do app repassa cada
-// leitura, então isto grava uma vez a cada 20 s por conversa aberta no celular.
+// curto. Mesmo formato do diagnóstico; os avisos dizem por que o nome do Wi-Fi
+// não veio. A API do app repassa cada leitura, então isto grava uma vez a cada
+// 20 s por conversa aberta no celular.
 function uaConexaoAtual(c) {
-  const d = uaDiagnostico(c);
-  if (!d) return null;
-  const { avisos, ...leitura } = d;
-  return leitura;
+  return uaDiagnostico(c);
 }
 
 // A troca de rede vira uma linha na conversa ("O celular passou para Dados

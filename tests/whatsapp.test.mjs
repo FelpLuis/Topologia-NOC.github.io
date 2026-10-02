@@ -204,7 +204,7 @@ test("leitura de 20 s do celular aparece ao vivo no painel", () => {
 
   // 4G: sem teste de velocidade (APK antigo nem manda local/velocidade)
   const c = uaConexaoAtual({ medidoEm: "2026-10-01T12:30:15Z", conexao: "movel", redeWifi: null, operadora: " TIM ", naRedeDaUpdown: null, encaminhadaEm: "x" });
-  assert.deepEqual(c, { medidoEm: "2026-10-01 12:30:15", conexao: "movel", redeWifi: null, operadora: "TIM", naRedeDaUpdown: null, localizacao: null, velocidade: null });
+  assert.deepEqual(c, { medidoEm: "2026-10-01 12:30:15", conexao: "movel", redeWifi: null, operadora: "TIM", naRedeDaUpdown: null, localizacao: null, velocidade: null, avisos: [] });
   assert.equal(uaRotuloRede(c), "Dados móveis TIM");
   assert.equal(uaConexaoAtual({ conexao: "wifi" }), null);
   // Wi-Fi: local e velocidade da leitura vêm junto, filtrados como no diagnóstico
@@ -214,7 +214,12 @@ test("leitura de 20 s do celular aparece ao vivo no painel", () => {
   assert.equal(w.localizacao.latitude, -23.89602);
   assert.equal(w.velocidade.downloadMbps, 34.6);
   assert.equal(w.velocidade.servidor.length, 200);
-  assert.equal(w.avisos, undefined);
+  assert.deepEqual(w.avisos, []);
+  // Wi-Fi sem nome: o motivo chega ao painel, que diz ao atendente o que pedir
+  const oculto = uaConexaoAtual({ medidoEm: "2026-10-01T12:30:55Z", conexao: "wifi", redeWifi: null, avisos: ["localizacao_desligada"] });
+  assert.deepEqual(oculto.avisos, ["localizacao_desligada"]);
+  assert.match(client, /localizacao_desligada: "nome oculto: localização do celular desligada"/);
+  assert.match(client, /WIFI_SEM_NOME\[\(c\.avisos \|\| \[\]\)\.find/);
 
   // leitura atrasada não sobrescreve a mais nova; troca de rede vira linha no chat
   assert.match(worker, /Date\.parse\(`\$\{anterior\.medidoEm\.replace\(" ", "T"\)\}Z`\) > Date\.parse/);

@@ -608,8 +608,18 @@
     localizacao_negada: "O cliente não liberou a localização.",
     localizacao_desligada: "A localização do celular estava desligada.",
     localizacao_sem_sinal: "O celular não conseguiu se localizar a tempo.",
+    localizacao_aproximada: "O cliente liberou só a localização aproximada; o Android esconde o nome do Wi-Fi.",
+    wifi_sem_nome: "O celular não informou o nome do Wi-Fi.",
     teste_falhou: "O teste de velocidade não terminou.",
     teste_sem_conexao: "O celular estava sem internet na hora do teste."
+  };
+  // O Android só dá o nome do Wi-Fi com a localização ligada e a precisa liberada:
+  // o atendente lê aqui o que pedir ao cliente.
+  const WIFI_SEM_NOME = {
+    localizacao_desligada: "nome oculto: localização do celular desligada",
+    localizacao_negada: "nome oculto: app sem permissão de localização",
+    localizacao_aproximada: "nome oculto: localização só aproximada no app",
+    wifi_sem_nome: "o celular não informou o nome da rede"
   };
   // Uma leitura a cada 20 s (mais uns 10 s de teste e envio); sem nenhuma em 75 s,
   // o app parou de mandar (cliente saiu da conversa ou do app).
@@ -687,7 +697,8 @@
     const kind = c.conexao === "wifi" ? "wifi" : c.conexao === "movel" ? "movel" : c.conexao === "cabo" ? "cabo" : "off";
     const title = c.conexao === "wifi" ? "Wi-Fi" : c.conexao === "movel" ? "Dados móveis" : c.conexao === "cabo" ? "Cabo de rede"
       : c.conexao === "sem_conexao" ? "Sem conexão" : "Não identificada";
-    const detail = c.conexao === "wifi" ? (c.redeWifi ? `<b>${esc(c.redeWifi)}</b>` : `<span class="dim">nome da rede não informado</span>`)
+    const semNome = WIFI_SEM_NOME[(c.avisos || []).find(a => WIFI_SEM_NOME[a])] || "nome da rede não informado";
+    const detail = c.conexao === "wifi" ? (c.redeWifi ? `<b>${esc(c.redeWifi)}</b>` : `<span class="dim">${esc(semNome)}</span>`)
       : c.conexao === "movel" ? (c.operadora ? `<b>${esc(c.operadora)}</b>` : `<span class="dim">operadora não informada</span>`) : "";
     const updown = c.naRedeDaUpdown === true ? `<span class="wa-diag-tag is-ok">Rede UpDown</span>`
       : c.naRedeDaUpdown === false ? `<span class="wa-diag-tag is-warn">Fora da rede UpDown</span>` : "";
