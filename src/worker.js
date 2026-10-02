@@ -8728,10 +8728,22 @@ async function loadGponSnapshot(env) {
   const db = getDB(env);
   const meta = await db.prepare(`SELECT version,chunk_count FROM gpon_snapshot_state WHERE id=1`).first();
   if (!meta) return null;
-  const rows = (await db.prepare(`
-    SELECT data_text FROM gpon_snapshot_chunks WHERE version=? ORDER BY chunk_index
-  `).bind(meta.version).all()).results || [];
-  if (rows.length !== Number(meta.chunk_count)) throw new Error("GPON_SNAPSHOT_INCOMPLETE");
+  /* Os pedaços vêm em grupos, não numa leitura só: o parque passou de 6 MB de
+     fotografia e o sqld recusa a resposta inteira com RESPONSE_TOO_LARGE — o
+     texto JSON guardado volta escapado (cada aspa vira \"), e o que eram 6,6 MB
+     no banco passa do teto de 10 MB por resposta. Com 8 pedaços de 128 KiB por
+     vez, cada resposta fica perto de 2 MB mesmo no pior caso. */
+  const total = Number(meta.chunk_count);
+  const porLeitura = 8;
+  const rows = [];
+  for (let inicio = 0; inicio < total; inicio += porLeitura) {
+    const parte = (await db.prepare(`
+      SELECT data_text FROM gpon_snapshot_chunks
+      WHERE version=? AND chunk_index>=? AND chunk_index<? ORDER BY chunk_index
+    `).bind(meta.version, inicio, inicio + porLeitura).all()).results || [];
+    rows.push(...parte);
+  }
+  if (rows.length !== total) throw new Error("GPON_SNAPSHOT_INCOMPLETE");
   const data = JSON.parse(rows.map(row => row.data_text).join(""));
   /* A fotografia guardada nos pedaços tem a idade da última sincronização
      completa (10 min); o estado por cliente tem a do último ciclo (10 s). Quem
