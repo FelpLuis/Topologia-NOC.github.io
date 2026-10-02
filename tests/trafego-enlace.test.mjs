@@ -132,16 +132,12 @@ test("anel de POPs usa a mesma escala, com o tracejado ainda dizendo a rota", ()
   assert.doesNotMatch(pops, /background:var\(--cyan-400\);display:block"><\/i> Rota aérea/);
 });
 
-test("mapa GPON pinta a conexão de rede sem varrer os enlaces a cada quadro", () => {
-  assert.match(gpon, /cargaDoPar\(a\.id, b\.id\)/);
-  assert.match(gpon, /function indexarCarga/);
-  // O índice é descartado quando a topologia muda e a cada leitura nova.
-  assert.match(gpon, /cargaPorPar = null;\s+\/\/ a topologia mudou/);
-  assert.match(gpon, /TRAF\.acompanhar\(\(\) => \{ cargaPorPar = null; scheduleMap\(\); \}\)/);
-  assert.match(gpon, /gpon-route-network is-traf/);
-  assert.match(gpon, /TRAF\.legendaHTML\(medidas\)/);
-  // O SVG das rotas é inerte ao ponteiro; só a faixa de acerto volta a receber.
-  assert.match(css, /\.gpon-routes \.traf-alvo \{ pointer-events: stroke; \}/);
+test("mapa GPON usa a escala só no caminho ponta a ponta do detalhe", () => {
+  // O mapa GPON deixou de desenhar enlaces entre POPs; a utilização segue
+  // pintando as ligações do caminho do cliente, refeito a cada leitura nova.
+  assert.doesNotMatch(gpon, /gpon-route-network/);
+  assert.match(gpon, /m = linkCarga\(h, next\);/);
+  assert.match(gpon, /TRAF\.acompanhar\(\(\) => \{ if \(state\.selected\?\.type === "client"\) renderDetail\(true\); \}\)/);
 });
 
 test("todas as telas de mapa carregam o módulo e a folha de estilo", () => {
@@ -156,7 +152,6 @@ test("as telas da topologia têm onde desenhar a legenda", () => {
   for (const tela of ["topologia", "isp", "isp-mapa"]) {
     assert.match(ler(`../public/${tela}.html`), /id="trafLegend"/, `${tela}.html sem o espaço da legenda`);
   }
-  assert.match(ler("../public/gpon.html"), /id="gponTrafLegend"/);
 });
 
 test("a legenda também aparece no mapa geográfico", () => {

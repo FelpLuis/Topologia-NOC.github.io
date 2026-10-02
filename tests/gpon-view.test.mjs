@@ -30,6 +30,29 @@ test("o mapa da GPON traz o painel lateral completo", () => {
   assert.doesNotMatch(html, /<input type="checkbox" data-layer/);
 });
 
+test("o mapa GPON é de acesso: CTOs e clientes, sem POPs nem enlaces", () => {
+  // POPs e enlaces entre eles poluíam o mapa e escondiam as CTOs; essa leitura
+  // é da topologia e do anel de POPs.
+  assert.doesNotMatch(html, /data-layer="pops"/);
+  assert.doesNotMatch(html, /id="gponTrafLegend"/);
+  assert.match(runtime, /layers: \{ clients: true, boxes: true, drops: true \}/);
+  assert.doesNotMatch(runtime, /markerHtml\("pop"/);
+  assert.doesNotMatch(runtime, /gpon-route-network/);
+  // Os POPs seguem carregados só para nomear as áreas de foco.
+  assert.match(runtime, /const pop = nearestPop\(area\.lat, area\.lon\);/);
+});
+
+test("o mapa ocupa a janela e tem modo tela cheia", () => {
+  // As abas Clientes/Alertas saíram da topbar, onde quebravam numa segunda linha.
+  assert.match(html, /<aside class="gpon-list-panel" id="gponListPanel">\s*<div class="segmented gpon-side-tabs"/);
+  assert.match(css, /\.gpon-page:has\(#gponMapView:not\(\[hidden\]\)\) \.gpon-workspace \{ flex: 1;/);
+  assert.match(html, /id="mapFull"/);
+  assert.match(runtime, /document\.body\.classList\.toggle\("gpon-full", on\)/);
+  assert.match(css, /body\.gpon-full \.gpon-workspace \{\s*position: fixed;/);
+  // Esc de um modal aberto fecha o modal, não a tela cheia.
+  assert.match(runtime, /!document\.querySelector\("\[aria-modal\]"\)\) toggleFull\(false\)/);
+});
+
 test("coordenada 0,0 não conta como localização", () => {
   // Um cadastro sem GPS que grava zero levava o enquadramento para o Atlântico.
   assert.match(runtime, /NULL_ISLAND/);

@@ -39,14 +39,16 @@
     topology: { equipamentos: [], conexoes: [], pops: [] },
     feed: { clients: [], boxes: [], alerts: [], configured: false },
     rows: [], boxPoints: [], popPoints: [], areas: [], alerts: [],
-    idx: { device: new Map(), box: new Map(), pop: new Map(), client: new Map(), popOfDevice: new Map(),
-      clientsOfBox: new Map(), clientsOfPop: new Map(), devicesOfPop: new Map() },
+    idx: { device: new Map(), box: new Map(), pop: new Map(), client: new Map(),
+      clientsOfBox: new Map() },
     query: "", status: "all", focus: "auto", sideTab: "clients",
     /* Um teto por seção da lista lateral: cada camada ativa mostra a sua fatia
        e tem o seu próprio "carregar mais". */
-    limits: { clients: LIST_CHUNK, boxes: POINT_CHUNK, pops: POINT_CHUNK },
-    baseCache: null, cache: null, sorted: null, boxCache: null, popCache: null,
-    selected: null, layers: { clients: true, boxes: true, pops: true, drops: true },
+    limits: { clients: LIST_CHUNK, boxes: POINT_CHUNK },
+    baseCache: null, cache: null, sorted: null, boxCache: null,
+    /* POPs não são camada do mapa GPON: a tela é de acesso — CTOs e clientes.
+       Os POPs seguem carregados só para dar nome às áreas de foco. */
+    selected: null, layers: { clients: true, boxes: true, drops: true },
     map: { k: 2 ** 12, ox: 0, oy: 0 }, basemap: null, dragging: null, fitted: false,
     frame: 0, view: "map", page: 0, searchTimer: 0,
     detailOff: false,
@@ -179,17 +181,6 @@
     }, "create", () => load(false));
   }
 
-  /* NOC.suggestPop normaliza nomes de POP a cada chamada; com um equipamento
-     por cliente isso reaparecia dezenas de milhares de vezes por desenho. */
-  function popOfDevice(e) {
-    if (!e) return null;
-    const key = String(e.id);
-    if (state.idx.popOfDevice.has(key)) return state.idx.popOfDevice.get(key);
-    const pop = popById(e.popId || NOC.suggestPop(e));
-    state.idx.popOfDevice.set(key, pop);
-    return pop;
-  }
-  const popOfClient = (c) => popOfDevice(deviceById(c.olt_id));
 
   /* ---------------- índice e linhas pré-calculadas ---------------- */
 
@@ -224,8 +215,6 @@
     idx.device = new Map(devices().map((e) => [String(e.id), e]));
     idx.pop = new Map(pops().map((p) => [String(p.id), p]));
     idx.box = new Map(boxes().map((b) => [String(b.id), b]));
-    idx.popOfDevice = new Map();
-    cargaPorPar = null;   // a topologia mudou: o agrupamento por par de POPs também
     state.rows = clients().map(toRow);
     idx.client = new Map(state.rows.map((r) => [String(r.id), r]));
     state.popPoints = pops().filter(hasCoord).map((p) => point(p, p.id, p.nome || p.name || p.id));
@@ -236,33 +225,29 @@
     invalidate();
   }
 
-  /* Ocupação de caixa e porte de POP entram em cada linha da lista lateral.
-     Contar varrendo state.rows dentro do desenho custava uma passada pela base
-     inteira por linha — e a lista é redesenhada a cada clique no mapa. */
+  /* Ocupação de caixa entra em cada linha da lista lateral. Contar varrendo
+     state.rows dentro do desenho custava uma passada pela base inteira por
+     linha — e a lista é redesenhada a cada clique no mapa. */
   function countByParent() {
     const idx = state.idx;
     idx.clientsOfBox = new Map();
-    idx.clientsOfPop = new Map();
-    idx.devicesOfPop = new Map();
-    const bump = (map, key) => { if (key) map.set(String(key), (map.get(String(key)) || 0) + 1); };
     for (const r of state.rows) {
-      bump(idx.clientsOfBox, r.c.box_id);
-      bump(idx.clientsOfPop, popOfClient(r.c)?.id);
+      const key = r.c.box_id;
+      if (key) idx.clientsOfBox.set(String(key), (idx.clientsOfBox.get(String(key)) || 0) + 1);
     }
-    for (const e of devices()) bump(idx.devicesOfPop, popOfDevice(e)?.id);
   }
   const countOf = (map, id) => map.get(String(id)) || 0;
 
   function invalidate() {
     state.baseCache = null; state.cache = null; state.sorted = null;
-    state.boxCache = null; state.popCache = null;
+    state.boxCache = null;
   }
 
   /* Toda mudança de busca, foco ou camada recomeça a paginação de cada seção:
      manter o teto antigo deixava a lista abrindo no meio de um resultado que
      já não existe mais. */
   function resetLimits() {
-    state.limits = { clients: LIST_CHUNK, boxes: POINT_CHUNK, pops: POINT_CHUNK };
+    state.limits = { clients: LIST_CHUNK, boxes: POINT_CHUNK };
   }
 
   /* ---------------- concentrações de clientes ----------------
@@ -409,20 +394,19 @@
     return (state.cache = out);
   }
 
-  /* Caixas e POPs seguem a busca e o foco — os mesmos recortes que valem para
-     os clientes —, mas não os chips de estado: "offline", "sinal" e "sem GPS"
+  /* Caixas seguem a busca e o foco — os mesmos recortes que valem para os
+     clientes —, mas não os chips de estado: "offline", "sinal" e "sem GPS"
      descrevem uma ONU, e aplicá-los aqui esvaziaria a seção sem explicação.
      A lista acompanha o que a camada mostra no mapa, então quando o operador
-     desliga Caixas ou POPs a seção correspondente sai junto. */
-  function filteredPoints(kind) {
-    if (!state.layers[kind]) return [];
-    const chave = kind === "boxes" ? "boxCache" : "popCache";
-    if (state[chave]) return state[chave];
+     desliga Caixas a seção sai junto. */
+  function filteredBoxes() {
+    if (!state.layers.boxes) return [];
+    if (state.boxCache) return state.boxCache;
     const q = state.query, area = currentArea();
-    let out = kind === "boxes" ? state.boxPoints : state.popPoints;
+    let out = state.boxPoints;
     if (q) out = out.filter((p) => p.search.includes(q));
     if (area) out = out.filter((p) => inArea(p, area));
-    return (state[chave] = out);
+    return (state.boxCache = out);
   }
 
   /* Ordenado por X do mundo: o recorte por viewport vira busca binária. */
@@ -477,6 +461,23 @@
     $("#mapZoomIn").onclick = () => zoom(2);
     $("#mapZoomOut").onclick = () => zoom(.5);
     $("#mapFit").onclick = () => { state.fitted = false; fit(); };
+    $("#mapFull").onclick = () => toggleFull();
+    paintFull(false);
+    /* Saiu da tela cheia do navegador (Esc ou F11): o mapa sai junto, senão
+       ficaria cobrindo a appbar numa janela com moldura. */
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && isFull()) toggleFull(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || state.view !== "map") return;
+      const el = document.activeElement;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName) || el?.isContentEditable) return;
+      /* Esc com modal ou gaveta aberta é deles: fecha o diálogo, não o mapa.
+         Na captura, porque o próprio diálogo se remove do DOM no Esc antes de
+         o evento borbulhar até o documento. */
+      if (e.key === "Escape" && isFull() && !document.querySelector("[aria-modal]")) toggleFull(false);
+      else if (e.key.toLowerCase() === "f" && !document.querySelector("[aria-modal]")) toggleFull();
+    }, true);
 
     const updateQuery = (value, imediato) => {
       if ($("#mapSearch") && $("#mapSearch").value !== value) $("#mapSearch").value = value;
@@ -581,11 +582,9 @@
     load(false);
     setInterval(refreshIfChanged, 10000);
 
-    /* Cor por tráfego nas conexões de rede: a mesma escala e a mesma dica da
-       topologia e do anel de POPs. A dica é delegada no palco porque o SVG das
-       rotas é reescrito a cada quadro de arrasto. */
-    TRAF.ligarDica($("#gponMap"));
-    TRAF.acompanhar(() => { cargaPorPar = null; scheduleMap(); });
+    /* O mapa não desenha enlaces, mas o caminho ponta a ponta do detalhe pinta
+       cada ligação pela utilização: a leitura nova do Zabbix refaz a ficha. */
+    TRAF.acompanhar(() => { if (state.selected?.type === "client") renderDetail(true); });
   }
 
   function toggleSide(forceOff) {
@@ -599,6 +598,36 @@
       b.setAttribute("aria-label", off ? "Mostrar painel lateral" : "Recolher painel lateral");
       b.setAttribute("aria-expanded", String(!off));
     }
+    scheduleMap();
+  }
+
+  /* Tela cheia: a área do mapa cobre appbar e cabeçalho (classe no body) e,
+     se o navegador permitir, a janela também perde a moldura. A Fullscreen
+     API vai no documento, e não no mapa: assim modais, gavetas e toasts —
+     anexados ao body — continuam aparecendo por cima. */
+  const isFull = () => document.body.classList.contains("gpon-full");
+  const FULL_PATHS = {
+    on: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+    off: '<path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5"/>',
+  };
+
+  function paintFull(on) {
+    const b = $("#mapFull");
+    if (!b) return;
+    b.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${FULL_PATHS[on ? "off" : "on"]}</svg>`;
+    b.setAttribute("aria-pressed", String(on));
+    b.setAttribute("aria-label", on ? "Sair da tela cheia" : "Mapa em tela cheia");
+    b.title = on ? "Sair da tela cheia (Esc)" : "Tela cheia (F)";
+  }
+
+  function toggleFull(force) {
+    const on = typeof force === "boolean" ? force : !isFull();
+    document.body.classList.toggle("gpon-full", on);
+    paintFull(on);
+    try {
+      if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    } catch { /* navegador sem Fullscreen API: a classe sozinha já cobre a janela */ }
     scheduleMap();
   }
 
@@ -747,6 +776,7 @@
   function setView(view) {
     if (!["map", "list", "dash"].includes(view)) return;
     state.view = view;
+    if (view !== "map" && isFull()) toggleFull(false);
     try { localStorage.setItem(VIEW_KEY, view); } catch { /* modo privado */ }
     applyView(true);
   }
@@ -901,11 +931,8 @@
       contador.textContent = nb(clientes);
       return;
     }
-    const nomes = [];
-    if (state.layers.boxes) nomes.push("Caixas");
-    if (state.layers.pops) nomes.push("POPs");
-    btn.firstChild.textContent = `${nomes.join(" · ") || "Camadas"} `;
-    contador.textContent = nb(filteredPoints("boxes").length + filteredPoints("pops").length);
+    btn.firstChild.textContent = state.layers.boxes ? "Caixas " : "Camadas ";
+    contador.textContent = nb(filteredBoxes().length);
   }
 
   function renderSideTabs() {
@@ -940,18 +967,6 @@
     </button>`;
   }
 
-  function popRowHtml(p, selId) {
-    const o = p.ref;
-    const fora = !statusOnline(NOC.popStatus(p.id));
-    const equipamentos = countOf(state.idx.devicesOfPop, p.id);
-    const meta = [o.endereco || o.local || o.cidade, `${nb(equipamentos)} equipamentos`].filter(Boolean).join(" • ");
-    return `<button class="gpon-client-row is-pop ${fora ? "is-off" : ""}" type="button" data-point-row="pop" data-point-id="${esc(p.id)}"${String(p.id) === selId ? ' aria-current="true"' : ""}>
-      <i aria-hidden="true"></i>
-      <span class="gpon-client-main"><b>${esc(p.name)}</b><small>${esc(meta)}</small></span>
-      <span class="gpon-client-meta"><em>${nb(countOf(state.idx.clientsOfPop, p.id))}</em></span>
-    </button>`;
-  }
-
   /* Uma seção por camada ligada. O cabeçalho leva o total filtrado da camada —
      com três listas empilhadas, o número solto da aba não diria mais de onde
      vem cada bloco. */
@@ -971,7 +986,6 @@
     const sel = state.selected;
     const selCliente = sel?.type === "client" ? String(sel.id) : null;
     const selCaixa = sel?.type === "box" ? String(sel.id) : null;
-    const selPop = sel?.type === "pop" ? String(sel.id) : null;
     const partes = [];
 
     if (state.layers.clients) {
@@ -981,22 +995,16 @@
       partes.push(sectionHtml("clients", "Clientes", list.length, corpo, LIST_CHUNK * 4));
     }
     if (state.layers.boxes) {
-      const list = filteredPoints("boxes");
+      const list = filteredBoxes();
       const corpo = list.slice(0, state.limits.boxes).map((b) => boxRowHtml(b, selCaixa)).join("")
         || `<div class="gpon-list-note">Nenhuma caixa localizada neste recorte.</div>`;
       partes.push(sectionHtml("boxes", "Caixas / CTOs", list.length, corpo, POINT_CHUNK * 4));
-    }
-    if (state.layers.pops) {
-      const list = filteredPoints("pops");
-      const corpo = list.slice(0, state.limits.pops).map((p) => popRowHtml(p, selPop)).join("")
-        || `<div class="gpon-list-note">Nenhum POP neste recorte.</div>`;
-      partes.push(sectionHtml("pops", "POPs", list.length, corpo, POINT_CHUNK * 4));
     }
 
     $("#clientList").innerHTML = partes.join("")
       /* Drops não entram aqui: são o traçado entre cliente e caixa, não um
          objeto que se possa abrir numa linha da lista. */
-      || `<div class="empty gpon-side-empty"><b>Nada para listar</b><p>Ligue Clientes, Caixas ou POPs no topo. Drops aparecem só como traçado no mapa.</p></div>`;
+      || `<div class="empty gpon-side-empty"><b>Nada para listar</b><p>Ligue Clientes ou Caixas no topo. Drops aparecem só como traçado no mapa.</p></div>`;
   }
 
   function renderAlerts() {
@@ -1090,7 +1098,7 @@
     el.textContent = `${nb(n)} de ${nb(total)} clientes no enquadramento`;
   }
 
-  function route(points, className, extra = "") {
+  function route(points, className) {
     let d = "";
     const { k, ox, oy } = state.map;
     for (const p of points) {
@@ -1099,50 +1107,13 @@
       d += `${d ? "L" : "M"}${(q.x * k - ox).toFixed(1)},${(q.y * k - oy).toFixed(1)}`;
     }
     if (!d) return "";
-    return `<path class="gpon-route ${className}" d="${d}" ${extra}/>${
-      extra ? `<path class="traf-alvo" d="${d}" ${extra}/>` : ""}`;
+    return `<path class="gpon-route ${className}" d="${d}"/>`;
   }
 
-  /* Carga por par de POPs, calculada uma vez por leitura do Zabbix e não a
-     cada quadro. O mapa redesenha as rotas em todo passo de arrasto, e varrer
-     os enlaces ali dentro custaria mais do que desenhar. `cargaPorPar` é
-     descartado quando a topologia ou a medida mudam. */
-  let cargaPorPar = null;
-
-  function indexarCarga() {
-    const grupos = new Map();
-    for (const c of state.topology.conexoes || []) {
-      const a = popOfDevice(deviceById(c.origem)), b = popOfDevice(deviceById(c.destino));
-      if (!a || !b || a.id === b.id) continue;
-      const key = [a.id, b.id].sort().join(":");
-      if (!grupos.has(key)) grupos.set(key, []);
-      grupos.get(key).push(c);
-    }
-    cargaPorPar = new Map();
-    grupos.forEach((conns, key) => cargaPorPar.set(key, TRAF.doConjunto(conns)));
-  }
-
-  function cargaDoPar(a, b) {
-    if (!cargaPorPar) indexarCarga();
-    return cargaPorPar.get([a, b].sort().join(":")) || null;
-  }
-
+  /* Só o drop é traçado: o mapa GPON é de acesso (CTOs e clientes). Enlaces
+     entre POPs e a utilização deles ficam na topologia e no anel de POPs. */
   function renderRoutes(vis, view) {
-    const pieces = [], seen = new Set(), medidas = [];
-    if (state.layers.pops) (state.topology.conexoes || []).forEach((c) => {
-      const a = popOfDevice(deviceById(c.origem)), b = popOfDevice(deviceById(c.destino));
-      if (!hasCoord(a) || !hasCoord(b) || a.id === b.id) return;
-      const key = [a.id, b.id].sort().join(":");
-      if (seen.has(key)) return;
-      seen.add(key);
-      /* A conexão de rede deixou de ser uma linha roxa fixa: a cor é a
-         utilização, na mesma escala da topologia e do anel de POPs. */
-      const carga = cargaDoPar(a.id, b.id) || TRAF.doConjunto([]);
-      medidas.push(carga);
-      const t = TRAF.atributos(carga, `${a.nome || a.id} ↔ ${b.nome || b.id}`, "Conexão de rede");
-      pieces.push(route([a, b], `gpon-route-network is-traf ${carga.estado === "offline" ? "is-down" : ""}`,
-        `style="stroke:${t.cor}" data-traf="${esc(t.dica)}"`));
-    });
+    const pieces = [];
     /* O drop só significa alguma coisa a partir do zoom de rua, e desenhar
        milhares de polilinhas de 3 px é o item mais caro do quadro. */
     if (state.layers.drops && view.z >= DROP_Z && vis.length <= ROUTE_MAX) {
@@ -1159,26 +1130,6 @@
       }
     }
     $("#gponRoutes").innerHTML = pieces.join("");
-    renderTrafLegend(medidas);
-  }
-
-  /* A legenda só aparece quando a camada de POPs está ligada: sem conexão de
-     rede desenhada, uma escala de utilização sobre o mapa não explica nada. */
-  function renderTrafLegend(medidas) {
-    const host = $("#gponTrafLegend");
-    if (!host) return;
-    host.hidden = !medidas.length;
-    if (!medidas.length) return;
-    const medidoAs = TEMPO.hora(TRAF.coletadoEm(), "");
-    const quando = TRAF.erro() ? "sem leitura nova do Zabbix"
-      : medidoAs ? `medido às ${medidoAs}`
-        : "aguardando o Zabbix";
-    host.innerHTML = `
-      <div class="traf-legenda-titulo">
-        <b>Utilização dos enlaces</b>
-        <span class="${TRAF.erro() ? "traf-legenda-aviso" : ""}">${esc(quando)}</span>
-      </div>
-      ${TRAF.legendaHTML(medidas)}`;
   }
 
   /* A propriedade `translate` (e não `left/top`) posiciona o marcador: a
@@ -1200,14 +1151,6 @@
     const out = [];
     const sel = state.selected;
     const selClient = sel?.type === "client" ? String(sel.id) : null;
-
-    if (state.layers.pops) for (const p of state.popPoints) {
-      if (!inView(p, view)) continue;
-      const selected = sel?.type === "pop" && String(sel.id) === String(p.id);
-      const critico = !statusOnline(NOC.popStatus(p.id));
-      out.push(markerHtml("pop", p.id, sx(p), sy(p), "topology", p.name,
-        `${critico ? "is-critical" : ""} ${selected ? "is-selected" : ""}`, true));
-    }
 
     if (state.layers.boxes) {
       let n = 0;
@@ -1373,8 +1316,7 @@
     renderDetail();
     if (focus) {
       const item = type === "client" ? rowById(id)
-        : type === "box" ? state.boxPoints.find((b) => String(b.id) === String(id))
-        : state.popPoints.find((p) => String(p.id) === String(id));
+        : state.boxPoints.find((b) => String(b.id) === String(id));
       if (item && item.located !== false) {
         const rect = $("#gponMap").getBoundingClientRect();
         /* Centralizar sem aproximar deixava o cliente escolhido escondido
@@ -1588,12 +1530,6 @@
         <div class="gpon-box-clients">${linked.slice(0, 64).map(linhaDaCaixa).join("") || '<p class="muted">Nenhum cliente vinculado.</p>'}</div>
         ${linked.length > 64 ? `<div class="gpon-list-note">Mostrando 64 de ${nb(linked.length)}.</div>` : ""}`;
       $$("[data-client]", host).forEach((el) => el.onclick = () => select("client", el.dataset.client, true));
-    } else {
-      const p = popById(sel.id); if (!p) return;
-      const list = devices().filter((e) => popOfDevice(e)?.id === p.id);
-      host.innerHTML = `<div class="gpon-detail-head"><span class="badge badge-ok">POP</span><h2>${esc(p.nome || p.id)}</h2><p class="muted">${esc(p.endereco || p.local || "Endereço não informado")}</p></div>
-        <div class="gpon-detail-grid"><div><span>Estado</span><b>${esc(NOC.popStatus(p.id))}</b></div><div><span>Equipamentos</span><b>${nb(list.length)}</b></div><div><span>Clientes GPON</span><b>${nb(state.rows.filter((r) => popOfClient(r.c)?.id === p.id).length)}</b></div><div><span>Coordenadas</span><b class="mono">${esc(GEO.label(p.lat, p.lon) || "—")}</b></div></div>
-        <b style="font-size:var(--fs-12)">SW, OLT e demais aparelhos</b><div class="gpon-path">${list.map((e) => `<div class="gpon-hop"><i class="gpon-hop-dot"></i><div><b>${esc(e.nome)}</b><small>${esc(`${e.categoria || "Equipamento"} • ${NOC.statusInfo(e).label}`)}</small></div></div>`).join("") || '<p class="muted">Nenhum equipamento vinculado a este POP.</p>'}</div>`;
     }
   }
 

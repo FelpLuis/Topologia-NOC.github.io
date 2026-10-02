@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="/css/noc/components.css?v=20260930-1">
 <link rel="stylesheet" href="/css/noc/screens.css?v=20260818-6">
 <link rel="stylesheet" href="/css/noc/trafego-enlace.css?v=20260820-1">
-  <link rel="stylesheet" href="/css/noc/gpon-map.css?v=20260820-1">
+  <link rel="stylesheet" href="/css/noc/gpon-map.css?v=20261002-1">
   <script src="/js/auth-guard.js"></script>
 </head>
 <body>
@@ -62,19 +62,17 @@
 
           <div class="gpon-layers gpon-topbar-layers" role="group" aria-label="Camadas do mapa">
             <button class="gpon-layer" type="button" aria-pressed="true" data-layer="clients" data-layer-icon="user" data-layer-label="Clientes"></button>
-            <button class="gpon-layer" type="button" aria-pressed="true" data-layer="boxes" data-layer-icon="port" data-layer-label="Caixas"></button>
-            <button class="gpon-layer" type="button" aria-pressed="true" data-layer="pops" data-layer-icon="pops" data-layer-label="POPs"></button>
+            <button class="gpon-layer" type="button" aria-pressed="true" data-layer="boxes" data-layer-icon="port" data-layer-label="CTOs"></button>
             <button class="gpon-layer" type="button" aria-pressed="true" data-layer="drops" data-layer-icon="link" data-layer-label="Drops"></button>
-          </div>
-
-          <div class="segmented gpon-side-tabs gpon-topbar-tabs" role="group" aria-label="Conteúdo do painel">
-            <button type="button" data-side-tab="clients" aria-pressed="true">Clientes <b id="sideTabClients">0</b></button>
-            <button type="button" data-side-tab="alerts" aria-pressed="false">Alertas <b id="sideTabAlerts">0</b></button>
           </div>
         </div>
 
         <div class="gpon-map-grid">
           <aside class="gpon-list-panel" id="gponListPanel">
+            <div class="segmented gpon-side-tabs" role="group" aria-label="Conteúdo do painel">
+              <button type="button" data-side-tab="clients" aria-pressed="true">Clientes <b id="sideTabClients">0</b></button>
+              <button type="button" data-side-tab="alerts" aria-pressed="false">Alertas <b id="sideTabAlerts">0</b></button>
+            </div>
             <div class="gpon-side-body">
               <div class="gpon-clients" id="clientList"></div>
               <div class="gpon-alerts" id="alertsList" hidden></div>
@@ -86,10 +84,8 @@
               <div><i class="gpon-swatch sw-client-off"></i> Cliente offline</div>
               <div><i class="gpon-swatch sw-client-warn"></i> Sinal alto (RX ≤ −27 dBm)</div>
               <div><i class="gpon-swatch sw-box"></i> Caixa / CTO</div>
-              <div><i class="gpon-swatch sw-pop"></i> POP / OLT / SW</div>
               <div><i class="gpon-swatch sw-cluster"></i> Agrupamento — clique para aproximar</div>
               <div><i class="gpon-line line-drop"></i> Caminho do drop</div>
-              <div><i class="gpon-line line-network"></i> Conexão de rede</div>
             </details>
           </aside>
 
@@ -105,8 +101,8 @@
               <span class="mono dim" id="mapZoomLabel">—</span>
               <button class="btn btn-ghost btn-icon btn-sm" id="mapZoomIn" type="button" aria-label="Aproximar"></button>
               <button class="btn btn-ghost btn-icon btn-sm" id="mapFit" type="button" aria-label="Enquadrar o foco atual"></button>
+              <button class="btn btn-ghost btn-icon btn-sm" id="mapFull" type="button" aria-pressed="false" aria-label="Mapa em tela cheia" title="Tela cheia (F)"></button>
             </div>
-            <div class="panel gpon-traf-legend" id="gponTrafLegend" hidden></div>
             <span class="gpon-map-count" id="mapCount"></span>
             <p class="gpon-attrib"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a></p>
           </section>
@@ -176,7 +172,7 @@
 <script src="/js/noc-api.js"></script>
 <script src="/js/noc-geo.js"></script>
   <script src="/js/noc-trafego-enlace.js?v=20260825-1"></script>
-  <script src="/js/noc-gpon-map.js?v=20260825-1"></script>
+  <script src="/js/noc-gpon-map.js?v=20261002-1"></script>
   <script src="/js/noc-clientes.js?v=20260819-2"></script>
 </body>
 </html>

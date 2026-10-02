@@ -1,6 +1,6 @@
 /* ============================================================
    UPDOWN NOC — Mapa GPON
-   Clientes autenticados, caixas, POPs e caminho do drop sobre o
+   Clientes autenticados, caixas/CTOs e caminho do drop sobre o
    mapa geográfico. Usa os mesmos tokens do restante do sistema:
    nenhum tamanho, raio ou cor é cravado aqui.
    ============================================================ */
@@ -120,13 +120,42 @@
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 520px;
   /* dvh, e não vh: no celular a barra do navegador entra na conta e o mapa
-     ficava mais alto que a janela. O desconto cobre appbar + paddings + o
-     cabeçalho enxuto da página. */
+     ficava mais alto que a janela. Valor de reserva: no desktop a página vira
+     coluna flexível (abaixo) e o mapa estica até o rodapé da janela. */
   height: calc(100dvh - 176px);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   overflow: hidden;
   background: var(--surface-1);
+}
+
+/* No modo Mapa a página ocupa exatamente a janela abaixo da appbar: calha
+   estreita, cabeçalho colado e a área de trabalho com todo o resto. O desconto
+   cravado de 176px errava para mais ou para menos conforme o cabeçalho
+   quebrava em uma ou duas linhas. */
+@media (min-width: 801px) {
+  .gpon-page:has(#gponMapView:not([hidden])) {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--appbar-h));
+    padding: var(--s-2) var(--s-3) var(--s-3);
+  }
+  .gpon-page:has(#gponMapView:not([hidden])) .gpon-head { margin-bottom: var(--s-2); }
+  .gpon-page:has(#gponMapView:not([hidden])) .gpon-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .gpon-page:has(#gponMapView:not([hidden])) .gpon-workspace { flex: 1; height: auto; min-height: 420px; }
+}
+
+/* Tela cheia: a área de trabalho cobre appbar e cabeçalho. Fica abaixo das
+   camadas de modal/gaveta (--z-drawer) e dos toasts, que seguem por cima. */
+body.gpon-full { overflow: hidden; }
+body.gpon-full .gpon-workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 .gpon-topbar {
@@ -138,7 +167,7 @@
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
 }
-.gpon-topbar-search { width: min(300px, 100%); }
+.gpon-topbar-search { flex: 0 1 300px; min-width: 200px; }
 .gpon-topbar-focus {
   display: grid;
   grid-template-columns: auto minmax(150px, 220px);
@@ -149,9 +178,10 @@
 .gpon-topbar-focus label { margin: 0; white-space: nowrap; }
 .gpon-topbar-focus .gpon-focus-hint { display: none; }
 .gpon-topbar-filters { flex: 1 1 auto; }
-.gpon-topbar-layers { display: flex; gap: 6px; }
+/* Seletor com o pai porque `.gpon-layers` (grade 2×N) vem depois na folha e,
+   com a mesma especificidade, quebrava as camadas em duas linhas na topbar. */
+.gpon-topbar .gpon-topbar-layers { display: flex; gap: 6px; }
 .gpon-topbar-layers .gpon-layer { min-height: 30px; flex: 0 1 auto; }
-.gpon-topbar-tabs { flex: none; width: auto; }
 
 .gpon-map-grid {
   display: grid;
@@ -260,8 +290,12 @@
 :root[data-theme="light"] .gpon-layer[aria-pressed="true"] { color: var(--brand-600); }
 .gpon-layer[aria-pressed="false"] .icon { opacity: .5; }
 
-/* ---------- Abas do painel ---------- */
+/* ---------- Abas do painel ----------
+   Moram no topo da lista lateral, e não na topbar: ali dividiam a linha com
+   busca, filtros e camadas, quebravam numa segunda linha e roubavam do mapa
+   a altura de uma barra inteira. */
 .gpon-side-tabs { display: flex; width: 100%; }
+.gpon-list-panel > .gpon-side-tabs { width: auto; margin: var(--s-2) var(--s-3) 0; flex: none; }
 .gpon-side-tabs button { flex: 1; gap: 6px; display: inline-flex; align-items: center; justify-content: center; }
 .gpon-side-tabs button b {
   padding: 1px 6px;
@@ -338,9 +372,7 @@
    objeto, e trocar de cor entre os dois obriga a reler a legenda. */
 .gpon-client-row.is-box > i { border-radius: 3px; }
 .gpon-client-row.is-box:not(.is-off) > i { background: var(--purple-400); box-shadow: 0 0 0 3px rgba(165, 107, 255, .16); }
-.gpon-client-row.is-pop:not(.is-off) > i { background: var(--brand-500); box-shadow: 0 0 0 3px rgba(11, 116, 255, .18); }
-.gpon-client-row.is-box .gpon-client-meta em,
-.gpon-client-row.is-pop .gpon-client-meta em { color: var(--text-2); }
+.gpon-client-row.is-box .gpon-client-meta em { color: var(--text-2); }
 .gpon-client-main { min-width: 0; }
 .gpon-client-main b, .gpon-client-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gpon-client-main b { font-size: var(--fs-11); }
@@ -423,10 +455,8 @@
 .sw-client-off { background: var(--danger-500); }
 .sw-client-warn { background: var(--warn-500); }
 .sw-box { border-radius: 3px; background: var(--purple-400); }
-.sw-pop { background: var(--brand-500); }
 .sw-cluster { background: var(--grad-brand); border-style: dashed; }
 .gpon-line { width: 24px; height: 0; flex: none; border-top: 3px solid var(--cyan-400); }
-.line-network { border-color: var(--purple-400); border-top-style: dashed; }
 
 /* ---------- Mapa ---------- */
 /* O fundo acompanha o tema: um azul-noite cravado deixava a moldura do mapa
@@ -449,7 +479,6 @@
 
 .gpon-routes { pointer-events: none; overflow: visible; }
 .gpon-route { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; }
-.gpon-route-network { stroke: var(--purple-400); stroke-width: 3; stroke-dasharray: 8 6; opacity: .8; }
 .gpon-route-drop { stroke: var(--cyan-400); stroke-width: 3; opacity: .85; }
 .gpon-route-drop.is-alert { stroke: var(--danger-500); stroke-dasharray: 7 5; }
 
@@ -485,11 +514,9 @@
 .gpon-marker.is-offline, .gpon-marker.is-critical { background: var(--danger-500); }
 .gpon-marker.is-warn { background: var(--warn-500); color: #21160a; }
 .gpon-marker.is-box { width: 24px; height: 24px; border-radius: 6px; background: var(--purple-400); }
-.gpon-marker.is-pop { width: 38px; height: 38px; background: var(--brand-500); z-index: 4; }
 .gpon-marker .icon { width: 15px; height: 15px; }
-.gpon-marker.is-pop .icon { width: 18px; height: 18px; }
 
-/* Rótulo: sempre nos POPs, e no cliente só quando o zoom já é de rua ou ele
+/* Rótulo: na caixa a partir do zoom de rótulo, e no cliente só quando o zoom já é de rua ou ele
    está selecionado. Milhares de etiquetas ao mesmo tempo não se leem, e cada
    uma delas é um nó a mais para o navegador compor. */
 .gpon-marker-label {
@@ -808,13 +835,18 @@
   /* A topbar empilha e os controles ocupam a largura inteira no telefone. */
   .gpon-topbar { align-items: stretch; }
   .gpon-topbar-search, .gpon-topbar-focus { width: 100%; }
+  .gpon-topbar-search { flex: 1 1 100%; min-width: 0; }
   .gpon-topbar-focus { grid-template-columns: auto 1fr; }
-  .gpon-topbar-filters, .gpon-topbar-layers, .gpon-topbar-tabs { width: 100%; }
+  .gpon-topbar-filters, .gpon-topbar-layers { width: 100%; }
   .gpon-topbar-layers .gpon-layer { flex: 1 1 auto; }
-  .gpon-topbar-tabs button { flex: 1; }
   /* Alvo de toque de 44px no telefone, como no resto da plataforma. */
   .gpon-layer { min-height: 44px; }
   .gpon-filters .chip { min-height: 36px; }
+  /* Tela cheia no telefone: o mapa vem primeiro e com a altura da janela; a
+     topbar sai, e detalhe e lista seguem abaixo, na rolagem. */
+  body.gpon-full .gpon-workspace { overflow-y: auto; }
+  body.gpon-full .gpon-topbar { display: none; }
+  body.gpon-full .gpon-map { height: 100dvh; }
 }
 
 @media (prefers-reduced-motion: reduce) {
