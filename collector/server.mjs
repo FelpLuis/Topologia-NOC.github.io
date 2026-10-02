@@ -24,7 +24,7 @@ const state = {
   clients: [], boxes: [], alerts: [], syncedAt: null, errors: [],
   ixc: null, ixcStats: null, ixcSyncedAt: 0, publishedStatus: new Map(), hasSnapshot: false,
   syncing: null, ontSyncing: null, radiusSyncing: null,
-  ont: new Map(), radius: new Map(),
+  ont: new Map(), radius: new Map(), radiusPendentes: [],
   ontCycleMs: null, radiusCycleMs: null, ontSyncedAt: null, radiusSyncedAt: null,
 };
 
@@ -183,6 +183,8 @@ function radiusTransicoes(anterior, atual) {
    Isso isola a autenticação PPPoE da linha do tempo GPON, dando ao NOC um
    indicador direto de saúde do servidor RADIUS e ao HelpDesk o motivo exato
    de um cliente sem serviço. */
+const RADIUS_FILA_MAX = 10000; // teto do /api/radius/ingest por requisição
+
 async function enviarRadiusLogs(events) {
   if (!events.length) return { sent: 0 };
   /* A rota do Worker é /api/radius/ingest, irmã de /api/gpon/ingest e não
@@ -352,12 +354,24 @@ async function syncRadius() {
     state.radius = await collectIxcLoginStatuses(config.ixc);
     state.radiusCycleMs = Date.now() - inicio;
     state.radiusSyncedAt = new Date().toISOString();
-    const eventos = radiusTransicoes(anterior, state.radius);
-    await aplicarEstado("ixc");
-    if (eventos.length) {
-      try { await enviarRadiusLogs(eventos); limparErro("RADIUS log"); }
-      catch (error) { registrarErro("RADIUS log", error?.message || String(error)); }
+    /* O log vai antes do estado GPON e não depende dele. Antes ele esperava o
+       push de status: se aquele push falhasse, o ciclo abortava e as
+       transições morriam junto — `state.radius` já tinha sido trocado, então
+       a próxima comparação não as via mais. Um envio que falha deixa os
+       eventos na fila para o ciclo seguinte, com teto para um Worker fora do
+       ar não crescer a memória sem limite. */
+    state.radiusPendentes.push(...radiusTransicoes(anterior, state.radius));
+    if (state.radiusPendentes.length > RADIUS_FILA_MAX)
+      state.radiusPendentes.splice(0, state.radiusPendentes.length - RADIUS_FILA_MAX);
+    if (state.radiusPendentes.length) {
+      const lote = state.radiusPendentes.splice(0, state.radiusPendentes.length);
+      try { await enviarRadiusLogs(lote); limparErro("RADIUS log"); }
+      catch (error) {
+        state.radiusPendentes.unshift(...lote);
+        registrarErro("RADIUS log", error?.message || String(error));
+      }
     }
+    await aplicarEstado("ixc");
     limparErro("IXC Radius");
   })().catch((error) => {
     registrarErro("IXC Radius", error?.message || String(error));
@@ -381,6 +395,7 @@ const saude = () => ({
   synced_at: state.syncedAt,
   ont_synced_at: state.ontSyncedAt, ont_cycle_ms: state.ontCycleMs,
   radius_synced_at: state.radiusSyncedAt, radius_cycle_ms: state.radiusCycleMs,
+  radius_log_pending: state.radiusPendentes.length,
   interval_ms: config.intervalMs, ont_fast: config.ontFast,
   clients: state.clients.length, boxes: state.boxes.length, errors: state.errors,
 });

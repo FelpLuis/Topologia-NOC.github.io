@@ -703,7 +703,7 @@ body.gpon-full .gpon-workspace {
 .gpon-detail-grid span { color: var(--text-3); font-size: var(--fs-10); text-transform: uppercase; letter-spacing: .06em; }
 .gpon-detail-grid b { margin-top: 2px; font-size: var(--fs-11); }
 
-/* ---------- Clientes de uma caixa / CTO ----------
+/* ---------- Clientes de uma CTO / Porta ----------
    O nome do cadastro é imprevisível ("MARIA DAS GRAÇAS DE OLIVEIRA SANTOS") e
    antes era jogado inteiro num botão de largura total, vazando para fora do
    cartão. A linha virou uma grade fixa — bolinha de estado, código, nome e
