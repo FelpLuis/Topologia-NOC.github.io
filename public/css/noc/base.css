@@ -139,7 +139,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: var(--s-5) 0; }
 :root[data-theme="light"] .kicker { color: var(--brand-600); }
 
 .page-title { font-size: var(--fs-24); margin-top: var(--s-2); }
-.page-sub { color: var(--text-2); font-size: var(--fs-13); margin-top: var(--s-2); max-width: 68ch; }
+.page-sub { color: var(--text-2); font-size: var(--fs-13); margin-top: var(--s-2); max-width: 92ch; line-height: 1.55; }
 
 /* Barras de rolagem coerentes com o tema */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }

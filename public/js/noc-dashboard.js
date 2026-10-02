@@ -58,7 +58,11 @@
     const z = state.zabbix;
     const run = z?.last_run;
     const ok = Boolean(run?.ok);
-    $("#integration").innerHTML = `
+    /* O painel lateral saiu da tela; sem esta guarda o TypeError parava o
+       renderAll() aqui e a grade de POPs ficava para sempre no esqueleto. */
+    const host = $("#integration");
+    if (!host) return;
+    host.innerHTML = `
       <div class="row-between">
         <div><b style="font-size:var(--fs-13)">Topologia (D1)</b>
           <p class="dim" style="font-size:var(--fs-11)">Versão ${esc(String(NOC.data().version ?? "—"))} • ${esc(NOC.data().updated_at || "—")}</p></div>

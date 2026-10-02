@@ -123,27 +123,25 @@
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack" style="gap:var(--s-4)">
-          <div class="row wrap" style="gap:var(--s-3)">
-            <div class="field grow"><label for="lNome">Nome</label>
+          <div class="form-grid">
+            <div class="field span-8"><label for="lNome">Nome</label>
               <input class="input" id="lNome" type="text" value="${valor(dados.nome)}" autocomplete="off">
             </div>
-            <div class="field" style="max-width:180px"><label for="lTipo">Tipo</label>
+            <div class="field span-4"><label for="lTipo">Tipo</label>
               <select class="select" id="lTipo">${TIPOS.map((t) => `<option value="${t}" ${dados.tipo === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
             </div>
-          </div>
-          <div class="field"><label for="lEndereco">Endereço</label>
-            <input class="input" id="lEndereco" type="text" value="${valor(dados.endereco)}" autocomplete="off">
-          </div>
-          <div class="row wrap" style="gap:var(--s-3)">
-            <div class="field" style="max-width:180px"><label for="lLat">Latitude</label>
-              <input class="input" id="lLat" type="number" step="any" value="${valor(dados.lat ?? "")}">
+            <div class="field"><label for="lEndereco">Endereço</label>
+              <input class="input" id="lEndereco" type="text" value="${valor(dados.endereco)}" placeholder="Rua, número — cidade" autocomplete="off">
             </div>
-            <div class="field" style="max-width:180px"><label for="lLon">Longitude</label>
-              <input class="input" id="lLon" type="number" step="any" value="${valor(dados.lon ?? "")}">
+            <div class="field span-6"><label for="lLat">Latitude</label>
+              <input class="input mono" id="lLat" type="number" step="any" value="${valor(dados.lat ?? "")}" placeholder="-23.9357">
             </div>
-          </div>
-          <div class="field"><label for="lObservacao">Observação</label>
-            <textarea class="textarea" id="lObservacao" rows="3">${valor(dados.observacao)}</textarea>
+            <div class="field span-6"><label for="lLon">Longitude</label>
+              <input class="input mono" id="lLon" type="number" step="any" value="${valor(dados.lon ?? "")}" placeholder="-46.4338">
+            </div>
+            <div class="field"><label for="lObservacao">Observação</label>
+              <textarea class="textarea" id="lObservacao" rows="3">${valor(dados.observacao)}</textarea>
+            </div>
           </div>
           <span class="field-error" id="localFormError" hidden></span>
         </div>

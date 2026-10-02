@@ -30,6 +30,9 @@
     if (!Number.isFinite(n) || n <= 0) return "";
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   };
+  /* O IXC guarda "0" no campo de rua de quem não tem endereço cadastrado:
+     parte do endereço sem nenhuma letra não diz nada e vira "—". */
+  const temLetra = (v) => /\p{L}/u.test(String(v ?? ""));
 
   /* ---------------- permissões ----------------
      As ações só podem ser aplicadas depois que /api/access responde: antes
@@ -130,7 +133,7 @@
           <span class="dim" style="font-size:var(--fs-11)">${esc(r.email || "")}</span>
         </td>
         <td data-label="Endereço">
-          ${esc([r.endereco, r.bairro].filter(Boolean).join(", ") || "—")}<br>
+          ${esc([r.endereco, r.bairro].filter(temLetra).join(", ") || "—")}<br>
           <span class="dim" style="font-size:var(--fs-11)">${esc([r.cidade, r.uf].filter(Boolean).join(" / ") || "")}</span>
         </td>
         <td data-label="Faturamento">
@@ -203,7 +206,7 @@
 
   const secao = (titulo, detalhe, camposHtml) => `
     <div class="form-section">
-      <div class="form-section-head"><b>${esc(titulo)}</b>${detalhe ? `<span class="dim" style="font-size:var(--fs-11)">${esc(detalhe)}</span>` : ""}</div>
+      <div class="form-section-head"><b>${esc(titulo)}</b>${detalhe ? `<span>${esc(detalhe)}</span>` : ""}</div>
       ${camposHtml}
     </div>`;
   const campo = (label, id, type = "text", extra = "") => `
@@ -217,10 +220,10 @@
     const host = $("#fAparelhos", formHost);
     if (!host) return;
     host.innerHTML = state.aparelhos.map((a, i) => `
-      <div class="row" style="gap:6px;align-items:center">
-        <input class="input" data-apa-nome="${i}" type="text" placeholder="Aparelho (TV, decodificador…)" value="${esc(a.nome)}">
-        <input class="input" data-apa-tipo="${i}" type="text" placeholder="Tipo" style="max-width:130px" value="${esc(a.tipo)}">
-        <input class="input" data-apa-serial="${i}" type="text" placeholder="Serial" class="mono" style="max-width:170px" value="${esc(a.serial)}">
+      <div class="form-row-aparelho">
+        <input class="input" data-apa-nome="${i}" type="text" placeholder="Aparelho (TV, decodificador…)" aria-label="Aparelho" value="${esc(a.nome)}">
+        <input class="input" data-apa-tipo="${i}" type="text" placeholder="Tipo" aria-label="Tipo" value="${esc(a.tipo)}">
+        <input class="input mono" data-apa-serial="${i}" type="text" placeholder="Serial" aria-label="Serial" value="${esc(a.serial)}">
         <button class="btn btn-ghost btn-icon btn-sm" data-apa-rem="${i}" type="button" aria-label="Remover aparelho">${icon("trash")}</button>
       </div>`).join("");
     $$("[data-apa-nome]", host).forEach((el) => el.oninput = () => state.aparelhos[Number(el.dataset.apaNome)].nome = el.value);
@@ -297,55 +300,52 @@
 
           <div class="tab-panel" id="tabGerais" role="tabpanel" aria-labelledby="tabGeraisBtn">
             ${secao("Dados do cliente", "Informações cadastrais do assinante.", `
-              <div class="row wrap" style="gap:var(--s-3)">
+              <div class="form-grid">
                 ${corpoForm.client_id ? `
-                  <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
-                    <input class="input" id="clienteFormId" type="text" value="${esc(corpoForm.client_id)}" disabled>
+                  <div class="field span-3"><label for="clienteFormId">Código do cliente (IXC)</label>
+                    <input class="input mono" id="clienteFormId" type="text" value="${esc(corpoForm.client_id)}" disabled>
                   </div>` : `
-                  <div class="field grow"><label for="clienteFormId">Código do cliente (IXC)</label>
-                    <input class="input" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Código do cliente no IXC — digite nome, serial ou endereço para buscar"
+                  <div class="field span-3"><label for="clienteFormId">Código do cliente (IXC)</label>
+                    <input class="input mono" id="clienteFormId" type="text" list="clienteFeedList" placeholder="Código ou nome, serial, endereço"
+                           title="Código do cliente no IXC — digite nome, serial ou endereço para buscar"
                            aria-label="Código do cliente no IXC" autocomplete="off">
                     <datalist id="clienteFeedList"></datalist>
                   </div>`}
-                <div class="field" style="max-width:180px"><label for="fDocumento">Documento (CPF/CNPJ)</label>
-                  <input class="input" id="fDocumento" type="text" value="${valor(corpoForm.cpf_cnpj)}" autocomplete="off">
-                </div>
-              </div>
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fNome">Nome</label>
+                <div class="field span-9"><label for="fNome">Nome</label>
                   <input class="input" id="fNome" type="text" value="${valor(corpoForm.nome)}" autocomplete="off">
                 </div>
-                <div class="field" style="max-width:180px"><label for="fTelefone">Telefone</label>
-                  <input class="input" id="fTelefone" type="text" value="${valor(corpoForm.telefone)}" autocomplete="off">
+                <div class="field span-4"><label for="fDocumento">Documento (CPF/CNPJ)</label>
+                  <input class="input mono" id="fDocumento" type="text" inputmode="numeric" value="${valor(corpoForm.cpf_cnpj)}" autocomplete="off">
                 </div>
-              </div>
-              <div class="field"><label for="fEmail">E-mail</label>
-                <input class="input" id="fEmail" type="email" value="${valor(corpoForm.email)}" autocomplete="off">
+                <div class="field span-4"><label for="fTelefone">Telefone</label>
+                  <input class="input" id="fTelefone" type="tel" value="${valor(corpoForm.telefone)}" autocomplete="off">
+                </div>
+                <div class="field span-4"><label for="fEmail">E-mail</label>
+                  <input class="input" id="fEmail" type="email" value="${valor(corpoForm.email)}" autocomplete="off">
+                </div>
               </div>`)}
             ${secao("Endereço", "Onde o cliente está; com lat/lon o mapa GPON posiciona exatamente.", `
-              <div class="field"><label for="fEndereco">Endereço</label>
-                <input class="input" id="fEndereco" type="text" value="${valor(corpoForm.endereco)}" autocomplete="off">
-              </div>
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field" style="max-width:200px"><label for="fBairro">Bairro</label>
+              <div class="form-grid">
+                <div class="field span-9"><label for="fEndereco">Endereço</label>
+                  <input class="input" id="fEndereco" type="text" value="${valor(corpoForm.endereco)}" placeholder="Rua, número e complemento" autocomplete="off">
+                </div>
+                <div class="field span-3"><label for="fCep">CEP</label>
+                  <input class="input mono" id="fCep" type="text" inputmode="numeric" value="${valor(corpoForm.cep)}" autocomplete="off">
+                </div>
+                <div class="field span-5"><label for="fBairro">Bairro</label>
                   <input class="input" id="fBairro" type="text" value="${valor(corpoForm.bairro)}" autocomplete="off">
                 </div>
-                <div class="field grow"><label for="fCidade">Cidade</label>
+                <div class="field span-5"><label for="fCidade">Cidade</label>
                   <input class="input" id="fCidade" type="text" value="${valor(corpoForm.cidade)}" autocomplete="off">
                 </div>
-                <div class="field" style="max-width:90px"><label for="fUf">UF</label>
-                  <input class="input" id="fUf" type="text" maxlength="2" value="${valor(corpoForm.uf)}" autocomplete="off">
+                <div class="field span-2"><label for="fUf">UF</label>
+                  <input class="input" id="fUf" type="text" maxlength="2" value="${valor(corpoForm.uf)}" autocomplete="off" style="text-transform:uppercase">
                 </div>
-                <div class="field" style="max-width:150px"><label for="fCep">CEP</label>
-                  <input class="input" id="fCep" type="text" value="${valor(corpoForm.cep)}" autocomplete="off">
+                <div class="field span-3"><label for="fLat">Latitude</label>
+                  <input class="input mono" id="fLat" type="number" step="any" value="${valor(corpoForm.lat ?? "")}" placeholder="-23.9357">
                 </div>
-              </div>
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field" style="max-width:170px"><label for="fLat">Latitude</label>
-                  <input class="input" id="fLat" type="number" step="any" value="${valor(corpoForm.lat ?? "")}">
-                </div>
-                <div class="field" style="max-width:170px"><label for="fLon">Longitude</label>
-                  <input class="input" id="fLon" type="number" step="any" value="${valor(corpoForm.lon ?? "")}">
+                <div class="field span-3"><label for="fLon">Longitude</label>
+                  <input class="input mono" id="fLon" type="number" step="any" value="${valor(corpoForm.lon ?? "")}" placeholder="-46.4338">
                 </div>
               </div>`)}
             ${secao("Observações", "Anotações livres do atendimento.", `
@@ -354,17 +354,17 @@
 
           <div class="tab-panel" id="tabFinanceiro" role="tabpanel" aria-labelledby="tabFinanceiroBtn" hidden>
             ${secao("Faturamento", "Plano, valor e situação financeira.", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fPlano">Plano</label>
+              <div class="form-grid">
+                <div class="field span-6"><label for="fPlano">Plano</label>
                   <input class="input" id="fPlano" type="text" value="${valor(corpoForm.plano)}" autocomplete="off">
                 </div>
-                <div class="field" style="max-width:160px"><label for="fValor">Valor mensal</label>
-                  <input class="input" id="fValor" type="number" step="0.01" min="0" value="${valor(corpoForm.valor_mensal ?? "")}">
+                <div class="field span-2"><label for="fValor">Valor mensal</label>
+                  <input class="input mono" id="fValor" type="number" step="0.01" min="0" value="${valor(corpoForm.valor_mensal ?? "")}">
                 </div>
-                <div class="field" style="max-width:150px"><label for="fVencimento">Vencimento (dia)</label>
-                  <input class="input" id="fVencimento" type="number" min="1" max="31" value="${valor(corpoForm.vencimento_dia ?? "")}">
+                <div class="field span-2"><label for="fVencimento">Vencimento</label>
+                  <input class="input mono" id="fVencimento" type="number" min="1" max="31" value="${valor(corpoForm.vencimento_dia ?? "")}" placeholder="Dia" title="Dia do vencimento (1 a 31)">
                 </div>
-                <div class="field" style="max-width:170px"><label for="fStatus">Status</label>
+                <div class="field span-2"><label for="fStatus">Status</label>
                   <select class="select" id="fStatus">${STATUS.map((s) => `<option value="${s}" ${corpoForm.status_faturamento === s ? "selected" : ""}>${esc(STATUS_LABEL[s])}</option>`).join("")}</select>
                 </div>
               </div>`)}
@@ -372,17 +372,19 @@
 
           <div class="tab-panel" id="tabTecnico" role="tabpanel" aria-labelledby="tabTecnicoBtn" hidden>
             ${secao("ONT / ONU", "Equipamento óptico na casa do cliente.", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fOntSerial">Serial da ONU</label>
-                  <input class="input" id="fOntSerial" type="text" value="${valor(corpoForm.ont_serial)}" autocomplete="off">
+              <div class="form-grid">
+                <div class="field span-6"><label for="fOntSerial">Serial da ONU</label>
+                  <input class="input mono" id="fOntSerial" type="text" value="${valor(corpoForm.ont_serial)}" autocomplete="off">
                 </div>
-                <div class="field grow"><label for="fOntModelo">Modelo</label>
+                <div class="field span-6"><label for="fOntModelo">Modelo</label>
                   <input class="input" id="fOntModelo" type="text" value="${valor(corpoForm.ont_modelo)}" autocomplete="off">
                 </div>
               </div>`)}
             ${secao("Acesso remoto", "Gerência do equipamento na casa do cliente.", `
-              <div class="field" style="max-width:260px"><label for="fIpGerencia">IP de gerência</label>
-                <input class="input" id="fIpGerencia" type="text" value="${valor(corpoForm.ip_gerencia)}" autocomplete="off">
+              <div class="form-grid">
+                <div class="field span-6"><label for="fIpGerencia">IP de gerência</label>
+                  <input class="input mono" id="fIpGerencia" type="text" value="${valor(corpoForm.ip_gerencia)}" placeholder="10.0.0.1" autocomplete="off">
+                </div>
               </div>`)}
             ${secao("Aparelhos vinculados", "Equipamentos do cliente além da ONU (TV, decodificadores…).", `
               <div class="stack" id="fAparelhos" style="gap:6px"></div>
@@ -391,42 +393,42 @@
 
           <div class="tab-panel" id="tabAcessos" role="tabpanel" aria-labelledby="tabAcessosBtn" hidden>
             ${secao("PPPoE", "Autenticação da conexão no provedor.", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fLoginPppoe">Login</label>
+              <div class="form-grid">
+                <div class="field span-6"><label for="fLoginPppoe">Login</label>
                   <input class="input" id="fLoginPppoe" type="text" value="${valor(corpoForm.login_pppoe)}" autocomplete="off">
                 </div>
-                <div class="field grow"><label for="fSenhaPppoe">Senha</label>
+                <div class="field span-6"><label for="fSenhaPppoe">Senha</label>
                   <input class="input" id="fSenhaPppoe" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_pppoe ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
+              <p class="field-hint">${corpoForm.has_senha_pppoe ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
             ${secao("Roteador", "Acesso ao equipamento do cliente.", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fLoginRoteador">Usuário</label>
+              <div class="form-grid">
+                <div class="field span-6"><label for="fLoginRoteador">Usuário</label>
                   <input class="input" id="fLoginRoteador" type="text" value="${valor(corpoForm.login_roteador)}" autocomplete="off">
                 </div>
-                <div class="field grow"><label for="fSenhaRoteador">Senha</label>
+                <div class="field span-6"><label for="fSenhaRoteador">Senha</label>
                   <input class="input" id="fSenhaRoteador" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_roteador ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
+              <p class="field-hint">${corpoForm.has_senha_roteador ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
             ${secao("WiFi", "Rede sem fio do cliente.", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fSsid">SSID</label>
+              <div class="form-grid">
+                <div class="field span-6"><label for="fSsid">SSID</label>
                   <input class="input" id="fSsid" type="text" value="${valor(corpoForm.ssid)}" autocomplete="off">
                 </div>
-                <div class="field grow"><label for="fSenhaWifi">Senha do WiFi</label>
+                <div class="field span-6"><label for="fSenhaWifi">Senha do WiFi</label>
                   <input class="input" id="fSenhaWifi" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_wifi ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
+              <p class="field-hint">${corpoForm.has_senha_wifi ? "Senha armazenada com hash (protegida). Deixe em branco para manter; preencha para alterar." : "Nenhuma senha cadastrada até agora."}</p>`)}
             ${secao("App do cliente", "Acesso do cliente ao app (chat com a central e status do roteador).", `
-              <div class="row wrap" style="gap:var(--s-3)">
-                <div class="field grow"><label for="fSenhaPortal">Senha inicial do app</label>
+              <div class="form-grid">
+                <div class="field span-6"><label for="fSenhaPortal">Senha inicial do app</label>
                   <input class="input" id="fSenhaPortal" type="text" autocomplete="off">
                 </div>
               </div>
-              <p class="muted" style="font-size:var(--fs-11)">${corpoForm.has_senha_portal ? "Senha cadastrada. Deixe em branco para manter; preencha para redefinir (o cliente é obrigado a trocá-la no próximo login)." : "Sem senha cadastrada — o cliente ainda não consegue entrar no app. O login é feito com o CPF/CNPJ; defina uma senha inicial aqui."}</p>`)}
+              <p class="field-hint">${corpoForm.has_senha_portal ? "Senha cadastrada. Deixe em branco para manter; preencha para redefinir (o cliente é obrigado a trocá-la no próximo login)." : "Sem senha cadastrada — o cliente ainda não consegue entrar no app. O login é feito com o CPF/CNPJ; defina uma senha inicial aqui."}</p>`)}
           </div>
 
           <span class="field-error" id="clienteFormError" hidden></span>

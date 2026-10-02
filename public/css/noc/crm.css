@@ -4,7 +4,7 @@
 .crm-kpi-icon { width:42px; height:42px; border-radius:var(--r-3); display:grid; place-items:center; color:var(--cyan-300); background:var(--info-bg); flex:none; }
 .crm-kpi-icon .icon { width:20px; height:20px; }
 .crm-kpi strong { display:block; font:700 var(--fs-20)/1.1 var(--font-mono); color:var(--text-1); }
-.crm-kpi span { display:block; color:var(--text-3); font-size:var(--fs-11); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.crm-kpi div > span { display:block; color:var(--text-3); font-size:var(--fs-11); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .crm-controls { margin-bottom:var(--s-5); overflow:hidden; }
 .crm-sector-tabs { display:flex; gap:var(--s-2); padding:var(--s-3) var(--s-4); overflow:auto; border-bottom:1px solid var(--line); scrollbar-width:thin; }
 .crm-sector-tab { --sector:#06b6d4; border:1px solid var(--line); background:var(--surface-2); color:var(--text-2); border-radius:999px; padding:8px 12px; display:flex; align-items:center; gap:7px; white-space:nowrap; cursor:pointer; font-weight:650; }

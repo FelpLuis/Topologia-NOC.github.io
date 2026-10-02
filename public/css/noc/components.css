@@ -129,14 +129,40 @@
    texto corrido, sem quebra nem respiro entre título e descrição. */
 .form-section { display: grid; gap: var(--s-3); padding-top: var(--s-4); border-top: 1px solid var(--line); }
 .form-section:first-child { padding-top: 0; border-top: 0; }
+/* Seções irmãs dentro de uma aba não estão num .stack: sem margem, a régua
+   da seguinte encostava no último campo da anterior. */
+.form-section + .form-section { margin-top: var(--s-6); padding-top: var(--s-5); }
+/* Título com a nota logo abaixo. Com a nota empurrada para a outra ponta da
+   linha, o olho ia do título até a borda do modal para achar a explicação. */
 .form-section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--s-2) var(--s-4);
+  display: grid;
+  gap: 2px;
 }
-.form-section-head b { font-size: var(--fs-14); }
+.form-section-head b { font-size: var(--fs-14); color: var(--text-1); }
+.form-section-head > span { font-size: var(--fs-12); color: var(--text-3); }
+
+/* Grade de formulário em 12 colunas: cada campo diz quanto ocupa e todas as
+   linhas alinham entre si — o max-width por campo deixava cada linha com um
+   desenho diferente e sobras à direita. Abaixo de 720px, tudo em largura
+   total, e os campos curtos (span-2/3) andam em dupla. */
+.form-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--s-4) var(--s-3); }
+.form-grid > * { grid-column: span 12; min-width: 0; }
+.form-grid > .span-2 { grid-column: span 2; }
+.form-grid > .span-3 { grid-column: span 3; }
+.form-grid > .span-4 { grid-column: span 4; }
+.form-grid > .span-5 { grid-column: span 5; }
+.form-grid > .span-6 { grid-column: span 6; }
+.form-grid > .span-7 { grid-column: span 7; }
+.form-grid > .span-8 { grid-column: span 8; }
+.form-grid > .span-9 { grid-column: span 9; }
+/* Linha repetível (aparelhos do cliente): nome, tipo, serial e remover. */
+.form-row-aparelho { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--s-2); align-items: center; }
+@media (max-width: 720px) {
+  .form-row-aparelho { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .form-row-aparelho > :first-child { grid-column: 1 / -1; }
+  .form-grid > [class*="span-"] { grid-column: span 12; }
+  .form-grid > .span-2, .form-grid > .span-3 { grid-column: span 6; }
+}
 
 .input, .select, .textarea {
   width: 100%;
@@ -154,6 +180,14 @@
 .input::placeholder, .textarea::placeholder { color: var(--text-3); }
 .input:hover, .select:hover, .textarea:hover { border-color: var(--line-strong); }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--cyan-400); box-shadow: var(--focus-ring); }
+/* Campo bloqueado (código do IXC, perfil protegido) não pode parecer
+   editável: fundo da superfície, texto apagado e borda tracejada. */
+.input:disabled, .select:disabled, .textarea:disabled, .input[readonly] {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-style: dashed;
+  cursor: not-allowed;
+}
 .input[aria-invalid="true"] { border-color: var(--danger-500); }
 .input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px var(--danger-bg); }
 
@@ -161,7 +195,9 @@
   appearance: none;
   padding-right: var(--s-8);
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
-  background-position: calc(100% - 18px) 20px, calc(100% - 13px) 20px;
+  /* Centrado na vertical: com o topo fixo em 20px, o select compacto (32px,
+     filtros do chat e do mapa) mostrava a seta encostada na borda de baixo. */
+  background-position: calc(100% - 18px) calc(50% + 1px), calc(100% - 13px) calc(50% + 1px);
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
 }
@@ -245,6 +281,7 @@
   color: var(--text-2);
   font-size: var(--fs-12);
   font-weight: 650;
+  white-space: nowrap;
 }
 .segmented button:hover { color: var(--text-1); background: var(--surface-3); }
 .segmented button[aria-pressed="true"], .segmented button.active {
@@ -631,6 +668,12 @@ table.table { width: 100%; border-collapse: collapse; }
   overflow: auto;
   overscroll-behavior: contain;
 }
+/* Corpo com altura limitada e conteúdo maior que ela: as linhas `auto` do
+   grid encolhem até a contribuição mínima de cada filho. Filho que rola por
+   dentro (.tabs, .table-wrap) tem mínima ~0 — a barra de abas ficava numa
+   linha de 10px e o formulário subia por cima dela. Linha do tamanho do
+   conteúdo, e quem rola é o corpo inteiro. */
+.modal-body.stack, .drawer-body.stack { grid-auto-rows: max-content; align-content: start; }
 .modal-foot {
   flex: 0 0 auto;
   padding: var(--s-4) var(--s-5);

@@ -67,12 +67,12 @@
 
     $("#roleList").innerHTML = lista.length ? lista.map((r) => `
       <button class="role-item" type="button" data-role="${r.id}" aria-current="${state.role?.id === r.id}">
-        <span class="row-between"><b>${esc(r.name)}</b>
-          <span class="row" style="gap:4px">
-            <span class="badge">${permIdsOf(r.id).size} ações</span>
-            <span class="badge">${screenIdsOf(r.id).size} telas</span>
-          </span></span>
+        <b>${esc(r.name)}</b>
         <small>${esc(r.description || "Sem descrição.")}</small>
+        <span class="role-item-badges">
+          <span class="badge">${permIdsOf(r.id).size} ações</span>
+          <span class="badge">${screenIdsOf(r.id).size} telas</span>
+        </span>
         <small class="dim">${r.usuarios || 0} usuário${Number(r.usuarios) === 1 ? "" : "s"}${ehProtegido(r) ? " • perfil protegido" : ""}</small>
       </button>`).join("")
       : `<div class="empty" style="padding:var(--s-4)"><b>Nenhum perfil encontrado</b><p>Ajuste a busca.</p></div>`;
@@ -969,6 +969,7 @@
     UI.mountShell({ active: "plataforma" });
     $("#iconSearchUsers").innerHTML = icon("search");
     $("#iconSearchAudit").innerHTML = icon("search");
+    if ($("#iconSearchRoles")) $("#iconSearchRoles").innerHTML = icon("search");
     $("#btnExport").innerHTML = icon("download") + " Exportar auditoria";
     $("#newRole").innerHTML = icon("plus") + " Criar perfil";
     $("#newUser").innerHTML = icon("plus") + " Novo usuário";

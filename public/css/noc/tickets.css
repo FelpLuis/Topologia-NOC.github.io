@@ -8,7 +8,7 @@
 .tk-kpi-icon { width:42px; height:42px; border-radius:var(--r-3); display:grid; place-items:center; color:var(--cyan-300); background:var(--info-bg); flex:none; }
 .tk-kpi-icon .icon { width:20px; height:20px; }
 .tk-kpi strong { display:block; font:700 var(--fs-20)/1.1 var(--font-mono); color:var(--text-1); }
-.tk-kpi span { display:block; color:var(--text-3); font-size:var(--fs-11); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tk-kpi div > span { display:block; color:var(--text-3); font-size:var(--fs-11); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
 .tk-controls { margin-bottom:var(--s-5); overflow:hidden; }
 .tk-tipo-tabs { display:flex; gap:var(--s-2); padding:var(--s-3) var(--s-4); overflow:auto; border-bottom:1px solid var(--line); scrollbar-width:thin; }

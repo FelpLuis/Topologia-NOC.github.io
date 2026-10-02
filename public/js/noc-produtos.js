@@ -115,34 +115,32 @@
           <button class="btn btn-ghost btn-icon" data-close type="button" aria-label="Fechar">${icon("close")}</button>
         </div>
         <div class="modal-body stack" style="gap:var(--s-4)">
-          <div class="row wrap" style="gap:var(--s-3)">
-            <div class="field grow"><label for="pNome">Nome</label>
+          <div class="form-grid">
+            <div class="field span-8"><label for="pNome">Nome</label>
               <input class="input" id="pNome" type="text" value="${valor(dados.nome)}" autocomplete="off">
             </div>
-            <div class="field" style="max-width:220px"><label for="pCategoria">Categoria</label>
-              <input class="input" id="pCategoria" type="text" list="produtoCategorias" placeholder="Ex.: OLT, Switch, Roteador" value="${valor(dados.categoria)}" autocomplete="off">
+            <div class="field span-4"><label for="pCategoria">Categoria</label>
+              <input class="input" id="pCategoria" type="text" list="produtoCategorias" placeholder="OLT, Switch…" title="Ex.: OLT, Switch, Roteador" value="${valor(dados.categoria)}" autocomplete="off">
               <datalist id="produtoCategorias">${[...new Set(state.registros.map((r) => r.categoria).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
             </div>
-          </div>
-          <div class="row wrap" style="gap:var(--s-3)">
-            <div class="field grow"><label for="pFabricante">Fabricante</label>
+            <div class="field span-4"><label for="pFabricante">Fabricante</label>
               <input class="input" id="pFabricante" type="text" value="${valor(dados.fabricante)}" autocomplete="off">
             </div>
-            <div class="field grow"><label for="pModelo">Modelo</label>
+            <div class="field span-4"><label for="pModelo">Modelo</label>
               <input class="input" id="pModelo" type="text" value="${valor(dados.modelo)}" autocomplete="off">
             </div>
-            <div class="field" style="max-width:200px"><label for="pSerial">Serial / patrimônio</label>
-              <input class="input" id="pSerial" type="text" value="${valor(dados.serial)}" autocomplete="off">
+            <div class="field span-4"><label for="pSerial">Serial / patrimônio</label>
+              <input class="input mono" id="pSerial" type="text" value="${valor(dados.serial)}" autocomplete="off">
             </div>
-          </div>
-          <div class="field"><label for="pLocal">Local</label>
-            <select class="select" id="pLocal">
-              <option value="">Sem local vinculado</option>
-              ${state.locais.map((l) => `<option value="${esc(l.id)}" ${dados.local_id === l.id ? "selected" : ""}>${esc(l.nome)} (${esc(l.tipo)})</option>`).join("")}
-            </select>
-          </div>
-          <div class="field"><label for="pObservacao">Observação</label>
-            <textarea class="textarea" id="pObservacao" rows="3">${valor(dados.observacao)}</textarea>
+            <div class="field"><label for="pLocal">Local</label>
+              <select class="select" id="pLocal">
+                <option value="">Sem local vinculado</option>
+                ${state.locais.map((l) => `<option value="${esc(l.id)}" ${dados.local_id === l.id ? "selected" : ""}>${esc(l.nome)} (${esc(l.tipo)})</option>`).join("")}
+              </select>
+            </div>
+            <div class="field"><label for="pObservacao">Observação</label>
+              <textarea class="textarea" id="pObservacao" rows="3">${valor(dados.observacao)}</textarea>
+            </div>
           </div>
           <span class="field-error" id="produtoFormError" hidden></span>
         </div>

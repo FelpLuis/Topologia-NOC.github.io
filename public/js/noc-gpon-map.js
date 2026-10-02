@@ -1033,8 +1033,8 @@
       const c = r.c;
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
       const semRx = c.rx_power === null || c.rx_power === undefined || c.rx_power === "";
-      /* O IXC devolve a cidade como id numérico: um cadastro sem rua vira "0"
-         ou "3527" na coluna. Endereço sem nenhuma letra não diz nada. */
+      /* O IXC guarda "0" no campo de rua de quem não tem endereço cadastrado,
+         e o cadastro herda esse "0". Endereço sem nenhuma letra não diz nada. */
       const endereco = /\p{L}/u.test(String(c.address || "")) ? String(c.address) : "";
       const caixa = boxById(c.box_id)?.name || c.box_id || "";
       return `<tr class="${r.off ? "is-off" : r.low ? "is-low" : ""}">

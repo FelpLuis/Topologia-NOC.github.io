@@ -94,25 +94,41 @@
     const initialSector=String(item?.sector_id||((state.sector!=="all"&&state.sector)||state.data.sectors?.[0]?.id||""));
     modal({wide:true,labelledBy:"crmFormTitle",html:`
       <div class="modal-head"><div><span class="kicker">${item?"Atualizar registro":"Novo registro"}</span><h2 id="crmFormTitle">${item?esc(item.title):"Cadastrar no CRM"}</h2></div><button class="btn btn-ghost btn-icon" data-close type="button">${icon("close")}</button></div>
-      <div class="modal-body"><div class="crm-form-grid">
-        <div class="field span-2"><label for="caseTitle">Assunto</label><input class="input" id="caseTitle" maxlength="300" value="${esc(item?.title||"")}" placeholder="Ex.: Proposta de internet empresarial" autofocus></div>
-        <div class="field"><label for="customerName">Cliente ou prospect</label><input class="input" id="customerName" maxlength="300" value="${esc(item?.customer_name||"")}"></div>
-        <div class="field"><label for="customerDocument">CPF/CNPJ</label><input class="input" id="customerDocument" maxlength="40" value="${esc(item?.customer_document||"")}"></div>
-        <div class="field"><label for="caseSector">Setor</label><select class="select" id="caseSector">${state.data.sectors.map(s=>`<option value="${s.id}" ${String(s.id)===initialSector?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div>
-        <div class="field"><label for="caseStage">Etapa</label><select class="select" id="caseStage"></select></div>
-        <div class="field"><label for="caseOwner">Responsável</label><select class="select" id="caseOwner"></select></div>
-        <div class="field"><label for="casePriority">Prioridade</label><select class="select" id="casePriority">${Object.entries(priorities).map(([v,l])=>`<option value="${v}" ${v===(item?.priority||"normal")?"selected":""}>${l}</option>`).join("")}</select></div>
-        <div class="field"><label for="casePhone">Telefone / WhatsApp</label><input class="input" id="casePhone" maxlength="60" value="${esc(item?.phone||"")}"></div>
-        <div class="field"><label for="caseEmail">E-mail</label><input class="input" id="caseEmail" type="email" maxlength="320" value="${esc(item?.email||"")}"></div>
-        <div class="field"><label for="caseCity">Cidade</label><input class="input" id="caseCity" maxlength="160" value="${esc(item?.city||"")}"></div>
-        <div class="field"><label for="caseAddress">Endereço</label><input class="input" id="caseAddress" maxlength="500" value="${esc(item?.address||"")}"></div>
-        <div class="field"><label for="caseSource">Origem</label><input class="input" id="caseSource" maxlength="160" value="${esc(item?.source||"")}" placeholder="Indicação, site, ligação…"></div>
-        <div class="field"><label for="caseValue">Valor estimado</label><input class="input" id="caseValue" type="number" min="0" step="0.01" value="${Number(item?.estimated_value||0)}"></div>
-        <div class="field"><label for="caseNext">Próximo contato</label><input class="input" id="caseNext" type="datetime-local" value="${localInput(item?.next_contact_at)}"></div>
-        <div class="field"><label for="caseTags">Marcadores</label><input class="input" id="caseTags" maxlength="500" value="${esc(item?.tags||"")}" placeholder="fibra, empresarial, urgente"></div>
-        <div class="field span-2"><label for="caseDetails">Detalhes</label><textarea class="textarea" id="caseDetails" rows="4">${esc(item?.details||"")}</textarea></div>
-        <span class="field-error span-2" id="caseError" hidden></span>
-      </div></div>
+      <div class="modal-body">
+        <!-- Três blocos em vez de quinze campos corridos: o que é o pedido e com quem fica, quem é o cliente, e como anda a negociação. -->
+        <div class="form-section">
+          <div class="form-section-head"><b>Atendimento</b><span>O pedido e quem cuida dele.</span></div>
+          <div class="form-grid">
+            <div class="field"><label for="caseTitle">Assunto</label><input class="input" id="caseTitle" maxlength="300" value="${esc(item?.title||"")}" placeholder="Ex.: Proposta de internet empresarial" autofocus></div>
+            <div class="field span-3"><label for="caseSector">Setor</label><select class="select" id="caseSector">${state.data.sectors.map(s=>`<option value="${s.id}" ${String(s.id)===initialSector?"selected":""}>${esc(s.name)}</option>`).join("")}</select></div>
+            <div class="field span-3"><label for="caseStage">Etapa</label><select class="select" id="caseStage"></select></div>
+            <div class="field span-3"><label for="caseOwner">Responsável</label><select class="select" id="caseOwner"></select></div>
+            <div class="field span-3"><label for="casePriority">Prioridade</label><select class="select" id="casePriority">${Object.entries(priorities).map(([v,l])=>`<option value="${v}" ${v===(item?.priority||"normal")?"selected":""}>${l}</option>`).join("")}</select></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="form-section-head"><b>Cliente ou prospect</b><span>Contato de quem fez o pedido.</span></div>
+          <div class="form-grid">
+            <div class="field span-8"><label for="customerName">Nome</label><input class="input" id="customerName" maxlength="300" value="${esc(item?.customer_name||"")}"></div>
+            <div class="field span-4"><label for="customerDocument">CPF/CNPJ</label><input class="input mono" id="customerDocument" maxlength="40" inputmode="numeric" value="${esc(item?.customer_document||"")}"></div>
+            <div class="field span-4"><label for="casePhone">Telefone / WhatsApp</label><input class="input" id="casePhone" type="tel" maxlength="60" value="${esc(item?.phone||"")}"></div>
+            <div class="field span-4"><label for="caseEmail">E-mail</label><input class="input" id="caseEmail" type="email" maxlength="320" value="${esc(item?.email||"")}"></div>
+            <div class="field span-4"><label for="caseCity">Cidade</label><input class="input" id="caseCity" maxlength="160" value="${esc(item?.city||"")}"></div>
+            <div class="field"><label for="caseAddress">Endereço</label><input class="input" id="caseAddress" maxlength="500" value="${esc(item?.address||"")}"></div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="form-section-head"><b>Negociação</b><span>Origem, valor e o próximo passo combinado.</span></div>
+          <div class="form-grid">
+            <div class="field span-4"><label for="caseSource">Origem</label><input class="input" id="caseSource" maxlength="160" value="${esc(item?.source||"")}" placeholder="Indicação, site, ligação…"></div>
+            <div class="field span-4"><label for="caseValue">Valor estimado (R$)</label><input class="input mono" id="caseValue" type="number" min="0" step="0.01" value="${Number(item?.estimated_value||0)}"></div>
+            <div class="field span-4"><label for="caseNext">Próximo contato</label><input class="input" id="caseNext" type="datetime-local" value="${localInput(item?.next_contact_at)}"></div>
+            <div class="field"><label for="caseTags">Marcadores</label><input class="input" id="caseTags" maxlength="500" value="${esc(item?.tags||"")}" placeholder="fibra, empresarial, urgente"></div>
+            <div class="field"><label for="caseDetails">Detalhes</label><textarea class="textarea" id="caseDetails" rows="4">${esc(item?.details||"")}</textarea></div>
+          </div>
+        </div>
+        <span class="field-error" id="caseError" hidden style="margin-top:var(--s-4)"></span>
+      </div>
       <div class="modal-foot"><span></span><span class="row"><button class="btn" data-close type="button">Cancelar</button><button class="btn btn-primary" data-save type="button">Salvar</button></span></div>`,
       onMount:(host,close)=>{
         const sector=$("#caseSector",host),stage=$("#caseStage",host),owner=$("#caseOwner",host);
