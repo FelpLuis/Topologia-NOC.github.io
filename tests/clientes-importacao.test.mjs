@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { candidatosCadastroGpon, enderecoCadastroGpon } from "../src/worker.js";
+import { candidatosCadastroGpon, enderecoCadastroGpon, importarCadastroGpon } from "../src/worker.js";
 
 const worker = fs.readFileSync(new URL("../src/worker.js", import.meta.url), "utf8");
 const gponMap = fs.readFileSync(new URL("../public/js/noc-gpon-map.js", import.meta.url), "utf8");
@@ -196,4 +196,38 @@ test("a tela de cadastro só aplica ações depois de /api/access", () => {
   // O mount não pode mais aplicar as ações com o acesso ainda vazio.
   const mount = clientes.slice(clientes.indexOf("function mount()"), clientes.indexOf("if (document.readyState"));
   assert.doesNotMatch(mount, /NOC\.applyActions\(document\)/);
+});
+
+test("o cadastro é lido em páginas e a importação enxerga todas elas", async () => {
+  // Em produção o sqld recusa respostas acima de 10 MB (RESPONSE_TOO_LARGE), e
+  // o cadastro inteiro de uma vez passava disso — a tela GPON caía junto.
+  const banco = bancoDeTeste();
+  const total = 2500;
+  for (let i = 0; i < total; i++) {
+    const id = String(10000 + i);
+    inserir(banco, { client_id: id, ixc_id: id, nome: `Cliente ${id}`, endereco: "", bairro: "", cidade: "",
+      lat: null, lon: null, ont_serial: "", ont_modelo: "", ip_gerencia: "", login_pppoe: "" });
+  }
+  let maiorLeitura = 0;
+  const d1 = {
+    prepare: (sql) => {
+      const stmt = banco.prepare(sql);
+      let args = [];
+      const api = {
+        bind: (...a) => { args = a; return api; },
+        all: async () => { const results = stmt.all(...args); maiorLeitura = Math.max(maiorLeitura, results.length); return { results }; },
+        run: async () => stmt.run(...args),
+      };
+      return api;
+    },
+    batch: async (stmts) => Promise.all(stmts.map((s) => s.run())),
+  };
+  // O último cliente fica na última página: se ela não fosse lida, ele
+  // apareceria como "novo" em vez de "alterado".
+  const clients = Array.from({ length: total }, (_, i) => ({ id: `onu-${i}`, ixc_id: String(10000 + i),
+    name: i === total - 1 ? "Nome Novo" : `Cliente ${10000 + i}` }));
+  const resultado = await importarCadastroGpon(d1, clients);
+  assert.deepEqual(resultado, { criados: 0, pendentes: 0, atualizados: 1 });
+  assert.ok(maiorLeitura <= 1000, `uma leitura devolveu ${maiorLeitura} linhas`);
+  assert.equal(banco.prepare("SELECT nome FROM cliente_cadastro WHERE client_id='12499'").get().nome, "Nome Novo");
 });

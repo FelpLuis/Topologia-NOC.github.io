@@ -8172,9 +8172,30 @@ function indexarCadastros(rows) {
     || null;
 }
 
+/* O cadastro inteiro não cabe numa resposta só do sqld: com ~13 mil clientes e
+   quase 40 colunas, cada célula embrulhada em JSON, a leitura de uma vez passa
+   do teto de 10 MB e volta RESPONSE_TOO_LARGE — derrubando a tela GPON e a
+   lista de clientes juntas. A leitura vem em páginas pela chave primária;
+   quem precisa de outra ordem ordena depois. */
+const CADASTRO_PAGINA = 1000;
+async function lerCadastros(db, colunas = "*", filtro = "", binds = []) {
+  const linhas = [];
+  let ultimo = "";
+  for (;;) {
+    const pagina = (await db.prepare(`
+      SELECT ${colunas} FROM cliente_cadastro
+      WHERE client_id > ? ${filtro ? `AND (${filtro})` : ""}
+      ORDER BY client_id LIMIT ?
+    `).bind(ultimo, ...binds, CADASTRO_PAGINA).all()).results || [];
+    linhas.push(...pagina);
+    if (pagina.length < CADASTRO_PAGINA) return linhas;
+    ultimo = String(pagina.at(-1).client_id);
+  }
+}
+
 async function aplicarCadastroClientes(env, feed) {
   if (!feed || !Array.isArray(feed.clients)) return feed;
-  const rows = (await getDB(env).prepare(`SELECT * FROM cliente_cadastro`).all()).results || [];
+  const rows = await lerCadastros(getDB(env));
   if (!rows.length) return feed;
   const achar = indexarCadastros(rows);
   feed.clients = feed.clients.map((cliente) => {
@@ -8267,9 +8288,9 @@ const mudouCampo = (novo, atual) => {
 export async function importarCadastroGpon(db, clients) {
   const candidatos = candidatosCadastroGpon(clients);
   if (!candidatos.length) return { criados: 0, pendentes: 0, atualizados: 0 };
-  const existentes = new Map(((await db.prepare(
-    `SELECT client_id,origem,updated_by,${CLIENTE_CAMPOS_IXC.join(",")} FROM cliente_cadastro`
-  ).all()).results || []).map((row) => [String(row.client_id), row]));
+  const existentes = new Map((await lerCadastros(db,
+    `client_id,origem,updated_by,${CLIENTE_CAMPOS_IXC.join(",")}`
+  )).map((row) => [String(row.client_id), row]));
 
   const novos = candidatos.filter((c) => !existentes.has(c.client_id));
   const lote = novos.slice(0, CLIENTE_IMPORT_MAX_PER_RUN);
@@ -8338,16 +8359,17 @@ async function handleClientesList(env, request, url) {
   let rows;
   if (q) {
     const termo = `%${q}%`;
-    rows = (await db.prepare(`
-      SELECT * FROM cliente_cadastro
-      WHERE lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ?
+    rows = await lerCadastros(db, "*", `
+      lower(nome) LIKE ? OR lower(client_id) LIKE ? OR lower(telefone) LIKE ?
         OR lower(cpf_cnpj) LIKE ?
         OR replace(replace(replace(cpf_cnpj, '.', ''), '-', ''), '/', '') LIKE ?
-      ORDER BY nome,client_id
-    `).bind(termo, termo, termo, termo, termo).all()).results || [];
+    `, [termo, termo, termo, termo, termo]);
   } else {
-    rows = (await db.prepare(`SELECT * FROM cliente_cadastro ORDER BY nome,client_id`).all()).results || [];
+    rows = await lerCadastros(db);
   }
+  /* Mesma ordem que o ORDER BY nome,client_id dava (comparação binária). */
+  const ordem = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  rows.sort((a, b) => ordem(String(a.nome ?? ""), String(b.nome ?? "")) || ordem(String(a.client_id), String(b.client_id)));
   const snapshot = await loadGponSnapshot(env).catch(() => null);
   const porId = new Map(), porIxc = new Map();
   for (const c of snapshot?.clients || []) {
