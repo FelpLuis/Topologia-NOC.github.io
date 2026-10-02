@@ -496,6 +496,29 @@ table.table { width: 100%; border-collapse: collapse; }
 .table tbody tr:hover td { background: var(--surface-2); }
 .table td .mono, .table td.mono { color: var(--text-2); font-size: var(--fs-12); }
 .table .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Célula de duas linhas (valor + legenda). Um <div> dentro do <td> em vez de
+   <br>: as duas linhas ficam com espaçamento fixo e a legenda pode encurtar
+   com reticências sem empurrar a coluna. */
+.table .cell-stack { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.table .cell-stack > b { font-weight: 700; color: var(--text-1); }
+.table .cell-stack > small { font-size: var(--fs-11); color: var(--text-3); line-height: 1.35; }
+.table .cell-stack > .mono { font-size: var(--fs-11); }
+
+/* Coluna de ações. O flex fica num <div> por dentro: um <td> com display:flex
+   deixa de ser célula — perde a borda da linha e desalinha da altura dela. */
+.table .cell-actions { width: 1%; white-space: nowrap; text-align: right; }
+.table-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+/* Texto longo (endereço, observação) em até duas linhas; o title leva o resto. */
+.table .cell-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+.table .cell-nowrap { white-space: nowrap; }
 .table-sort {
   display: inline-flex;
   align-items: center;

@@ -410,7 +410,9 @@ body.grafico-tv .if-wall-values strong { font-size: var(--fs-20); }
 }
 .if-tag.is-muted { border-color: var(--line); background: var(--surface-3); color: var(--text-3); }
 
-.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+/* Célula de ação: continua sendo célula (sem display:flex), senão perde a
+   borda e a altura da linha. */
+.table td.row-actions { width: 1%; white-space: nowrap; text-align: right; }
 
 /* ---------------- ajustes ---------------- */
 .set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: var(--s-4); }

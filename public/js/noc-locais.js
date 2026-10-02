@@ -70,10 +70,10 @@
         <td><span class="badge">${esc(r.tipo)}</span></td>
         <td>${esc(r.endereco || "—")}</td>
         <td class="mono dim" style="font-size:var(--fs-11)">${Number.isFinite(r.lat) && Number.isFinite(r.lon) ? `${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}` : "—"}</td>
-        <td class="row" style="gap:6px;justify-content:flex-end">
+        <td class="cell-actions"><div class="table-actions">
           <button class="btn btn-ghost btn-sm" data-editar="${esc(r.id)}" type="button" data-action="locais.edit">Editar</button>
           <button class="btn btn-ghost btn-sm btn-icon" data-excluir="${esc(r.id)}" type="button" title="Excluir local" aria-label="Excluir local" data-action="locais.delete">${icon("trash")}</button>
-        </td>
+        </div></td>
       </tr>`).join("");
     aplicarAcoes(corpo);
     $$("[data-editar]", corpo).forEach((b) => b.onclick = () => abrirCadastro(state.registros.find((r) => r.id === b.dataset.editar) || {}, "edit"));

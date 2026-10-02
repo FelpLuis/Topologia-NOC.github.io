@@ -57,8 +57,21 @@
   margin-bottom: var(--s-3);
 }
 .gpon-list-search { width: min(520px, 100%); }
-.gpon-list-view .table td { vertical-align: middle; }
-.gpon-list-view .table td:nth-child(6) { max-width: 320px; }
+/* Abaixo desta largura a tabela rola de lado dentro do .table-wrap, em vez de
+   espremer as colunas até o endereço virar uma palavra por linha. */
+.gpon-list-view .table { min-width: 1080px; }
+.gpon-list-view .table td { padding-top: 10px; padding-bottom: 10px; }
+.gpon-list-view .table-wrap { max-height: calc(100vh - 260px); }
+.gpon-list-view .gpon-col-client { min-width: 220px; max-width: 300px; }
+.gpon-list-view .gpon-col-state { min-width: 150px; max-width: 200px; }
+.gpon-list-view .gpon-col-address { min-width: 180px; max-width: 280px; color: var(--text-2); }
+.gpon-list-view .gpon-col-rx { white-space: nowrap; }
+.gpon-rx { font-weight: 700; color: var(--text-1); }
+.gpon-rx small { font-weight: 500; color: var(--text-3); }
+.gpon-rx.is-low { color: var(--warn-text); }
+/* Uma faixa à esquerda marca a linha com problema sem precisar ler o selo. */
+.gpon-list-view .table tbody tr.is-off td:first-child { box-shadow: inset 3px 0 0 var(--danger-500); }
+.gpon-list-view .table tbody tr.is-low td:first-child { box-shadow: inset 3px 0 0 var(--warn-500); }
 .gpon-pagination {
   display: flex;
   align-items: center;

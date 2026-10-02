@@ -1032,18 +1032,23 @@
     body.innerHTML = rows.length ? rows.map((r) => {
       const c = r.c;
       const status = r.off ? "Offline" : r.low ? "Sinal alto" : "Online";
-      return `<tr>
-        <td><b>${esc(r.name)}</b><br><small class="dim mono">${esc(c.serial || c.onu_index || "Sem serial")}</small></td>
-        <td><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span>${c.state_detail ? `<br><small class="dim">${esc(c.state_detail)}</small>` : ""}</td>
-        <td><b>${esc(plano(c) || "—")}</b><br><small class="dim mono">${esc(c.ip || "sem IP")}</small></td>
-        <td><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b><br><small class="dim mono">${esc(c.pon || "PON não informada")}</small></td>
-        <td>${esc(boxById(c.box_id)?.name || c.box_id || "—")}</td>
-        <td class="mono">${c.rx_power === null || c.rx_power === undefined ? "—" : `${esc(c.rx_power)} dBm`}</td>
-        <td>${esc(c.address || "—")}</td>
-        <td class="row" style="gap:6px;justify-content:flex-end">
+      const semRx = c.rx_power === null || c.rx_power === undefined || c.rx_power === "";
+      /* O IXC devolve a cidade como id numérico: um cadastro sem rua vira "0"
+         ou "3527" na coluna. Endereço sem nenhuma letra não diz nada. */
+      const endereco = /\p{L}/u.test(String(c.address || "")) ? String(c.address) : "";
+      const caixa = boxById(c.box_id)?.name || c.box_id || "";
+      return `<tr class="${r.off ? "is-off" : r.low ? "is-low" : ""}">
+        <td class="gpon-col-client"><div class="cell-stack"><b>${esc(r.name)}</b><small class="mono">${esc(c.serial || c.onu_index || "Sem serial")}</small></div></td>
+        <td class="gpon-col-state"><div class="cell-stack"><span><span class="badge ${r.off ? "badge-danger" : r.low ? "badge-warn" : "badge-ok"}">${esc(status)}</span></span>${c.state_detail ? `<small>${esc(c.state_detail)}</small>` : ""}</div></td>
+        <td class="cell-nowrap"><div class="cell-stack"><b>${esc(plano(c) || "—")}</b><small class="mono">${esc(c.ip || "sem IP")}</small></div></td>
+        <td class="cell-nowrap"><div class="cell-stack"><b>${esc(deviceById(c.olt_id)?.nome || c.olt_id || "—")}</b><small class="mono">${esc(c.pon || "PON não informada")}</small></div></td>
+        <td class="cell-nowrap">${caixa ? `<div class="cell-stack"><b>${esc(caixa)}</b>${c.box_port ? `<small>porta ${esc(c.box_port)}</small>` : ""}</div>` : `<span class="dim">—</span>`}</td>
+        <td class="num gpon-col-rx">${semRx ? `<span class="dim">—</span>` : `<span class="gpon-rx ${r.low ? "is-low" : ""}">${esc(c.rx_power)}<small> dBm</small></span>`}</td>
+        <td class="gpon-col-address">${endereco ? `<span class="cell-clamp" title="${esc(endereco)}">${esc(endereco)}</span>` : `<span class="dim">—</span>`}</td>
+        <td class="cell-actions"><div class="table-actions">
           ${podeCadastrar() ? `<button class="btn btn-sm" type="button" data-client-edit="${esc(r.id)}" data-action="${c.cadastro ? "clientes.edit" : "clientes.create"}">${c.cadastro ? "Editar" : "Cadastrar"}</button>` : ""}
           <button class="btn btn-sm" type="button" data-client-map="${esc(r.id)}"${r.located ? "" : ' disabled title="Cliente sem coordenadas"'}>Ver no mapa</button>
-        </td>
+        </div></td>
       </tr>`;
     }).join("") : `<tr><td colspan="8"><div class="empty"><b>Nenhum cliente encontrado</b><p>Ajuste a busca para consultar a base GPON.</p></div></td></tr>`;
     $$("[data-client-map]", body).forEach((el) => el.onclick = () => {
@@ -1779,7 +1784,7 @@
               <button class="chip" type="button" data-rstatus="online" aria-pressed="false">Online</button>
               <button class="chip" type="button" data-rstatus="offline" aria-pressed="false">Offline</button>
             </div>
-            <label class="row" style="gap:var(--s-2);align-items:center;font-size:var(--fs-12);white-space:nowrap">
+            <label class="row" style="gap:var(--s-2);align-items:center;font-size:var(--fs-12);white-space:nowrap" title="A tela consulta o servidor a cada 2 s, mas o coletor lê o RADIUS do IXC a cada ~10 s: os eventos chegam em lotes, com o mesmo horário.">
               <input type="checkbox" id="radiusLogAuto" checked> Atualizar a cada 2s
             </label>
             <button class="btn btn-ghost btn-icon btn-sm" id="radiusLogRefresh" type="button" aria-label="Recarregar os eventos mais recentes">${icon("refresh")}</button>
