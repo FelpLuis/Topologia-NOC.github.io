@@ -3675,7 +3675,14 @@ async function normalizeWhatsappSettings(db, body, previous = {}) {
     }))
     .filter(q => q.shortcut && q.text && !shortcuts.has(q.shortcut) && shortcuts.add(q.shortcut))
     .slice(0, 100);
-  return { greeting, routingError, routingDone, closedMessage, routedSectors, quickReplies };
+  // Setor de cada botão do app; vazio (ou setor que deixou de existir) = automático.
+  const appBruto = body.appSectors === undefined ? (previous.appSectors || {}) : body.appSectors;
+  const appSectors = {};
+  for (const canal of UA_CANAIS) {
+    const code = String(appBruto?.[canal] ?? "").trim();
+    if (code && valid.has(code) && code !== "noc") appSectors[canal] = code;
+  }
+  return { greeting, routingError, routingDone, closedMessage, routedSectors, quickReplies, appSectors };
 }
 
 async function waRoutedSectorOptions(db, settings) {
@@ -4187,9 +4194,69 @@ const UA_REMETENTE = {
 };
 
 const UA_CANAL_ROTULO = {
-  vendas: "Vendas", indicacoes: "Indique e ganhe", suporte: "Suporte técnico",
-  financeiro: "Financeiro", sac: "Fale com a diretoria", cancelamento: "Cancelamento"
+  vendas: "Contratações e upgrades", indicacoes: "Indique e ganhe", suporte: "Suporte",
+  financeiro: "Financeiro", sac: "Reclamações e sugestões", cancelamento: "Cancelamento"
 };
+
+/* Triagem do app: o botão que o cliente toca em "Nova conversa" (o `canal` do
+   chamado) decide o setor, sem passar pelo menu do agente virtual. Ordem:
+     1. o setor escolhido para o botão em Configurar o chat (settings.appSectors);
+     2. um setor do menu da triagem cujo nome/código bate com o botão
+        ("Contratações e upgrades" pega o botão de mudar de plano);
+     3. o código que o próprio app sugere (`chamado.setor`);
+     4. o mesmo casamento por nome, agora em qualquer setor ativo.
+   Nada disso achando, a conversa fica na Triagem e quem assumir escolhe.
+   Botão com `segue` e sem setor próprio configurado vai para onde o outro vai:
+   cancelamento é atendido pelo SAC, junto com reclamações e sugestões.
+   [canal, botão no app, termos procurados no nome/código do setor, em ordem, segue] */
+const UA_BOTOES = [
+  ["suporte", "Minha internet", ["suporte", "tecnic", "helpdesk", "atendimento"]],
+  ["financeiro", "Financeiro", ["financeir", "cobranca", "fatura"]],
+  ["vendas", "Mudar de plano", ["contrata", "upgrade", "comercial", "venda", "plano"]],
+  ["sac", "Elogio, sugestão ou reclamação", ["reclama", "sugest", "sac", "ouvidoria", "diretoria"]],
+  ["cancelamento", "Cancelar o serviço", [], "sac"],
+  ["indicacoes", "Indique e ganhe (Perfil)", ["indica", "contrata", "comercial", "venda"]]
+];
+const UA_CANAIS = new Set(UA_BOTOES.map(([canal]) => canal));
+// O que o app manda em `chamado.setor` hoje (SETOR_NO_NOC em apps/api/src/noc/espelho.ts).
+const UA_SETOR_SUGERIDO_PELO_APP = {
+  suporte: "atendimento", financeiro: "financeiro", vendas: "comercial",
+  indicacoes: "comercial", sac: "sac", cancelamento: "sac"
+};
+
+// sectors: setores ativos ({id,code,name}); routedCodes: códigos do menu da triagem.
+// Devolve o setor e por que foi ele, para a tela de configuração mostrar.
+function uaSetorDoBotao(settings, sectors, routedCodes, canal, setorDoApp) {
+  const ativos = sectors.filter(s => s.code !== "noc");
+  const configurado = String(settings?.appSectors?.[canal] || "");
+  if (configurado) {
+    const s = ativos.find(x => x.code === configurado);
+    if (s) return { sector: s, via: "configurado" };
+  }
+  const segue = (UA_BOTOES.find(([c]) => c === canal) || [])[3];
+  if (segue) return { ...uaSetorDoBotao(settings, sectors, routedCodes, segue, UA_SETOR_SUGERIDO_PELO_APP[segue]), via: segue };
+  const norm =v => String(v || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+  const termos = (UA_BOTOES.find(([c]) => c === canal) || [])[2] || [];
+  const casar = lista => {
+    for (const t of termos) {
+      const s = lista.find(x => norm(x.name).includes(t) || norm(x.code).includes(t));
+      if (s) return s;
+    }
+    return null;
+  };
+  const doMenu = casar(ativos.filter(s => routedCodes.includes(s.code)));
+  if (doMenu) return { sector: doMenu, via: "menu" };
+  const sugerido = setorDoApp ? ativos.find(x => x.code === String(setorDoApp)) : null;
+  if (sugerido) return { sector: sugerido, via: "app" };
+  const qualquer = casar(ativos);
+  return qualquer ? { sector: qualquer, via: "nome" } : { sector: null, via: "triagem" };
+}
+
+async function uaTriagem(db, canal, setorDoApp) {
+  const settings = await loadWhatsappSettings(db);
+  const sectors = (await db.prepare(`SELECT id,code,name FROM sectors WHERE active=1 ORDER BY sort,name`).all()).results || [];
+  return uaSetorDoBotao(settings, sectors, settings.routedSectors || [], String(canal || ""), setorDoApp).sector;
+}
 
 const UA_ANEXO_CHEGANDO = "📎 Anexo chegando do app…";
 
@@ -4332,7 +4399,7 @@ async function uaSincronizar(env, db, p) {
     .bind(UPDOWN_APP_CHANNEL, externalId).first();
 
   if (!conv) {
-    const sector = c.setor ? await db.prepare(`SELECT id FROM sectors WHERE code=? AND active=1`).bind(String(c.setor)).first() : null;
+    const sector = await uaTriagem(db, c.canal, c.setor);
     const cadastro = cli.ixcId ? await db.prepare(`SELECT client_id FROM cliente_cadastro WHERE ixc_id=? LIMIT 1`).bind(String(cli.ixcId)).first() : null;
     const protocolo = String(c.protocolo || "").slice(0, 40);
     const phone = String(cli.telefone || "").replace(/\D/g, "").slice(0, 15) || `app-${protocolo}`;
@@ -4352,6 +4419,16 @@ async function uaSincronizar(env, db, p) {
     const abertura = `Chamado ${protocolo} aberto pelo app — ${UA_CANAL_ROTULO[c.canal] || c.canal || "atendimento"}${assunto ? `: ${assunto}` : ""}`;
     await db.prepare(`INSERT OR IGNORE INTO wa_messages(conversation_id,direction,type,body,wa_message_id,sender_name,created_at) VALUES(?,?,?,?,?,?,?)`)
       .bind(conv.id, "bot", "text", abertura.slice(0, 600), `app:chamado:${externalId}`, "App", aberto).run();
+  } else if (conv.status === "routing" && !conv.sector_id && !conv.assigned_user_id) {
+    // Chamado que chegou antes de o botão ter setor (ou com o código errado do
+    // app) sai da Triagem na próxima sincronização, depois de configurado.
+    const sector = await uaTriagem(db, c.canal, c.setor);
+    if (sector) {
+      await db.prepare(`UPDATE wa_conversations SET sector_id=?,status='open',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='routing' AND sector_id IS NULL`)
+        .bind(sector.id, conv.id).run();
+      conv.sector_id = sector.id;
+      conv.status = "open";
+    }
   }
 
   // Cada mensagem do app vira até N linhas aqui: o texto em `app:<id>` e cada
@@ -4638,7 +4715,26 @@ async function handleWhatsapp(env, request) {
       (c.status === "routing" || (c.sector_id != null && sectorIds.includes(Number(c.sector_id))))
   }));
   const routedSectorOptions = (await waRoutedSectorOptions(db, settings)).map(o => ({ id: o.id, code: o.code, name: o.name, number: o.number }));
-  return json({ sectors, conversations, presence, can, settings, routedSectorOptions });
+  // Para Configurar o chat: o setor de cada botão do app e onde ele cairia no
+  // automático. A lista de setores é a completa (o gestor pode não estar em todos).
+  let appTriage;
+  if (can.manage) {
+    const todos = ((await db.prepare(`SELECT id,code,name FROM sectors WHERE active=1 ORDER BY sort,name`).all()).results || [])
+      .filter(s => s.code !== "noc");
+    const semConfig = { ...settings, appSectors: {} };
+    const buttons = UA_BOTOES.map(([canal, botao, , segue]) => {
+      // O automático de quem segue outro botão usa o setor configurado desse outro.
+      const base = segue ? { ...settings, appSectors: { [segue]: settings.appSectors?.[segue] } } : semConfig;
+      const auto = uaSetorDoBotao(base, todos, settings.routedSectors || [], canal, UA_SETOR_SUGERIDO_PELO_APP[canal]).sector;
+      return {
+        canal, botao, rotulo: UA_CANAL_ROTULO[canal], segue: segue ? UA_CANAL_ROTULO[segue] : null,
+        configured: settings.appSectors?.[canal] || "",
+        auto: auto ? { code: auto.code, name: auto.name } : null
+      };
+    });
+    appTriage = { buttons, sectors: todos.map(s => ({ code: s.code, name: s.name })) };
+  }
+  return json({ sectors, conversations, presence, can, settings, routedSectorOptions, appTriage });
 }
 
 async function handleWhatsappConversation(env, request, id) {

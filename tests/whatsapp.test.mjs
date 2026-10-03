@@ -195,6 +195,49 @@ test("diagnóstico do celular do App UpDown chega ao painel do chat", () => {
   assert.doesNotMatch(client, /row\("Servidor"/);
 });
 
+test("triagem do App UpDown segue o botão que o cliente tocou", () => {
+  const ini = worker.indexOf("const UA_BOTOES");
+  const fim = worker.indexOf("async function uaTriagem");
+  assert.ok(ini > 0 && fim > ini);
+  const { uaSetorDoBotao } = new Function(`${worker.slice(ini, fim)}\nreturn { uaSetorDoBotao };`)();
+
+  const menu = [
+    { id: 1, code: "atendimento", name: "HELPDESK" },
+    { id: 2, code: "comercial", name: "COMERCIAL" },
+    { id: 3, code: "sac", name: "SAC" },
+    { id: 4, code: "financeiro", name: "FINANCEIRO" },
+    { id: 5, code: "noc", name: "NOC" },
+    { id: 6, code: "suporte", name: "Suporte" },
+    { id: 7, code: "contratacoes", name: "Contratações e upgrades" },
+    { id: 8, code: "reclamacoes", name: "Reclamações e sugestões" }
+  ];
+  const quatro = ["suporte", "financeiro", "contratacoes", "reclamacoes"];
+  const setor = (canal, settings = {}, routed = quatro, sugerido) => uaSetorDoBotao(settings, menu, routed, canal, sugerido).sector?.code ?? null;
+
+  // as quatro opções do menu da triagem ganham do código que o app sugere
+  assert.equal(setor("suporte", {}, quatro, "atendimento"), "suporte");
+  assert.equal(setor("financeiro", {}, quatro, "financeiro"), "financeiro");
+  assert.equal(setor("vendas", {}, quatro, "comercial"), "contratacoes");
+  assert.equal(setor("sac", {}, quatro, "sac"), "reclamacoes");
+  // cancelamento vai para o SAC: segue o botão de reclamações, inclusive o configurado
+  assert.equal(setor("cancelamento", {}, quatro, "sac"), "reclamacoes");
+  assert.equal(setor("cancelamento", {}, ["atendimento", "sac"], "sac"), "sac");
+  assert.equal(setor("cancelamento", { appSectors: { sac: "sac" } }), "sac");
+  // escolha manual em Configurar o chat vence tudo; NOC nunca recebe chamado do app
+  assert.equal(setor("cancelamento", { appSectors: { sac: "sac", cancelamento: "comercial" } }), "comercial");
+  assert.equal(setor("suporte", { appSectors: { suporte: "noc" } }), "suporte");
+  // sem as opções no menu, vale o código do app; sem nada, casa pelo nome
+  assert.equal(setor("vendas", {}, ["atendimento"], "comercial"), "comercial");
+  assert.equal(setor("vendas", {}, [], null), "contratacoes");
+  // canal desconhecido e sem sugestão fica na triagem
+  assert.equal(setor("outro", {}, quatro, null), null);
+
+  assert.match(worker, /const sector = await uaTriagem\(db, c\.canal, c\.setor\);/);
+  assert.match(worker, /conv\.status === "routing" && !conv\.sector_id && !conv\.assigned_user_id/);
+  assert.match(worker, /if \(code && valid\.has\(code\) && code !== "noc"\) appSectors\[canal\] = code;/);
+  assert.match(client, /payload\.appSectors = Object\.fromEntries/);
+});
+
 test("leitura de 20 s do celular aparece ao vivo no painel", () => {
   const carimbo = worker.match(/function uaCarimbo\(iso\) \{[\s\S]*?\n\}/)[0];
   const ini = worker.indexOf("const UA_CONEXOES");

@@ -493,6 +493,10 @@
 .wa-qr-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 32px; gap: var(--s-2); align-items: start; }
 .wa-qr-row .input { font-family: var(--font-mono); }
 .wa-qr-row .textarea { min-height: 38px; resize: vertical; }
+.wa-app-triage { display: grid; gap: var(--s-2); }
+.wa-app-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--s-2); align-items: center; }
+.wa-app-row strong { display: block; font-size: var(--fs-13); }
+.wa-app-row small { display: block; color: var(--text-3); font-size: var(--fs-12); }
 
 /* ---------- lightbox de imagem ---------- */
 .wa-lightbox { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(0, 0, 0, .82); cursor: zoom-out; padding: var(--s-6); }
@@ -533,5 +537,6 @@
   .wa-emoji { grid-template-columns: repeat(6, 36px); }
   .wa-qr-row { grid-template-columns: 1fr 32px; }
   .wa-qr-row .textarea { grid-column: 1 / -1; grid-row: 2; }
+  .wa-app-row { grid-template-columns: 1fr; gap: var(--s-1); }
 }
 .wa-avatar > .icon { width: 46%; height: 46%; }

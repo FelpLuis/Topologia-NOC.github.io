@@ -1267,6 +1267,24 @@
     });
   }
 
+  /* Triagem do app: o botão que o cliente toca em "Nova conversa" no App UpDown
+     já diz o setor. "Automático" procura no menu da triagem um setor com o nome
+     do botão (ex.: "Contratações e upgrades" para "Mudar de plano"). */
+  function appTriageField(triage) {
+    if (!triage?.buttons?.length) return "";
+    const rows = triage.buttons.map(b => `<div class="wa-app-row">
+      <label for="appSector-${esc(b.canal)}"><strong>${esc(b.rotulo)}</strong><small>Botão “${esc(b.botao)}”</small></label>
+      <select class="select" id="appSector-${esc(b.canal)}" data-app-canal="${esc(b.canal)}">
+        <option value="">${b.segue ? `Igual a ${esc(b.segue)}${b.auto ? ` (${esc(b.auto.name)})` : ""}` : b.auto ? `Automático: ${esc(b.auto.name)}` : "Automático: fica na triagem"}</option>
+        ${triage.sectors.map(s => `<option value="${esc(s.code)}" ${s.code === b.configured ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+      </select>
+    </div>`).join("");
+    return `<div class="field span-2"><label>Triagem do App UpDown</label>
+      <div class="wa-app-triage">${rows}</div>
+      <span class="field-hint">O chamado aberto pelo app entra direto no setor do botão que o cliente escolheu, sem passar pelo menu do agente virtual.</span>
+    </div>`;
+  }
+
   function settings() {
     const data = state.data;
     if (!data?.settings) return;
@@ -1287,6 +1305,7 @@
           <div class="field span-2"><label>Setores disponíveis no menu</label>
             <div class="wa-check-grid">${(state.data?.sectors || []).map(x => `<label class="wa-check"><input type="checkbox" value="${esc(x.code)}" ${options.some(o => o.code === x.code) ? "checked" : ""}>${esc(x.name)}</label>`).join("")}</div>
           </div>
+          ${appTriageField(data.appTriage)}
           <div class="field span-2"><label for="setRoutingDone">Confirmação de roteamento</label><textarea class="textarea" id="setRoutingDone" rows="2">${esc(s.routingDone || "")}</textarea><span class="field-hint">Use {setor} para inserir o nome do setor escolhido.</span></div>
           <div class="field span-2"><label for="setRoutingError">Resposta quando a opção não é reconhecida</label><textarea class="textarea" id="setRoutingError" rows="2">${esc(s.routingError || "")}</textarea></div>
           <div class="field span-2"><label for="setClosed">Mensagem de atendimento encerrado</label><textarea class="textarea" id="setClosed" rows="2">${esc(s.closedMessage || "")}</textarea></div>
@@ -1320,6 +1339,7 @@
             routedSectors,
             quickReplies: quick
           };
+          if (data.appTriage) payload.appSectors = Object.fromEntries($$("[data-app-canal]", host).map(sel => [sel.dataset.appCanal, sel.value]));
           const error = $("#setError", host);
           if (quick.some(q => !q.shortcut || !q.text)) { error.hidden = false; error.textContent = "Cada mensagem rápida precisa de atalho e texto."; return; }
           try {
